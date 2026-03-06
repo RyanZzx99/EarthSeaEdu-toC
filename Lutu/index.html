@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Website</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+    <header class="navbar">
+        <img src="assets/logo带字.png" alt="Logo" width="144" height="70"/>
+        <!-- <h1 class="logo">录途</h1> -->
+        <nav>
+            <ul class="nav-links">
+                <li><a href="#">首页</a></li>
+                <li><a href="#">关于</a></li>
+                <li><a href="#">功能</a></li>
+                <li><a href ="#">联系</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <section class="hero">
+        <h2>欢迎使用录途 你的留学申请工具包</h2>
+        <h1>备考，选校，申请，查分一站式搞定</h1>
+        <a href="#" class="btn">Get Started</a>
+    </section>
+
+    <section class="content">
+        <h2>快捷小工具</h2>
+        <p>你会发现这里有各种实用工具，帮助你更轻松地完成留学申请过程。</p>
+
+        <div class="converter" aria-labelledby="converter-heading">
+            <h4 id="converter-heading">Score Converter — 语言类标化考试分数换算器</h4>
+            <p class="note">提示：换算为近似值，仅供参考。使用官方机构发布的换算表以获取权威结果。</p>
+
+            <div class="row">
+                <label for="fromTest">From</label>
+                <select id="fromTest">
+                    <option value="toefl">TOEFL iBT</option>
+                    <option value="ielts">IELTS</option>
+                    <option value="pte">PTE Academic</option>
+                    <option value="duolingo">Duolingo English Test</option>
+                    <option value="languagecert">LanguageCert Academic</option>
+                </select>
+                <span style="display:inline-block; width:20px;"></span>
+                <label for="toTest">To</label>
+                <select id="toTest">
+                    <option value="ielts">IELTS</option>
+                    <option value="toefl">TOEFL iBT</option>
+                    <option value="pte">PTE Academic</option>
+                    <option value="duolingo">Duolingo English Test</option>
+                    <option value="languagecert">LanguageCert Academic</option>
+                </select>
+            </div>
+
+            <div class="row">
+                <label for="scoreInput">Score</label>
+                <input id="scoreInput" type="number" min="0" step="0.5" placeholder="Enter score" />
+                <button id="convertBtn" class="btn">Convert</button>
+            </div>
+
+            <div id="result" class="result" aria-live="polite"></div>
+        </div>
+
+        <div class="test_signup" aria-labelledby="test_signup-heading">
+            <h4 id="test_signup-heading">考试报名指南</h4>
+            <p>点击下方链接，前往各大语言类标化考试的官方网站，了解最新的考试信息并完成报名。</p>
+                <li><a href="https://www.ets.org/toefl" target="_blank" rel="noopener noreferrer">TOEFL iBT 报名</a></li>
+                <li><a href="https://www.ielts.org" target="_blank" rel="noopener noreferrer">IELTS 报名</a></li>
+                <li><a href="https://pearsonpte.com" target="_blank" rel="noopener noreferrer">PTE Academic 报名</a></li>
+                <li><a href="https://englishtest.duolingo.com" target="_blank" rel="noopener noreferrer">Duolingo English Test 报名</a></li>
+                <li><a href="https://www.languagecert.org" target="_blank" rel="noopener noreferrer">LanguageCert Academic 报名</a></li>
+        </div>
+
+         <div class="ranking-tool" aria-labelledby="ranking-heading">
+            <h4 id="ranking-heading">大学排名查询</h4>
+             <p class="note">根据地区与QS排名区间筛选学校。美国学校额外显示 US News 排名。</p>
+             <div class="filters">
+                <label>地区：</label>
+                <select id="regionFilter">
+                    <option value="all">全部</option>
+                    <option value="USA">美国</option>
+                    <option value="Canada">加拿大</option>
+                    <option value="HKMO">中国香港/澳门</option>
+                    <option value="UK">英国</option>
+                    <option value="AUNZ">澳新</option>
+                    <option value="Singapore">新加坡</option>
+                    <option value="CN">中国大陆</option>
+                    </select>
+
+                <label>QS 排名：</label>
+                <select id="qsFilter">
+                    <option value="all">全部</option>
+                    <option value="1-20">QS1-20</option>
+                    <option value="21-50">QS21-50</option>
+                    <option value="50-100">QS50-100</option>
+                    <option value="100-200">QS100-200</option>
+                </select>
+                <button id="applyFilter" class="btn">筛选</button>
+            </div>
+             <div id="schoolsList" class="schools-list" aria-live="polite"></div>
+         </div>
+    </section>
+ 
+    <footer>
+        <p>© 录途2025 — All Rights Reserved</p>
+        <p><a href="https://esie.top/" target="_blank" rel="noopener noreferrer">地海国际教育</a>提供技术支持与赞助</p>
+    </footer>
+ 
+
+</body>
+    <script>
+        (function() {
+            // Anchor points across TOEFL, IELTS, PTE, Duolingo (approximate concordance)
+            const anchors = [
+                {toefl:120, ielts:9.0, pte:90, duolingo:160, languagecert:120},
+                {toefl:115, ielts:8.5, pte:86, duolingo:155, languagecert:115},
+                {toefl:110, ielts:8.0, pte:84, duolingo:150, languagecert:110},
+                {toefl:100, ielts:7.0, pte:73, duolingo:140, languagecert:100},
+                {toefl:90,  ielts:6.5, pte:65, duolingo:130, languagecert:90},
+                {toefl:80,  ielts:6.0, pte:58, duolingo:120, languagecert:80},
+                {toefl:70,  ielts:5.5, pte:50, duolingo:110, languagecert:70},
+                {toefl:60,  ielts:5.0, pte:42, duolingo:100, languagecert:60},
+                {toefl:50,  ielts:4.5, pte:35, duolingo:85, languagecert:50},
+                {toefl:40,  ielts:4.0, pte:30, duolingo:70, languagecert:40},
+                {toefl:0,   ielts:0.0, pte:10, duolingo:10, languagecert:0}
+            ];
+
+            // Generic linear interpolation between any two test score keys
+            function convert(value, fromKey, toKey) {
+                // create a sorted copy by fromKey descending
+                const sorted = anchors.slice().sort((a,b) => b[fromKey] - a[fromKey]);
+
+                // clamp to min/max available in anchors
+                const max = sorted[0][fromKey];
+                const min = sorted[sorted.length-1][fromKey];
+                if (value >= max) return sorted[0][toKey];
+                if (value <= min) return sorted[sorted.length-1][toKey];
+
+                for (let i = 0; i < sorted.length - 1; i++) {
+                    const a = sorted[i];
+                    const b = sorted[i+1];
+                    if (value <= a[fromKey] && value >= b[fromKey]) {
+                        const t = (value - b[fromKey]) / (a[fromKey] - b[fromKey]);
+                        return b[toKey] + t * (a[toKey] - b[toKey]);
+                    }
+                }
+                return null;
+            }
+
+            function formatOutput(rawVal, toKey) {
+                if (rawVal === null || rawVal === undefined || Number.isNaN(rawVal)) return null;
+                if (toKey === 'ielts') return Math.round(rawVal * 2) / 2; // nearest 0.5
+                return Math.round(rawVal); // integer for TOEFL, PTE, Duolingo
+            }
+
+            const fromEl = document.getElementById('fromTest');
+            const toEl = document.getElementById('toTest');
+            const inputEl = document.getElementById('scoreInput');
+            const btn = document.getElementById('convertBtn');
+            const resultEl = document.getElementById('result');
+                // ------------ University ranking tool data & logic ------------
+                // Load schools from external JSON (data/schools.json). This file should contain an array of
+                // objects: { id, name_en, name_cn, region, qs, usnews (optional), logo (optional - path or URL) }
+                const regionMap = { USA: '美国', Canada: '加拿大', HKMO: '中国香港/澳门', UK: '英国', AUNZ: '澳新', Singapore: '新加坡', CN: '中国大陆', China: '中国大陆', Joint: '中外合作' };
+
+                const regionEl = document.getElementById('regionFilter');
+                const qsEl = document.getElementById('qsFilter');
+                const applyBtn = document.getElementById('applyFilter');
+                const listEl = document.getElementById('schoolsList');
+
+                let schools = [];
+
+                function qsRangeFromValue(val) {
+                    if (val === 'all') return [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY];
+                    const parts = val.split('-').map(Number);
+                    return [parts[0], parts[1]];
+                }
+
+                // Render a list of school objects. If `searchTerm` is provided it will filter by name.
+                function renderSchools(items, searchTerm) {
+                    if (!items || items.length === 0) { listEl.innerHTML = '<p class="note">未找到学校。</p>'; return; }
+                    const q = (searchTerm || '').trim().toLowerCase();
+                    const filteredItems = q ? items.filter(s => (s.name_en + ' ' + s.name_cn).toLowerCase().includes(q)) : items;
+                    if (!filteredItems.length) { listEl.innerHTML = '<p class="note">未找到学校。</p>'; return; }
+                    const html = filteredItems.map(s => {
+                        const initials = s.name_en.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+                        // Always show a US News row for US schools; display 'N/A' when missing
+                        const usnewsHtml = (s.region === 'USA') ? `<div class="meta"><strong>US News:</strong> ${s.usnews ? s.usnews : 'N/A'}</div>` : '';
+                        // logo: use provided s.logo (path or URL). If missing or fails to load, fallback to initials via onerror handler.
+                        const logoHtml = s.logo ? `<img class="logo-img" src="${s.logo}" alt="${s.name_en} logo" onerror="this.style.display='none'"/>` : '';
+                        const fallbackLogo = `<div class="logo-fallback" aria-hidden="true">${initials}</div>`;
+                        const nameCnHtml = s.name_cn ? `<div class="name-cn">${s.name_cn}</div>` : '';
+                        const nameEnHtml = `<div class="name-en">${s.name_en}</div>`;
+                        return `
+                            <div class="school-card">
+                                <div class="logo-wrap">${logoHtml}${fallbackLogo}</div>
+                                <div class="school-info">
+                                    <div class="school-name">${nameCnHtml}${nameEnHtml}</div>
+                                    <div class="meta"><strong>地区:</strong> ${regionMap[s.region] || s.region}</div>
+                                    <div class="meta"><strong>QS:</strong> ${s.qs}</div>
+                                    ${usnewsHtml}
+                                </div>
+                            </div>`;
+                    }).join('');
+                    listEl.innerHTML = html;
+                }
+
+                function applyFilters(searchTerm) {
+                    const region = regionEl.value;
+                    const qsVal = qsEl.value;
+                    const [min, max] = qsRangeFromValue(qsVal);
+
+                    // If no filter and no search term, show top 10
+                    const noFilters = (region === 'all') && (qsVal === 'all') && (!searchTerm || searchTerm.trim() === '');
+                    if (noFilters) {
+                        const top10 = schools.slice().sort((a,b)=>a.qs - b.qs).slice(0,10);
+                        renderSchools(top10);
+                        return;
+                    }
+
+                    const filtered = schools.filter(s => {
+                        // Support the CN selector mapping to data values like 'China' or 'CN'
+                        const okRegion = (region === 'all') || (s.region === region) || (region === 'CN' && (s.region === 'China' || s.region === 'CN'));
+                        const okQs = (s.qs >= min && s.qs <= max) || (min === Number.NEGATIVE_INFINITY && max === Number.POSITIVE_INFINITY);
+                        return okRegion && okQs;
+                    });
+                    renderSchools(filtered, searchTerm);
+                }
+
+                // search box (added dynamically to the filters area)
+                const filtersEl = document.querySelector('.ranking-tool .filters');
+                const searchInput = document.createElement('input');
+                searchInput.type = 'search';
+                searchInput.placeholder = '按校名搜索（中文/英文）';
+                searchInput.id = 'schoolSearch';
+                searchInput.style.padding = '0.4rem 0.6rem';
+                searchInput.style.borderRadius = '6px';
+                searchInput.style.border = '1px solid #e0e0e0';
+                filtersEl.insertBefore(searchInput, applyBtn);
+
+                // load external data
+                fetch('data/schools.json')
+                    .then(r => r.json())
+                    .then(data => {
+                        schools = data;
+                        // Show top-10 only when both filters are default and the search box is empty
+                        const noFiltersInit = (regionEl.value === 'all') && (qsEl.value === 'all') && (searchInput.value.trim() === '');
+                        if (noFiltersInit) {
+                            const top10 = schools.slice().sort((a,b)=>a.qs - b.qs).slice(0,10);
+                            renderSchools(top10);
+                        } else {
+                            renderSchools(schools);
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Failed to load schools.json', err);
+                        // fallback: show message
+                        listEl.innerHTML = '<p class="note">学校数据未找到，请将 `data/schools.json` 放在项目中。</p>';
+                    });
+                searchInput.addEventListener('input', () => applyFilters(searchInput.value));
+                applyBtn.addEventListener('click', () => applyFilters(searchInput.value));
+                regionEl.addEventListener('change', () => applyFilters(searchInput.value));
+                qsEl.addEventListener('change', () => applyFilters(searchInput.value));
+                // ----------------------------------------------------------------
+
+            btn.addEventListener('click', () => {
+                const from = fromEl.value;
+                const to = toEl.value;
+                const raw = parseFloat(inputEl.value);
+                if (Number.isNaN(raw)) {
+                    resultEl.textContent = '请输入有效的分数。';
+                    return;
+                }
+
+                if (from === to) {
+                    resultEl.textContent = `Same test selected — result: ${raw}`;
+                    return;
+                }
+
+                // Validate input ranges per test
+                const ranges = {
+                    toefl: [0,120],
+                    ielts: [0,9],
+                    pte: [10,90],
+                    duolingo: [10,160],
+                    languagecert: [0,120]
+                };
+                const [min, max] = ranges[from] || [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY];
+                if (raw < min || raw > max) { resultEl.textContent = `输入值超出 ${from.toUpperCase()} 的有效范围 (${min}–${max})。`; return; }
+
+                const rawOut = convert(raw, from, to);
+                const outVal = formatOutput(rawOut, to);
+                if (outVal === null) { resultEl.textContent = '无法换算该分数。'; return; }
+
+                // Friendly labels
+                const labels = { toefl: 'TOEFL iBT', ielts: 'IELTS', pte: 'PTE Academic', duolingo: 'Duolingo', languagecert: 'LanguageCert Academic' };
+                resultEl.innerHTML = `Estimated ${labels[to]}: <strong>${outVal}</strong>（近似）`;
+            });
+        })();
+    </script>
+

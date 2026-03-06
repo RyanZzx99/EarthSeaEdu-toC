@@ -1,0 +1,193 @@
+/* Reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* Global styles */
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    color: #333;
+    background: #f9f9f9;
+    line-height: 1.6;
+}
+
+/* Navbar */
+.navbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 20px;
+    background: white;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    position: sticky;
+    top: 0;
+    z-index: 10000;
+}
+
+.logo {
+    font-size: 1.5rem;
+    font-weight: bolder;
+}
+
+.nav-links {
+    display: flex;
+    gap: 1.5rem;
+    list-style: none;
+}
+
+.nav-links a {
+    text-decoration: none;
+    color: #333;
+    font-weight: 500;
+}
+
+.nav-links a:hover {
+    color: #007bff;
+}
+
+/* Hero section */
+.hero {
+    text-align: center;
+    padding: 2rem 2rem;
+    background: linear-gradient(to right, #9be2fe, #67d1fb);
+    color: white;
+}
+
+.hero h2 {
+    font-size: 2.5rem;
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+}
+
+.btn {
+    display: inline-block;
+    margin-top: 1.5rem;
+    padding: 0.8rem 1.6rem;
+    background: white;
+    color: #333;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+.btn:hover {
+    background: #f0f0f0;
+}
+
+/* Content section */
+.content {
+    padding: 3rem 2rem;
+    max-width: 900px;
+    margin: auto;
+}
+
+footer {
+    text-align: center;
+    padding: 1.5rem;
+    background: #222;
+    color: #ccc;
+    margin-top: 2rem;
+}
+
+/* Score converter styles */
+.converter {
+    background: #fff;
+    padding: 1rem 1.25rem;
+    border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(100,120,140,0.08);
+    margin-top: 1.5rem;
+}
+.converter h4 {
+    margin-bottom: 0.25rem;
+}
+.converter .note {
+    color: #666;
+    font-size: 0.9rem;
+    margin-bottom: 0.75rem;
+}
+.converter .row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    margin-top: 0.5rem;
+}
+.converter label {
+    min-width: 60px;
+    font-weight: 600;
+}
+.converter input[type="number"],
+.converter select {
+    padding: 0.5rem 0.6rem;
+    border-radius: 6px;
+    border: 1px solid #e0e0e0;
+    min-width: 140px;
+}
+.converter .btn {
+    padding: 0.5rem 0.9rem;
+    border-radius: 6px;
+    margin-top: 0rem;
+    margin-left: 0.5rem;
+    background: #007bff;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+}
+.converter .btn:hover { background:#0066d6 }
+.converter .result {
+    margin-top: 0.5rem;
+    font-weight: 700;
+}
+
+@media (max-width: 600px) {
+    .converter .row { flex-direction: column; align-items: stretch; }
+    .converter label { min-width: auto; }
+}
+
+/* test sign up styles */
+.test_signup {
+    background: #fff;
+    padding: 1rem 1.25rem;
+    border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(100,120,140,0.08);
+    margin-top: 1.5rem;
+}
+
+/* Ranking tool styles */
+.ranking-tool { margin-top: 1.5rem; background: #fff; padding: 1rem; border-radius: 8px; box-shadow: 0 6px 18px rgba(100,120,140,0.06); }
+.ranking-tool .filters { display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; margin-top:0.5rem }
+.ranking-tool .filters label { font-weight:600 }
+.ranking-tool select { padding:0.4rem 0.6rem; border-radius:6px; border:1px solid #e0e0e0 }
+/* Dedicated styles for the 筛选 (applyFilter) button inside ranking-tool */
+.ranking-tool .btn, #applyFilter {
+    background: linear-gradient(180deg,#1f7aea,#0a66d1);
+    color: #fff;
+    border: none;
+    margin-top: 0rem;
+    padding: 0.45rem 0.8rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 700;
+    transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+.ranking-tool .btn:hover, #applyFilter:hover { box-shadow: 0 6px 14px rgba(10,102,209,0.18); transform: translateY(-2px); }
+.ranking-tool .btn:active, #applyFilter:active { transform: translateY(0); box-shadow: 0 3px 8px rgba(10,102,209,0.12); }
+.ranking-tool .btn:focus, #applyFilter:focus { outline: 3px solid rgba(15,123,255,0.15); outline-offset: 2px; }
+.ranking-tool .btn[disabled], #applyFilter[disabled] { background: linear-gradient(180deg,#cfe3ff,#dbeeff); color:#9ab6ea; cursor: not-allowed; opacity:0.9 }
+.schools-list { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px,1fr)); gap:0.8rem; margin-top:1rem }
+.school-card { display:flex; gap:0.75rem; align-items:flex-start; padding:0.6rem; border-radius:8px; background:#fafafa; border:1px solid #f0f0f0; position:relative; z-index:1 }
+.school-card .logo { width:56px; height:56px; border-radius:8px; background:linear-gradient(135deg,#6fb1ff,#6ee7b7); display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff; font-size:1.1rem }
+.logo-wrap { width:56px; height:56px; position:relative; flex:0 0 56px; z-index:1 }
+.logo-img { width:56px; height:56px; border-radius:8px; object-fit:cover; display:block }
+.logo-fallback { position:absolute; left:0; top:0; width:56px; height:56px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff; font-size:1.1rem; background:linear-gradient(135deg,#6fb1ff,#6ee7b7) }
+.school-info .school-name { font-weight:700 }
+.school-info .school-name .cn, .school-info .school-name .name-cn { display:block; color:#222 }
+.school-info .school-name .en, .school-info .school-name .name-en { display:block; font-weight:400; color:#666; font-size:0.9rem }
+.school-info .meta { font-size:0.9rem; color:#444; margin-top:0.2rem }
+
+@media (max-width:600px) {
+    .ranking-tool .filters { flex-direction:column; align-items:stretch }
+    .school-card { padding:0.6rem }
+}
+

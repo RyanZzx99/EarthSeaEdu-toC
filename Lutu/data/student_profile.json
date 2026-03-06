@@ -1,0 +1,294 @@
+{
+  "schema_version": "3.0.0",
+  "type": "student_profile_schema",
+  "student_profile": {
+    "basic_info": {
+      "student_id": "",
+      "current_grade": "",
+      "graduation_year": "",
+      "target_entry_term": "",
+      "target_countries": [],
+      "intended_majors": [],
+      "curriculum_system": "A_LEVEL | AP | IB | CHINESE_HIGH_SCHOOL | OTHER"
+    },
+
+    "academic": {
+      "school_context": {
+        "school_name": "",
+        "city": "",
+        "school_type": "PUBLIC | PRIVATE | INTERNATIONAL | OTHER",
+        "grade_size": null,
+        "total_students": null
+      },
+
+      "ranking": {
+        "rank_number": null,
+        "rank_percentile": null,
+        "rank_scope": "GRADE | CLASS | TRACK",
+        "evidence_level": "CONFIRMED | SELF_REPORTED | ESTIMATED"
+      },
+
+      "curriculum_details": {
+        "A_LEVEL": {
+          "board": "CAIE | EDEXCEL | AQA | OCR | OTHER | UNKNOWN",
+          "session": "MAY_JUNE | OCT_NOV | JAN | OTHER | UNKNOWN",
+          "subjects": [
+            {
+              "subject": "",
+              "stage": "AS | A2 | FULL_A_LEVEL | IN_PROGRESS",
+              "grade": "A* | A | B | C | D | E | U | NA",
+              "is_predicted": false,
+              "exam_series": "",
+              "notes": ""
+            }
+          ],
+          "best_n_subjects_for_scoring": 3,
+          "include_further_math_bonus": true
+        },
+
+        "AP": {
+          "school_gpa": {
+            "gpa": null,
+            "gpa_scale": null,
+            "is_weighted": null,
+            "class_rank_available": null
+          },
+          "ap_courses": [
+            {
+              "course": "",
+              "category": "STEM | HUMANITIES | SOCIAL_SCI | LANGUAGE | ARTS | OTHER",
+              "score": 1,
+              "is_predicted": false,
+              "year_taken": null
+            }
+          ],
+          "course_rigor": {
+            "honors_count": null,
+            "ap_count": null,
+            "max_ap_offered_by_school": null
+          },
+          "best_n_ap_for_scoring": 4
+        },
+
+        "IB": {
+          "ib_total_predicted": null,
+          "subjects": [
+            {
+              "subject": "",
+              "level": "HL | SL",
+              "score": 1,
+              "is_predicted": false,
+              "notes": ""
+            }
+          ],
+          "tok_ee_bonus": {
+            "tok_grade": "A | B | C | D | E | NA",
+            "ee_grade": "A | B | C | D | E | NA"
+          },
+          "hl_weight_multiplier": 1.15,
+          "best_n_subjects_for_scoring": 4
+        },
+
+        "CHINESE_HIGH_SCHOOL": {
+          "grading_system": "PERCENT_100 | GPA_4 | GPA_5 | OTHER",
+          "average_score_100": null,
+          "gpa": null,
+          "gpa_scale": null,
+          "major_subjects": [
+            { "subject": "CHINESE", "score_100": null },
+            { "subject": "MATH", "score_100": null },
+            { "subject": "ENGLISH", "score_100": null },
+            { "subject": "PHYSICS", "score_100": null },
+            { "subject": "CHEMISTRY", "score_100": null },
+            { "subject": "BIOLOGY", "score_100": null },
+            { "subject": "HISTORY", "score_100": null },
+            { "subject": "GEOGRAPHY", "score_100": null },
+            { "subject": "POLITICS", "score_100": null }
+          ],
+          "best_subjects_for_scoring_rule": "MATH+ENGLISH+TOP2",
+          "notes": ""
+        }
+      }
+    },
+
+    "language": {
+      "tests": [
+        {
+          "test_type": "IELTS | TOEFL_IBT | TOEFL_ESSENTIALS | DET | PTE | LANGUAGECERT | CAMBRIDGE | OTHER",
+          "status": "SCORED | PLANNED | ESTIMATED",
+          "test_date": "",
+          "score_total": null,
+
+          "band_or_scale": {
+            "ielts_scale": "0-9",
+            "toefl_ibt_scale": "0-120",
+            "toefl_essentials_scale": "1-12",
+            "det_scale": "10-160",
+            "pte_scale": "10-90",
+            "languagecert_scale": "",
+            "cambridge_scale": ""
+          },
+
+          "breakdown": {
+            "reading": null,
+            "listening": null,
+            "speaking": null,
+            "writing": null
+          },
+
+          "toefl_essentials_detail": {
+            "core_score_1_12": null,
+            "literacy_1_12": null,
+            "conversation_1_12": null,
+            "comprehension_1_12": null
+          },
+
+          "estimated_total": null,
+          "evidence_level": "CONFIRMED | SELF_REPORTED | ESTIMATED"
+        }
+      ],
+
+      "scoring_policy": {
+        "use_best_single_test": true,
+        "prefer_scored_over_estimated": true,
+        "min_required_fields": ["test_type", "status"]
+      }
+    },
+
+    "standardized_tests": {
+      "tests": [
+        {
+          "test_type": "SAT | ACT | NONE",
+          "status": "SCORED | PLANNED | ESTIMATED | NOT_APPLICABLE",
+          "test_date": "",
+          "score_total": null,
+          "breakdown": {
+            "sat_erw": null,
+            "sat_math": null,
+            "act_english": null,
+            "act_math": null,
+            "act_reading": null,
+            "act_science": null
+          },
+          "estimated_total": null,
+          "notes": ""
+        }
+      ],
+
+      "scoring_policy": {
+        "use_scored_if_available_else_estimated": true,
+        "allow_academic_substitute_when_not_applicable": {
+          "enabled": true,
+          "substitute_sources": ["A_LEVEL_PREDICTED", "AP_SCORES", "IB_PREDICTED"]
+        }
+      }
+    },
+
+    "competitions": {
+      "entries": [
+        {
+          "name": "",
+          "field": "MATH | CS | PHYSICS | CHEM | BIO | ECON | DEBATE | WRITING | OTHER",
+          "tier": "T1 | T2 | T3 | T4 | UNKNOWN",
+          "level": "SCHOOL | CITY | PROVINCE | NATIONAL | INTERNATIONAL",
+          "result_text": "",
+          "selectivity": {
+            "rank": null,
+            "participants": null,
+            "percentile": null
+          },
+          "year": null,
+          "verification": {
+            "evidence_type": "CERTIFICATE | LINK | SCHOOL_CONFIRMATION | NONE",
+            "link_or_note": ""
+          }
+        }
+      ],
+
+      "tier_reference": {
+        "T1_examples": ["IMO/IOI/ISEF equivalent"],
+        "T2_examples": ["AMC12 Top1%, USACO Gold+ equivalent"],
+        "T3_examples": ["National finals / national awards"],
+        "T4_examples": ["Regional/provincial awards"]
+      }
+    },
+
+    "activities": {
+      "entries": [
+        {
+          "name": "",
+          "category": "LEADERSHIP | ACADEMIC | SPORTS | ARTS | COMMUNITY | ENTREPRENEURSHIP | OTHER",
+          "role": "FOUNDER | PRESIDENT | CORE_MEMBER | MEMBER | OTHER",
+          "duration_months": null,
+          "weekly_hours": null,
+          "team_size": null,
+          "impact_metrics": {
+            "people_reached": null,
+            "events_run": null,
+            "funds_raised": null,
+            "awards_or_media": ""
+          },
+          "verification": {
+            "evidence_type": "LINK | SCHOOL_CONFIRMATION | PHOTO | NONE",
+            "link_or_note": ""
+          }
+        }
+      ],
+
+      "quality_rules": {
+        "prefer_long_term": true,
+        "prefer_leadership_roles": true,
+        "impact_required_field": "impact_metrics"
+      }
+    },
+
+    "projects_experience": {
+      "entries": [
+        {
+          "name": "",
+          "type": "RESEARCH | INTERNSHIP | ENGINEERING_PROJECT | STARTUP | CREATIVE_PROJECT | VOLUNTEER_WORK | OTHER",
+          "field": "CS | ECON | FIN | BIO | PHYS | DESIGN | OTHER",
+          "relevance_to_major": "HIGH | MEDIUM | LOW",
+          "duration_months": null,
+          "hours_total": null,
+          "team_size": null,
+          "outputs": [
+            {
+              "output_type": "PAPER | REPORT | CODE | DEMO | PRODUCT | PORTFOLIO | PRESENTATION | OTHER",
+              "link_or_note": ""
+            }
+          ],
+          "verification": {
+            "evidence_type": "LINK | MENTOR_LETTER | EMPLOYER_CONFIRMATION | NONE",
+            "link_or_note": ""
+          }
+        }
+      ],
+
+      "strictness_rules": {
+        "output_preferred": true,
+        "internal_only_output_penalty": true
+      }
+    },
+
+    "scoring_output": {
+      "dimension_scores_0_100": {
+        "academic": null,
+        "language": null,
+        "standardized": null,
+        "competitions": null,
+        "activities": null,
+        "projects_experience": null
+      },
+      "score_confidence_0_1": {
+        "academic": null,
+        "language": null,
+        "standardized": null,
+        "competitions": null,
+        "activities": null,
+        "projects_experience": null
+      },
+      "notes": ""
+    }
+  }
+}
