@@ -1,0 +1,365 @@
+/* 全局重置：统一清除浏览器默认边距与内边距，避免不同浏览器初始样式差异 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* 页面基础样式：定义全站默认字体、文字颜色、背景色和行高 */
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  color: #333;
+  background: #f9f9f9;
+  line-height: 1.6;
+}
+
+/* 顶部导航栏：使用横向 flex 布局，并通过 sticky 固定在顶部 */
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 20px;
+  background: white;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 10000;
+}
+
+/* 预留的文字 Logo 样式，目前页面实际使用图片 Logo */
+.logo {
+  font-size: 1.5rem;
+  font-weight: bolder;
+}
+
+/* 顶部导航链接列表 */
+.nav-links {
+  display: flex;
+  gap: 1.5rem;
+  list-style: none;
+}
+
+.nav-links a {
+  text-decoration: none;
+  color: #333;
+  font-weight: 500;
+}
+
+.nav-links a:hover {
+  color: #007bff;
+}
+
+/* Hero 主视觉区域：保留原页面的蓝色渐变背景和白字展示 */
+.hero {
+  text-align: center;
+  padding: 2rem 2rem;
+  background: linear-gradient(to right, #9be2fe, #67d1fb);
+  color: white;
+}
+
+.hero h2 {
+  font-size: 2.5rem;
+  margin-top: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+/* 通用按钮样式：用于 Hero 区域与部分内容按钮 */
+.btn {
+  display: inline-block;
+  margin-top: 1.5rem;
+  padding: 0.8rem 1.6rem;
+  background: white;
+  color: #333;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: bold;
+}
+
+.btn:hover {
+  background: #f0f0f0;
+}
+
+/* 主内容区域：限制宽度，避免在大屏下内容过宽难以阅读 */
+.content {
+  padding: 3rem 2rem;
+  max-width: 900px;
+  margin: auto;
+}
+
+/* 页脚区域 */
+footer {
+  text-align: center;
+  padding: 1.5rem;
+  background: #222;
+  color: #ccc;
+  margin-top: 2rem;
+}
+
+/* 分数换算器卡片容器 */
+.converter {
+  background: #fff;
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(100, 120, 140, 0.08);
+  margin-top: 1.5rem;
+}
+
+.converter h4 {
+  margin-bottom: 0.25rem;
+}
+
+/* 说明文字采用较浅颜色，弱化视觉权重 */
+.converter .note {
+  color: #666;
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+/* 表单行布局：桌面端默认横向排列 */
+.converter .row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.converter label {
+  min-width: 60px;
+  font-weight: 600;
+}
+
+.converter input[type='number'],
+.converter select {
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  min-width: 140px;
+}
+
+/* 换算按钮单独使用蓝底白字，区分于白底通用按钮 */
+.converter .btn {
+  padding: 0.5rem 0.9rem;
+  border-radius: 6px;
+  margin-top: 0;
+  margin-left: 0.5rem;
+  background: #007bff;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+}
+
+.converter .btn:hover {
+  background: #0066d6;
+}
+
+/* 结果文本加粗显示 */
+.converter .result {
+  margin-top: 0.5rem;
+  font-weight: 700;
+}
+
+/* 保留两个下拉框中间的固定空隙 */
+.row-gap {
+  display: inline-block;
+  width: 20px;
+}
+
+/* 小屏幕下把换算器表单改成纵向排列，避免拥挤 */
+@media (max-width: 600px) {
+  .converter .row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .converter label {
+    min-width: auto;
+  }
+}
+
+/* 考试报名指南卡片 */
+.test_signup {
+  background: #fff;
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(100, 120, 140, 0.08);
+  margin-top: 1.5rem;
+}
+
+/* 学校筛选工具整体容器 */
+.ranking-tool {
+  margin-top: 1.5rem;
+  background: #fff;
+  padding: 1rem;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(100, 120, 140, 0.06);
+}
+
+/* 筛选区使用可换行的 flex，兼容不同屏宽 */
+.ranking-tool .filters {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.ranking-tool .filters label {
+  font-weight: 600;
+}
+
+.ranking-tool select,
+#schoolSearch {
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+/* 筛选按钮采用蓝色渐变，与普通白色按钮做视觉区分 */
+.ranking-tool .btn,
+#applyFilter {
+  background: linear-gradient(180deg, #1f7aea, #0a66d1);
+  color: #fff;
+  border: none;
+  margin-top: 0;
+  padding: 0.45rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 700;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    opacity 120ms ease;
+}
+
+.ranking-tool .btn:hover,
+#applyFilter:hover {
+  box-shadow: 0 6px 14px rgba(10, 102, 209, 0.18);
+  transform: translateY(-2px);
+}
+
+.ranking-tool .btn:active,
+#applyFilter:active {
+  transform: translateY(0);
+  box-shadow: 0 3px 8px rgba(10, 102, 209, 0.12);
+}
+
+.ranking-tool .btn:focus,
+#applyFilter:focus {
+  outline: 3px solid rgba(15, 123, 255, 0.15);
+  outline-offset: 2px;
+}
+
+.ranking-tool .btn[disabled],
+#applyFilter[disabled] {
+  background: linear-gradient(180deg, #cfe3ff, #dbeeff);
+  color: #9ab6ea;
+  cursor: not-allowed;
+  opacity: 0.9;
+}
+
+/* 学校列表采用响应式网格，屏幕越宽一行可容纳的卡片越多 */
+.schools-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+/* 单个学校卡片 */
+.school-card {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.6rem;
+  border-radius: 8px;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  position: relative;
+  z-index: 1;
+}
+
+/* 预留的 .logo 样式，当前主要使用真实图片或 fallback 占位 */
+.school-card .logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #6fb1ff, #6ee7b7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #fff;
+  font-size: 1.1rem;
+}
+
+/* logo-wrap 负责给真实图片和占位块提供统一尺寸 */
+.logo-wrap {
+  width: 56px;
+  height: 56px;
+  position: relative;
+  flex: 0 0 56px;
+  z-index: 1;
+}
+
+.logo-img {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  object-fit: cover;
+  display: block;
+}
+
+/* 当 logo 丢失或加载失败时，显示渐变背景和首字母缩写 */
+.logo-fallback {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #fff;
+  font-size: 1.1rem;
+  background: linear-gradient(135deg, #6fb1ff, #6ee7b7);
+}
+
+/* 学校名称区：中文名和英文名分层展示 */
+.school-info .school-name {
+  font-weight: 700;
+}
+
+.school-info .school-name .cn,
+.school-info .school-name .name-cn {
+  display: block;
+  color: #222;
+}
+
+.school-info .school-name .en,
+.school-info .school-name .name-en {
+  display: block;
+  font-weight: 400;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+/* 学校元信息：地区、QS、US News 等 */
+.school-info .meta {
+  font-size: 0.9rem;
+  color: #444;
+  margin-top: 0.2rem;
+}
+
+/* 小屏幕下让筛选控件纵向排布，提升可点击性 */
+@media (max-width: 600px) {
+  .ranking-tool .filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .school-card {
+    padding: 0.6rem;
+  }
+}

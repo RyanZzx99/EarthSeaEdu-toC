@@ -1,0 +1,1811 @@
+[
+  {
+    "id": 1,
+    "name_en": "Massachusetts Institute of Technology (MIT)",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 1,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 2,
+    "name_en": "Imperial College London",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 2,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 3,
+    "name_en": "University of Oxford",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 3,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 4,
+    "name_en": "Harvard University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 4,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 5,
+    "name_en": "University of Cambridge",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 5,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 6,
+    "name_en": "Stanford University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 6,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 7,
+    "name_en": "ETH Zurich - Swiss Federal Institute of Technology",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 7,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 8,
+    "name_en": "National University of Singapore (NUS)",
+    "name_cn": "",
+    "region": "Singapore",
+    "qs": 8,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 9,
+    "name_en": "UCL",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 9,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 10,
+    "name_en": "California Institute of Technology (Caltech)",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 10,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 11,
+    "name_en": "University of Pennsylvania",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 11,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 12,
+    "name_en": "University of California, Berkeley (UCB)",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 12,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 13,
+    "name_en": "The University of Melbourne",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 13,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 14,
+    "name_en": "Peking University",
+    "name_cn": "",
+    "region": "China",
+    "qs": 14,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 15,
+    "name_en": "Nanyang Technological University, Singapore (NTU)",
+    "name_cn": "",
+    "region": "Singapore",
+    "qs": 15,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 16,
+    "name_en": "Cornell University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 16,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 17,
+    "name_en": "The University of Hong Kong",
+    "name_cn": "",
+    "region": "HKMO",
+    "qs": 17,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 18,
+    "name_en": "The University of Sydney",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 18,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 19,
+    "name_en": "The University of New South Wales (UNSW Sydney)",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 19,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 20,
+    "name_en": "Tsinghua University",
+    "name_cn": "",
+    "region": "China",
+    "qs": 20,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 21,
+    "name_en": "University of Chicago",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 21,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 22,
+    "name_en": "Princeton University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 22,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 23,
+    "name_en": "Yale University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 23,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 24,
+    "name_en": "Université PSL",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 24,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 25,
+    "name_en": "University of Toronto",
+    "name_cn": "",
+    "region": "Canada",
+    "qs": 25,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 26,
+    "name_en": "EPFL",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 26,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 27,
+    "name_en": "The University of Edinburgh",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 27,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 28,
+    "name_en": "Technical University of Munich",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 28,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 29,
+    "name_en": "McGill University",
+    "name_cn": "",
+    "region": "Canada",
+    "qs": 29,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 30,
+    "name_en": "The Australian National University",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 30,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 31,
+    "name_en": "Seoul National University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 31,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 32,
+    "name_en": "Johns Hopkins University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 32,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 32,
+    "name_en": "The University of Tokyo",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 32,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 34,
+    "name_en": "Columbia University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 34,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 34,
+    "name_en": "The University of Manchester",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 34,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 36,
+    "name_en": "The Chinese University of Hong Kong (CUHK)",
+    "name_cn": "",
+    "region": "HKMO",
+    "qs": 36,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 37,
+    "name_en": "Monash University",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 37,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 38,
+    "name_en": "University of British Columbia",
+    "name_cn": "",
+    "region": "Canada",
+    "qs": 38,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 39,
+    "name_en": "Fudan University",
+    "name_cn": "",
+    "region": "China",
+    "qs": 39,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 40,
+    "name_en": "King's College London",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 40,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 40,
+    "name_en": "The University of Queensland",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 40,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 42,
+    "name_en": "University of California, Los Angeles (UCLA)",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 42,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 43,
+    "name_en": "New York University (NYU)",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 43,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 44,
+    "name_en": "University of Michigan-Ann Arbor",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 44,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 45,
+    "name_en": "Shanghai Jiao Tong University",
+    "name_cn": "",
+    "region": "China",
+    "qs": 45,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 46,
+    "name_en": "Institut Polytechnique de Paris",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 46,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 47,
+    "name_en": "The Hong Kong University of Science and Technology",
+    "name_cn": "",
+    "region": "HKMO",
+    "qs": 47,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 47,
+    "name_en": "Zhejiang University",
+    "name_cn": "",
+    "region": "China",
+    "qs": 47,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 49,
+    "name_en": "Delft University of Technology",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 49,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 50,
+    "name_en": "Kyoto University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 50,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 50,
+    "name_en": "Northwestern University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 50,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 50,
+    "name_en": "The London School of Economics and Political Science (LSE)",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 50,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 53,
+    "name_en": "KAIST - Korea Advanced Institute of Science & Technology",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 53,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 54,
+    "name_en": "University of Bristol",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 54,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 55,
+    "name_en": "University of Amsterdam",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 55,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 56,
+    "name_en": "Yonsei University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 56,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 57,
+    "name_en": "The Hong Kong Polytechnic University",
+    "name_cn": "",
+    "region": "HKMO",
+    "qs": 57,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 58,
+    "name_en": "Carnegie Mellon University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 58,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 59,
+    "name_en": "Ludwig-Maximilians-Universität München",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 59,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 60,
+    "name_en": "Universiti Malaya (UM)",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 60,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 61,
+    "name_en": "Duke University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 61,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 62,
+    "name_en": "City University of Hong Kong",
+    "name_cn": "",
+    "region": "HKMO",
+    "qs": 62,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 63,
+    "name_en": "KU Leuven",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 63,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 63,
+    "name_en": "Sorbonne University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 63,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 65,
+    "name_en": "The University of Auckland",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 65,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 66,
+    "name_en": "University of Texas at Austin",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 66,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 67,
+    "name_en": "Korea University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 67,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 68,
+    "name_en": "National Taiwan University (NTU)",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 68,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 69,
+    "name_en": "The University of Warwick",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 69,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 69,
+    "name_en": "University of Illinois at Urbana-Champaign",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 69,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 71,
+    "name_en": "Universidad de Buenos Aires (UBA)",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 71,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 72,
+    "name_en": "University of California, San Diego (UCSD)",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 72,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 73,
+    "name_en": "Université Paris-Saclay",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 73,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 74,
+    "name_en": "KTH Royal Institute of Technology",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 74,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 75,
+    "name_en": "Lund University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 75,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 76,
+    "name_en": "University of Washington",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 76,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 77,
+    "name_en": "The University of Western Australia",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 77,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 78,
+    "name_en": "University of Glasgow",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 78,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 79,
+    "name_en": "Brown University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 79,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 80,
+    "name_en": "University of Birmingham",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 80,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 80,
+    "name_en": "University of Southampton",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 80,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 82,
+    "name_en": "The University of Adelaide",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 82,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 82,
+    "name_en": "University of Leeds",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 82,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 84,
+    "name_en": "Ruprecht-Karls-Universität Heidelberg",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 84,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 84,
+    "name_en": "Tokyo Institute of Technology (Tokyo Tech)",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 84,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 86,
+    "name_en": "Osaka University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 86,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 87,
+    "name_en": "Trinity College Dublin, The University of Dublin",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 87,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 88,
+    "name_en": "University of Technology Sydney",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 88,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 89,
+    "name_en": "Durham University",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 89,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 89,
+    "name_en": "Pennsylvania State University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 89,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 89,
+    "name_en": "Purdue University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 89,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 92,
+    "name_en": "Universidade de São Paulo",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 92,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 93,
+    "name_en": "Pontificia Universidad Católica de Chile (UC)",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 93,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 94,
+    "name_en": "Lomonosov Moscow State University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 94,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 94,
+    "name_en": "Universidad Nacional Autónoma de México (UNAM)",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 94,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 96,
+    "name_en": "University of Alberta",
+    "name_cn": "",
+    "region": "Canada",
+    "qs": 96,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 97,
+    "name_en": "Freie Universitaet Berlin",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 97,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 98,
+    "name_en": "Pohang University of Science And Technology (POSTECH)",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 98,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 99,
+    "name_en": "RWTH Aachen University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 99,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 100,
+    "name_en": "University of Copenhagen",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 100,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 101,
+    "name_en": "King Fahd University of Petroleum & Minerals",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 101,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 102,
+    "name_en": "KIT, Karlsruhe Institute of Technology",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 102,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 103,
+    "name_en": "Uppsala University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 103,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 104,
+    "name_en": "University of St Andrews",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 104,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 105,
+    "name_en": "The University of Sheffield",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 105,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 105,
+    "name_en": "Utrecht University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 105,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 107,
+    "name_en": "Tohoku University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 107,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 108,
+    "name_en": "University of Nottingham",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 108,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 108,
+    "name_en": "Boston University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 108,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 109,
+    "name_en": "Technical University of Denmark",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 109,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 109,
+    "name_en": "University of Zurich",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 109,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 111,
+    "name_en": "Politecnico di Milano",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 111,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 113,
+    "name_en": "Aalto University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 113,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 114,
+    "name_en": "Georgia Institute of Technology",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 114,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 115,
+    "name_en": "University of Waterloo",
+    "name_cn": "",
+    "region": "Canada",
+    "qs": 115,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 116,
+    "name_en": "University of Wisconsin-Madison",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 116,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 117,
+    "name_en": "University of Helsinki",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 117,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 118,
+    "name_en": "Indian Institute of Technology Bombay (IITB)",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 118,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 119,
+    "name_en": "University of Oslo",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 119,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 120,
+    "name_en": "Queen Mary University of London",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 120,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 120,
+    "name_en": "Western University",
+    "name_cn": "",
+    "region": "Canada",
+    "qs": 120,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 122,
+    "name_en": "Qatar University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 122,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 123,
+    "name_en": "RMIT University",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 123,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 123,
+    "name_en": "Sungkyunkwan University(SKKU)",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 123,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 125,
+    "name_en": "University of Southern California",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 125,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 126,
+    "name_en": "Humboldt-Universität zu Berlin",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 126,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 126,
+    "name_en": "University College Dublin",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 126,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 128,
+    "name_en": "Stockholm University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 128,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 129,
+    "name_en": "Newcastle University",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 129,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 130,
+    "name_en": "University of California, Davis",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 130,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 131,
+    "name_en": "University of Basel",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 131,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 132,
+    "name_en": "Sapienza University of Rome",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 132,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 133,
+    "name_en": "Alma Mater Studiorum - University of Bologna",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 133,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 133,
+    "name_en": "Macquarie University",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 133,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 133,
+    "name_en": "University of Science and Technology of China",
+    "name_cn": "",
+    "region": "China",
+    "qs": 133,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 136,
+    "name_en": "Eindhoven University of Technology",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 136,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 137,
+    "name_en": "University of Vienna",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 137,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 138,
+    "name_en": "Universiti Kebangsaan Malaysia (UKM)",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 138,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 139,
+    "name_en": "Chalmers University of Technology",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 139,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 139,
+    "name_en": "Universidad de Chile",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 139,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 141,
+    "name_en": "Lancaster University",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 141,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 141,
+    "name_en": "Leiden University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 141,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 141,
+    "name_en": "Rice University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 141,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 144,
+    "name_en": "Aarhus University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 144,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 145,
+    "name_en": "Nanjing University",
+    "name_cn": "",
+    "region": "China",
+    "qs": 145,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 146,
+    "name_en": "Universiti Sains Malaysia (USM)",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 146,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 147,
+    "name_en": "Technische Universität Berlin (TU Berlin)",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 147,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 148,
+    "name_en": "Universiti Putra Malaysia (UPM)",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 148,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 149,
+    "name_en": "King Abdulaziz University (KAU)",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 149,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 150,
+    "name_en": "Indian Institute of Technology Delhi (IITD)",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 150,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 150,
+    "name_en": "University of Bath",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 150,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 152,
+    "name_en": "Michigan State University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 152,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 152,
+    "name_en": "Nagoya University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 152,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 154,
+    "name_en": "Texas A&M University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 154,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 155,
+    "name_en": "University of Geneva",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 155,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 155,
+    "name_en": "University of North Carolina, Chapel Hill",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 155,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 155,
+    "name_en": "Wageningen University & Research",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 155,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 158,
+    "name_en": "Erasmus University Rotterdam",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 158,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 159,
+    "name_en": "Université de Montréal",
+    "name_cn": "",
+    "region": "Canada",
+    "qs": 159,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 159,
+    "name_en": "University of Groningen",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 159,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 161,
+    "name_en": "University of Bern",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 161,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 162,
+    "name_en": "Hanyang University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 162,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 163,
+    "name_en": "Al-Farabi Kazakh National University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 163,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 164,
+    "name_en": "Complutense University of Madrid",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 164,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 165,
+    "name_en": "Universitat de Barcelona",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 165,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 165,
+    "name_en": "University of Liverpool",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 165,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 167,
+    "name_en": "Kyushu University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 167,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 167,
+    "name_en": "University of Wollongong",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 167,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 169,
+    "name_en": "Ghent University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 169,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 169,
+    "name_en": "The University of Exeter",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 169,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 171,
+    "name_en": "University of Cape Town",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 171,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 172,
+    "name_en": "University of Reading",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 172,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 173,
+    "name_en": "Hokkaido University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 173,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 174,
+    "name_en": "Curtin University",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 174,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 175,
+    "name_en": "Universitat Autònoma de Barcelona",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 175,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 176,
+    "name_en": "McMaster University",
+    "name_cn": "",
+    "region": "Canada",
+    "qs": 176,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 176,
+    "name_en": "Washington University in St. Louis",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 176,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 178,
+    "name_en": "University of California, Santa Barbara (UCSB)",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 178,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 179,
+    "name_en": "The University of Newcastle, Australia (UON)",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 179,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 179,
+    "name_en": "Universidad de los Andes",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 179,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 181,
+    "name_en": "Universiti Teknologi Malaysia",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 181,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 181,
+    "name_en": "Waseda University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 181,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 183,
+    "name_en": "Hamad Bin Khalifa University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 183,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 184,
+    "name_en": "University of York",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 184,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 185,
+    "name_en": "Tecnológico de Monterrey",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 185,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 186,
+    "name_en": "Cardiff University",
+    "name_cn": "",
+    "region": "UK",
+    "qs": 186,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 187,
+    "name_en": "École Normale Supérieure de Lyon",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 187,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 188,
+    "name_en": "Keio University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 188,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 189,
+    "name_en": "University of Ottawa",
+    "name_cn": "",
+    "region": "Canada",
+    "qs": 189,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 190,
+    "name_en": "Technische Universität Wien",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 190,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 191,
+    "name_en": "Universität Hamburg",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 191,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 192,
+    "name_en": "Tongji University",
+    "name_cn": "",
+    "region": "China",
+    "qs": 192,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 193,
+    "name_en": "Queen's University at Kingston",
+    "name_cn": "",
+    "region": "Canada",
+    "qs": 193,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 194,
+    "name_en": "Wuhan University",
+    "name_cn": "",
+    "region": "China",
+    "qs": 194,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 194,
+    "name_en": "University of Gothenburg",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 194,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 196,
+    "name_en": "Emory University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 196,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 197,
+    "name_en": "Deakin University",
+    "name_cn": "",
+    "region": "AUNZ",
+    "qs": 197,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 198,
+    "name_en": "Universidad Autónoma de Madrid",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 198,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 198,
+    "name_en": "University of Calgary",
+    "name_cn": "",
+    "region": "Canada",
+    "qs": 198,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 200,
+    "name_en": "Arizona State University",
+    "name_cn": "",
+    "region": "USA",
+    "qs": 200,
+    "usnews": null,
+    "logo": ""
+  },
+  {
+    "id": 200,
+    "name_en": "King Saud University",
+    "name_cn": "",
+    "region": "Other",
+    "qs": 200,
+    "usnews": null,
+    "logo": ""
+  }
+]
