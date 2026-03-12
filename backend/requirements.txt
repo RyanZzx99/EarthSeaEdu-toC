@@ -1,7 +1,35 @@
+# FastAPI Web 框架
 fastapi==0.135.1
+
+# Uvicorn ASGI 服务器
 uvicorn[standard]==0.41.0
+
+# SQLAlchemy ORM
 sqlalchemy==2.0.48
+
+# MySQL 驱动
 pymysql==1.1.2
+
+# Pydantic 配置管理
 pydantic-settings==2.13.1
+
+# JWT 加解密
+python-jose[cryptography]
+
+# 密码哈希
+passlib[bcrypt]
+
+# 表单支持
+python-multipart
+
+# 腾讯云 Python SDK
+tencentcloud-sdk-python
+
+# 发送 HTTP 请求给微信接口
+requests
+
+# 通过 SSH 隧道转发端口
 sshtunnel==0.4.0
+
+# Python 的 SSH 底层库，sshtunnel 依赖它
 paramiko<4
