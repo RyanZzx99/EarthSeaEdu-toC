@@ -11,6 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import sessionmaker
 from sshtunnel import SSHTunnelForwarder
+from sqlalchemy.orm import declarative_base
 
 
 # backend 目录绝对路径（用于稳定定位 .env）
@@ -247,13 +248,32 @@ if settings.ssh_enabled:
 # 全局数据库引擎：连接池开启 pre_ping，避免取到失效连接
 engine = create_engine(
     settings.sqlalchemy_database_uri,
-    pool_pre_ping=True,
-    future=True,
+    pool_pre_ping=True,  # 连接前先检查数据库连接是否可用
+    pool_recycle=3600,  # 连接回收时间，避免 MySQL 长连接失效
+    echo=False  # SQL 调试日志，线上建议 False
 )
 
 # Session 工厂：按请求创建 session，配合依赖注入统一关闭
 SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine,
+    autocommit=False,    # 禁止自动提交
+    autoflush=False,     # 禁止自动 flush
+    bind=engine,         # 绑定数据库引擎
 )
+
+# 创建 ORM 基类
+Base = declarative_base()
+
+
+def get_db():
+    """
+    FastAPI 依赖注入使用的数据库会话生成器
+    """
+    # 创建数据库会话
+    db = SessionLocal()
+
+    try:
+        # 把会话提供给接口使用
+        yield db
+    finally:
+        # 请求结束后关闭会话
+        db.close()
