@@ -73,6 +73,13 @@
         placeholder="请输入验证码"
       />
 
+      <!-- 邀请码输入框（仅新用户注册时必填） -->
+      <input
+        v-model.trim="smsForm.invite_code"
+        class="input"
+        placeholder="请输入邀请码（新用户注册时必填）"
+      />
+
       <!-- 按钮区域 -->
       <div class="row">
         <!-- 发送验证码按钮 -->
@@ -119,6 +126,13 @@
         v-model="bindForm.code"
         class="input"
         placeholder="请输入验证码"
+      />
+
+      <!-- 邀请码输入框（仅新手机号注册时必填） -->
+      <input
+        v-model.trim="bindForm.invite_code"
+        class="input"
+        placeholder="请输入邀请码（新用户注册时必填）"
       />
 
       <!-- 按钮区域 -->
@@ -200,12 +214,16 @@ const passwordForm = ref({
 const smsForm = ref({
   mobile: "",
   code: "",
+  // 邀请码（仅新用户注册时后端强制校验）
+  invite_code: "",
 });
 
 // 微信绑定手机号表单
 const bindForm = ref({
   mobile: "",
   code: "",
+  // 邀请码（仅新手机号注册时后端强制校验）
+  invite_code: "",
 });
 
 // 当前 bind token
@@ -216,6 +234,9 @@ const profile = ref(null);
 
 // 新密码
 const newPassword = ref("");
+
+// bcrypt 密码最大只支持 72 bytes（UTF-8）
+const BCRYPT_PASSWORD_MAX_BYTES = 72;
 
 // 保存 access token
 function saveAccessToken(token) {
@@ -234,6 +255,11 @@ function notify(message) {
   // 当前先用最简单 alert
   // TODO: 后面可接入 UI 组件库消息提示
   alert(message);
+}
+
+// 计算字符串 UTF-8 字节长度
+function getUtf8ByteLength(value) {
+  return new TextEncoder().encode(value).length;
 }
 
 // 获取当前登录用户信息
@@ -297,6 +323,8 @@ async function handleSmsLogin() {
     const res = await smsLogin({
       mobile: smsForm.value.mobile,
       code: smsForm.value.code,
+      // 老用户登录可不填，后端仅在新注册场景强制
+      invite_code: smsForm.value.invite_code || null,
     });
 
     // 保存 token
@@ -352,6 +380,8 @@ async function handleBindMobile() {
       bind_token: bindToken.value,
       mobile: bindForm.value.mobile,
       code: bindForm.value.code,
+      // 老用户合并账号可不填，后端仅在新注册场景强制
+      invite_code: bindForm.value.invite_code || null,
     });
 
     // 保存正式登录 token
@@ -376,6 +406,24 @@ async function handleBindMobile() {
 
 // 设置密码
 async function handleSetPassword() {
+  // 基础校验：密码不能为空
+  if (!newPassword.value) {
+    notify("请输入新密码");
+    return;
+  }
+
+  // 基础校验：长度至少 6 位
+  if (newPassword.value.length < 6) {
+    notify("密码长度不能少于 6 位");
+    return;
+  }
+
+  // bcrypt 限制：密码不能超过 72 字节（UTF-8）
+  if (getUtf8ByteLength(newPassword.value) > BCRYPT_PASSWORD_MAX_BYTES) {
+    notify("密码长度不能超过 72 字节（英文约 72 位，中文约 24 位）");
+    return;
+  }
+
   try {
     // 调设置密码接口
     await setPassword({
@@ -384,6 +432,7 @@ async function handleSetPassword() {
 
     // 提示成功
     notify("密码设置成功");
+    newPassword.value = "";
   } catch (error) {
     // 错误提示
     notify(error?.response?.data?.detail || "设置密码失败");

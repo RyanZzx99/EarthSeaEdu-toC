@@ -77,6 +77,13 @@
           placeholder="请输入验证码"
       />
 
+      <!-- 邀请码输入框（仅新用户注册时必填） -->
+      <input
+          v-model.trim="smsForm.invite_code"
+          class="input"
+          placeholder="请输入邀请码（新用户注册时必填）"
+      />
+
       <!-- 操作按钮行 -->
       <div class="row">
         <!-- 发送验证码 -->
@@ -135,6 +142,13 @@
           v-model.trim="bindForm.code"
           class="input"
           placeholder="请输入验证码"
+      />
+
+      <!-- 邀请码输入框（仅新手机号注册时必填） -->
+      <input
+          v-model.trim="bindForm.invite_code"
+          class="input"
+          placeholder="请输入邀请码（新用户注册时必填）"
       />
 
       <!-- 按钮区域 -->
@@ -213,12 +227,16 @@ const passwordForm = ref({
 const smsForm = ref({
   mobile: "",
   code: "",
+  // 邀请码（仅新用户注册时后端强制校验）
+  invite_code: "",
 });
 
 // 绑定手机号表单
 const bindForm = ref({
   mobile: "",
   code: "",
+  // 邀请码（仅新手机号注册时后端强制校验）
+  invite_code: "",
 });
 
 // 切换模式
@@ -375,6 +393,8 @@ async function handleSmsLogin() {
     const res = await smsLogin({
       mobile: smsForm.value.mobile,
       code: smsForm.value.code,
+      // 老用户登录可不填，后端仅在新注册场景强制
+      invite_code: smsForm.value.invite_code || null,
     });
 
     // 保存 token
@@ -493,6 +513,8 @@ async function handleBindMobile() {
       bind_token: bindToken.value,
       mobile: bindForm.value.mobile,
       code: bindForm.value.code,
+      // 老用户合并账号可不填，后端仅在新注册场景强制
+      invite_code: bindForm.value.invite_code || null,
     });
 
     // 保存正式登录 token

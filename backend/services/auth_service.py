@@ -19,6 +19,7 @@
 
 # 导入 datetime，用于计算当天起始时间等
 from datetime import datetime
+import secrets
 
 # 导入 SQLAlchemy Session
 from sqlalchemy.orm import Session
@@ -29,6 +30,7 @@ from backend.models.auth_models import User
 from backend.models.auth_models import UserAuthIdentity
 from backend.models.auth_models import UserLoginLog
 from backend.models.auth_models import WechatLoginState
+from backend.models.auth_models import InviteCode
 
 # 导入系统配置
 from backend.config.db_conf import settings
@@ -373,6 +375,302 @@ def register_user_by_mobile(db: Session, mobile: str) -> User:
     return user
 
 
+def generate_invite_code_value(length: int = 10) -> str:
+    """
+    生成邀请码字符串
+
+    说明：
+    1. 使用大写字母+数字
+    2. 排除易混字符，降低人工输入错误率
+    """
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def create_invite_codes(
+        db: Session,
+        count: int,
+        expires_days: int | None = None,
+        note: str | None = None,
+        issued_by_user_id: int | None = None,
+) -> list[InviteCode]:
+    """
+    批量生成邀请码
+
+    说明：
+    1. 仅创建“未使用”邀请码
+    2. 如设置过期天数，则自动写入过期时间
+    """
+    rows: list[InviteCode] = []
+
+    for _ in range(count):
+        # 循环直到生成一个数据库中不存在的邀请码
+        while True:
+            code_value = generate_invite_code_value()
+            exists = (
+                db.query(InviteCode)
+                .filter(
+                    InviteCode.code == code_value,
+                    InviteCode.delete_flag == "1",
+                )
+                .first()
+            )
+            if not exists:
+                break
+
+        expires_time = None
+        if expires_days is not None and expires_days > 0:
+            expires_time = add_minutes(expires_days * 24 * 60)
+
+        row = InviteCode(
+            code=code_value,
+            # status='1' 表示未使用
+            status="1",
+            issued_by_user_id=issued_by_user_id,
+            # 邀请码生成时即记录发放时间（生成时间）
+            issued_time=now_utc(),
+            expires_time=expires_time,
+            note=note,
+            delete_flag="1",
+        )
+        db.add(row)
+        rows.append(row)
+
+    db.commit()
+    for row in rows:
+        db.refresh(row)
+
+    return rows
+
+
+def issue_invite_code(
+        db: Session,
+        code: str,
+        mobile: str,
+        issued_by_user_id: int | None = None,
+) -> InviteCode:
+    """
+    发放邀请码给指定手机号
+
+    说明：
+    1. 发放不会改变邀请码为已使用
+    2. 仅允许发放“未使用”状态（status='1'）的邀请码
+    """
+    row = (
+        db.query(InviteCode)
+        .filter(
+            InviteCode.code == code.strip().upper(),
+            InviteCode.delete_flag == "1",
+        )
+        .first()
+    )
+
+    if not row:
+        raise ValueError("邀请码不存在")
+
+    # status='1' 才允许发放
+    if row.status != "1":
+        raise ValueError("邀请码不可发放（已使用或已禁用）")
+
+    row.issued_to_mobile = mobile
+    row.issued_by_user_id = issued_by_user_id
+    row.issued_time = now_utc()
+
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def update_invite_code_status(
+        db: Session,
+        code: str,
+        target_status: str,
+) -> InviteCode:
+    """
+    修改邀请码状态
+
+    状态说明：
+    1. '1' = 未使用
+    2. '2' = 已使用
+    3. '3' = 已禁用
+    """
+    # 仅允许 1/2/3 三种状态
+    if target_status not in {"1", "2", "3"}:
+        raise ValueError("状态仅支持 1、2、3")
+
+    # 按邀请码查询有效记录
+    row = (
+        db.query(InviteCode)
+        .filter(
+            InviteCode.code == code.strip().upper(),
+            InviteCode.delete_flag == "1",
+        )
+        .first()
+    )
+
+    if not row:
+        raise ValueError("邀请码不存在")
+
+    # 更新状态
+    row.status = target_status
+
+    # 若改成“未使用”，清理使用信息，便于重新发放/核销
+    if target_status == "1":
+        row.used_by_user_id = None
+        row.used_time = None
+
+    # 若改成“已使用”，且尚无使用时间，则补当前时间
+    if target_status == "2" and not row.used_time:
+        row.used_time = now_utc()
+
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def list_invite_codes(
+        db: Session,
+        status: str | None = None,
+        mobile: str | None = None,
+        code_keyword: str | None = None,
+        limit: int = 50,
+) -> tuple[list[InviteCode], int]:
+    """
+    查询邀请码列表
+
+    说明：
+    1. 支持按状态筛选
+    2. 支持按发放手机号筛选
+    3. 支持按邀请码关键字模糊筛选
+    4. 返回列表与总数
+    """
+    # 安全限制查询条数，避免一次性拉取过多数据
+    safe_limit = max(1, min(limit, 200))
+
+    # 基础查询：仅查询有效记录
+    query = db.query(InviteCode).filter(InviteCode.delete_flag == "1").order_by(
+        InviteCode.status.asc() , InviteCode.issued_time.desc())
+
+    # 状态筛选
+    if status:
+        query = query.filter(InviteCode.status == status)
+
+    # 手机号筛选
+    if mobile:
+        query = query.filter(InviteCode.issued_to_mobile == mobile)
+
+    # 邀请码关键字筛选（大小写无关）
+    if code_keyword:
+        query = query.filter(InviteCode.code.ilike(f"%{code_keyword.strip()}%"))
+
+    # 先统计总数，再取前 N 条
+    total = query.count()
+
+    rows = (
+        query.order_by(InviteCode.create_time.desc())
+        .limit(safe_limit)
+        .all()
+    )
+
+    return rows, total
+
+
+def consume_invite_code_for_register(
+        db: Session,
+        code: str | None,
+        register_mobile: str,
+) -> InviteCode:
+    """
+    新用户注册时核销邀请码
+
+    核销规则：
+    1. 新注册必须提供邀请码
+    2. 邀请码必须存在且状态为未使用（status='1'）
+    3. 邀请码如有过期时间，必须未过期
+    4. 邀请码如绑定了发放手机号，必须与注册手机号一致
+    """
+    if not code or not code.strip():
+        raise ValueError("新用户注册需要填写邀请码")
+
+    normalized_code = code.strip().upper()
+
+    row = (
+        db.query(InviteCode)
+        .filter(
+            InviteCode.code == normalized_code,
+            InviteCode.delete_flag == "1",
+        )
+        .first()
+    )
+
+    if not row:
+        raise ValueError("邀请码不存在")
+
+    # status='1' 才允许核销
+    if row.status != "1":
+        raise ValueError("邀请码已使用或已失效")
+
+    if row.expires_time and row.expires_time < now_utc():
+        raise ValueError("邀请码已过期")
+
+    if row.issued_to_mobile and row.issued_to_mobile != register_mobile:
+        raise ValueError("邀请码与手机号不匹配")
+
+    # 若邀请码此前未绑定手机号，则在首次被注册使用时补齐目标手机号
+    # 说明：
+    # 1. issued_time 语义为“生成时间”，不在这里改写
+    # 2. issued_to_mobile 为空时补齐为当前注册手机号
+    if not row.issued_to_mobile:
+        row.issued_to_mobile = register_mobile
+
+    # 核销后置为 status='2'（已使用）
+    row.status = "2"
+    row.used_time = now_utc()
+    return row
+
+
+def precheck_invite_code_for_register(
+        db: Session,
+        code: str | None,
+        register_mobile: str,
+) -> InviteCode:
+    """
+    新用户注册前预校验邀请码（不核销）
+
+    说明：
+    1. 仅做合法性检查，不修改状态
+    2. 通过后返回邀请码记录对象，供后续真正核销使用
+    """
+    if not code or not code.strip():
+        raise ValueError("新用户注册需要填写邀请码")
+
+    normalized_code = code.strip().upper()
+
+    row = (
+        db.query(InviteCode)
+        .filter(
+            InviteCode.code == normalized_code,
+            InviteCode.delete_flag == "1",
+        )
+        .first()
+    )
+
+    if not row:
+        raise ValueError("邀请码不存在")
+
+    # status='1' 才允许注册使用
+    if row.status != "1":
+        raise ValueError("邀请码已使用或已失效")
+
+    if row.expires_time and row.expires_time < now_utc():
+        raise ValueError("邀请码已过期")
+
+    if row.issued_to_mobile and row.issued_to_mobile != register_mobile:
+        raise ValueError("邀请码与手机号不匹配")
+
+    return row
+
+
 def login_by_password(db: Session, mobile: str, password: str) -> dict:
     """
     手机号 + 密码登录
@@ -415,7 +713,7 @@ def login_by_password(db: Session, mobile: str, password: str) -> dict:
     }
 
 
-def login_by_sms(db: Session, mobile: str, code: str) -> dict:
+def login_by_sms(db: Session, mobile: str, code: str, invite_code: str | None = None) -> dict:
     """
     手机验证码登录
 
@@ -425,18 +723,39 @@ def login_by_sms(db: Session, mobile: str, code: str) -> dict:
     3. 如果手机号已存在，则直接登录
     4. 自动补齐手机号已验证状态
     """
-    # 校验 login 场景验证码
-    ok = verify_sms_code(db, mobile, "login", code)
+    # 先查当前手机号是否已有用户
+    # 说明：
+    # 1. 只有“新用户注册”才需要邀请码
+    # 2. 老用户登录不校验邀请码
+    user = get_active_user_by_mobile(db, mobile)
 
+    # 新用户先预校验邀请码（只校验，不核销）
+    if not user:
+        precheck_invite_code_for_register(
+            db=db,
+            code=invite_code,
+            register_mobile=mobile,
+        )
+
+    # 再校验 login 场景验证码
+    ok = verify_sms_code(db, mobile, "login", code)
     if not ok:
         raise ValueError("验证码错误或已过期")
 
-    # 查询当前手机号是否已有用户
-    user = get_active_user_by_mobile(db, mobile)
-
-    # 不存在则自动注册
+    # 不存在则自动注册（验证码通过后再正式核销邀请码）
     if not user:
+        # 新用户注册时必须校验邀请码
+        invite_row = consume_invite_code_for_register(
+            db=db,
+            code=invite_code,
+            register_mobile=mobile,
+        )
+
         user = register_user_by_mobile(db, mobile)
+
+        # 记录邀请码使用人
+        invite_row.used_by_user_id = user.id
+        db.commit()
 
     # 状态异常则拒绝
     if user.status != "active":
@@ -564,7 +883,13 @@ def login_by_wechat(db: Session, code: str, state: str) -> dict:
     }
 
 
-def bind_mobile_for_wechat_user(db: Session, bind_user_id: int, mobile: str, code: str) -> dict:
+def bind_mobile_for_wechat_user(
+        db: Session,
+        bind_user_id: int,
+        mobile: str,
+        code: str,
+        invite_code: str | None = None,
+) -> dict:
     """
     微信用户绑定手机号
 
@@ -579,13 +904,7 @@ def bind_mobile_for_wechat_user(db: Session, bind_user_id: int, mobile: str, cod
        - 最终登录老用户
     4. 如果老用户已绑定别的微信，则拒绝绑定
     """
-    # 第一步：校验 bind_mobile 场景验证码
-    ok = verify_sms_code(db, mobile, "bind_mobile", code)
-
-    if not ok:
-        raise ValueError("验证码错误或已过期")
-
-    # 第二步：查询当前微信对应的用户
+    # 第一步：查询当前微信对应的用户
     current_user = get_active_user_by_id(db, bind_user_id)
 
     if not current_user:
@@ -601,16 +920,40 @@ def bind_mobile_for_wechat_user(db: Session, bind_user_id: int, mobile: str, cod
     if not current_identity:
         raise ValueError("当前微信身份不存在")
 
-    # 第三步：查询手机号是否已有有效用户
+    # 第二步：查询手机号是否已有有效用户
     existing_mobile_user = get_active_user_by_mobile(db, mobile)
 
-    # 情况 A：手机号没有对应用户，直接绑定到当前微信用户
+    # 若是新手机号注册场景，先预校验邀请码（只校验，不核销）
     if not existing_mobile_user:
+        precheck_invite_code_for_register(
+            db=db,
+            code=invite_code,
+            register_mobile=mobile,
+        )
+
+    # 第三步：校验 bind_mobile 场景验证码
+    ok = verify_sms_code(db, mobile, "bind_mobile", code)
+    if not ok:
+        raise ValueError("验证码错误或已过期")
+
+    # 情况 A：手机号没有对应用户，属于“新注册”场景，必须核销邀请码
+    if not existing_mobile_user:
+        # 新手机号注册时强制邀请码校验
+        invite_row = consume_invite_code_for_register(
+            db=db,
+            code=invite_code,
+            register_mobile=mobile,
+        )
+
         current_user.mobile = mobile
         current_user.mobile_verified = 1
         current_user.is_temp_wechat_user = 0
         db.commit()
         db.refresh(current_user)
+
+        # 记录邀请码使用人
+        invite_row.used_by_user_id = current_user.id
+        db.commit()
 
         # 签发正式 token
         access_token = create_access_token({"sub": str(current_user.id)})

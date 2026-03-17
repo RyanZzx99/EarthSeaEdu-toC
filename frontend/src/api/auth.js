@@ -177,3 +177,64 @@ export function getMe() {
 export function logout() {
   return request.post("/api/v1/auth/logout");
 }
+
+/**
+ * 生成邀请码（管理员）
+ *
+ * 说明：
+ * 1. 需要在请求头中传 X-Admin-Key
+ * 2. data 示例：{ count: 20, expires_days: 30, note: "活动批次" }
+ */
+export function generateInviteCodes(data, adminKey) {
+  return request.post("/api/v1/auth/invite-codes/generate", data, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
+
+/**
+ * 发放邀请码（管理员）
+ *
+ * 说明：
+ * 1. 需要在请求头中传 X-Admin-Key
+ * 2. data 示例：{ code: "ABCD2345JK", mobile: "13800138000" }
+ */
+export function issueInviteCode(data, adminKey) {
+  return request.post("/api/v1/auth/invite-codes/issue", data, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
+
+/**
+ * 查询邀请码列表（管理员）
+ *
+ * 说明：
+ * 1. 需要在请求头中传 X-Admin-Key
+ * 2. params 示例：{ status: "unused", mobile: "13800138000", code_keyword: "ABC", limit: 50 }
+ */
+export function listInviteCodes(params, adminKey) {
+  return request.get("/api/v1/auth/invite-codes", {
+    params,
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
+
+/**
+ * 修改邀请码状态（管理员）
+ *
+ * 说明：
+ * 1. 需要在请求头中传 X-Admin-Key
+ * 2. data 示例：{ code: "ABCD2345JK", status: "3" }
+ */
+export function updateInviteCodeStatus(data, adminKey) {
+  return request.post("/api/v1/auth/invite-codes/update-status", data, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}

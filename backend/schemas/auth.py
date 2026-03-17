@@ -15,6 +15,7 @@
 
 # 导入可选类型
 from typing import Optional
+from datetime import datetime
 
 # 导入 Pydantic 基础模型
 from pydantic import BaseModel
@@ -89,6 +90,16 @@ class SmsLoginRequest(BaseModel):
         examples=["123456"],
     )
 
+    # 邀请码
+    # 说明：
+    # 1. 仅“新用户注册”时必填
+    # 2. 老用户登录可不传
+    invite_code: Optional[str] = Field(
+        default=None,
+        description="邀请码（仅新用户注册时必填）",
+        examples=["INVITE2026"],
+    )
+
 
 class WechatLoginRequest(BaseModel):
     """
@@ -143,6 +154,124 @@ class WechatBindMobileRequest(BaseModel):
         description="绑定手机号验证码",
         examples=["123456"],
     )
+
+    # 邀请码
+    # 说明：
+    # 1. 仅“新手机号首次注册”时必填
+    # 2. 合并到已存在账号时可不传
+    invite_code: Optional[str] = Field(
+        default=None,
+        description="邀请码（仅新手机号注册时必填）",
+        examples=["INVITE2026"],
+    )
+
+
+class GenerateInviteCodesRequest(BaseModel):
+    """
+    生成邀请码请求体
+    """
+
+    # 本次生成数量
+    count: int = Field(
+        ...,
+        ge=1,
+        le=200,
+        description="本次生成数量（1~200）",
+        examples=[20],
+    )
+
+    # 过期天数
+    # 说明：
+    # 1. 可为空，表示不过期
+    # 2. 非空时必须大于等于 1
+    expires_days: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=3650,
+        description="过期天数，可为空（空=不过期）",
+        examples=[30],
+    )
+
+    # 批次备注
+    note: Optional[str] = Field(
+        default=None,
+        description="批次备注，可为空",
+        examples=["2026春季活动批次"],
+    )
+
+
+class IssueInviteCodeRequest(BaseModel):
+    """
+    发放邀请码请求体
+    """
+
+    # 邀请码
+    code: str = Field(
+        ...,
+        description="待发放的邀请码",
+        examples=["ABCD2345JK"],
+    )
+
+    # 发放目标手机号
+    mobile: str = Field(
+        ...,
+        description="发放目标手机号",
+        examples=["13800138000"],
+    )
+
+
+class UpdateInviteCodeStatusRequest(BaseModel):
+    """
+    修改邀请码状态请求体
+    """
+
+    # 邀请码
+    code: str = Field(
+        ...,
+        description="邀请码",
+        examples=["ABCD2345JK"],
+    )
+
+    # 目标状态
+    # 说明：
+    # 1. '1' = 未使用
+    # 2. '2' = 已使用
+    # 3. '3' = 已禁用
+    status: str = Field(
+        ...,
+        description="目标状态：1=未使用，2=已使用，3=已禁用",
+        examples=["3"],
+    )
+
+
+class InviteCodeItem(BaseModel):
+    """
+    邀请码信息响应体
+    """
+
+    # 邀请码
+    code: str = Field(..., description="邀请码")
+
+    # 状态
+    status: str = Field(..., description="邀请码状态")
+
+    # 发放目标手机号
+    issued_to_mobile: Optional[str] = Field(default=None, description="发放目标手机号")
+
+    # 使用人用户 ID
+    used_by_user_id: Optional[int] = Field(default=None, description="使用人用户ID")
+
+    # 发放时间
+    issued_time: Optional[datetime] = Field(default=None, description="发放时间")
+
+    # 使用时间
+    used_time: Optional[datetime] = Field(default=None, description="使用时间")
+
+    # 过期时间
+    expires_time: Optional[datetime] = Field(default=None, description="过期时间")
+
+    # 备注
+    note: Optional[str] = Field(default=None, description="备注")
 
 
 class SetPasswordRequest(BaseModel):

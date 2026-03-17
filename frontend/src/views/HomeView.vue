@@ -140,6 +140,9 @@ const passwordForm = ref({
   new_password: "",
 });
 
+// bcrypt 密码最大只支持 72 bytes（UTF-8）
+const BCRYPT_PASSWORD_MAX_BYTES = 72;
+
 /**
  * 统一提示函数
  *
@@ -148,6 +151,13 @@ const passwordForm = ref({
  */
 function notify(message) {
   alert(message);
+}
+
+/**
+ * 计算字符串 UTF-8 字节长度
+ */
+function getUtf8ByteLength(value) {
+  return new TextEncoder().encode(value).length;
 }
 
 /**
@@ -212,6 +222,12 @@ async function handleSetPassword() {
   // 基础校验：长度至少 6 位
   if (passwordForm.value.new_password.length < 6) {
     errorMessage.value = "密码长度不能少于 6 位";
+    return;
+  }
+
+  // bcrypt 限制：密码不能超过 72 字节（UTF-8）
+  if (getUtf8ByteLength(passwordForm.value.new_password) > BCRYPT_PASSWORD_MAX_BYTES) {
+    errorMessage.value = "密码长度不能超过 72 字节（英文约 72 位，中文约 24 位）";
     return;
   }
 

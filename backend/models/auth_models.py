@@ -625,3 +625,136 @@ class UserLoginLog(Base):
         default="1",
         comment="删除标志（0-停用，1-使用中）",
     )
+
+
+class InviteCode(Base):
+    """
+    邀请码表，对应 MySQL 表：invite_codes
+
+    设计说明：
+    1. 支持邀请码自动生成
+    2. 支持邀请码发放给指定手机号
+    3. 支持注册时一次性核销邀请码
+    4. 支持过期时间控制
+    """
+
+    # 表名
+    __tablename__ = "invite_codes"
+
+    # 主键 ID
+    id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+        comment="主键ID",
+    )
+
+    # 邀请码本体
+    # 说明：
+    # 1. 全局唯一
+    # 2. 建议使用大写字母+数字组合
+    code: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        unique=True,
+        index=True,
+        comment="邀请码，唯一",
+    )
+
+    # 邀请码状态
+    # 取值说明：
+    # 1. '1' = 未使用
+    # 2. '2' = 已使用
+    # 3. '3' = 已禁用
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="1",
+        index=True,
+        comment="邀请码状态：1=未使用，2=已使用，3=已禁用",
+    )
+
+    # 发放目标手机号
+    # 说明：
+    # 1. 可为空，表示未指定发放对象
+    # 2. 非空时，注册核销时必须与注册手机号一致
+    issued_to_mobile: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+        index=True,
+        comment="发放目标手机号，可为空",
+    )
+
+    # 发放人用户 ID（可空）
+    issued_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+        comment="发放人用户ID，可为空",
+    )
+
+    # 使用人用户 ID（可空）
+    used_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+        index=True,
+        comment="使用人用户ID，可为空",
+    )
+
+    # 发放时间
+    issued_time: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment="发放时间，可为空",
+    )
+
+    # 使用时间
+    used_time: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment="使用时间，可为空",
+    )
+
+    # 过期时间
+    # 说明：
+    # 1. 可为空，表示永不过期
+    # 2. 非空时，核销前必须校验未过期
+    expires_time: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment="过期时间，可为空（空=不过期）",
+    )
+
+    # 备注
+    note: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="备注信息，可为空",
+    )
+
+    # 创建时间
+    create_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        comment="创建时间",
+    )
+
+    # 更新时间
+    update_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    # 逻辑删除标记
+    # 说明：
+    # 1. '1' = 有效
+    # 2. '0' = 停用
+    delete_flag: Mapped[str] = mapped_column(
+        String(1),
+        nullable=False,
+        default="1",
+        comment="删除标志（0-停用，1-使用中）",
+    )

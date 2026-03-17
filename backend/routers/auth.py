@@ -47,6 +47,9 @@ from backend.schemas.auth import PasswordLoginRequest
 from backend.schemas.auth import SendSmsCodeRequest
 from backend.schemas.auth import SetPasswordRequest
 from backend.schemas.auth import SmsLoginRequest
+from backend.schemas.auth import GenerateInviteCodesRequest
+from backend.schemas.auth import IssueInviteCodeRequest
+from backend.schemas.auth import UpdateInviteCodeStatusRequest
 from backend.schemas.auth import UserProfileResponse
 from backend.schemas.auth import WechatBindMobileRequest
 from backend.schemas.auth import WechatLoginRequest
@@ -61,6 +64,10 @@ from backend.services.auth_service import login_by_sms
 from backend.services.auth_service import login_by_wechat
 from backend.services.auth_service import send_and_save_sms_code
 from backend.services.auth_service import set_password_for_user
+from backend.services.auth_service import create_invite_codes
+from backend.services.auth_service import issue_invite_code
+from backend.services.auth_service import list_invite_codes
+from backend.services.auth_service import update_invite_code_status
 
 # 导入微信服务
 from backend.services.wechat_service import build_wechat_qr_authorize_url
@@ -74,6 +81,21 @@ from backend.utils.security import decode_token_safe
 # 1. 这里不再额外写 prefix
 # 2. 由 main.py 统一 include_router 时挂到 /api/v1/auth
 router = APIRouter()
+
+
+def verify_invite_admin_key(x_admin_key: str | None) -> None:
+    """
+    校验邀请码管理接口管理员密钥
+
+    说明：
+    1. 只用于保护邀请码生成/发放接口
+    2. 密钥从配置 invite_admin_key 读取
+    """
+    if not settings.invite_admin_key:
+        raise HTTPException(status_code=500, detail="系统未配置邀请码管理密钥")
+
+    if x_admin_key != settings.invite_admin_key:
+        raise HTTPException(status_code=401, detail="管理员密钥错误")
 
 
 def extract_bearer_token(authorization: str | None) -> str | None:
@@ -309,6 +331,7 @@ def sms_login_api(
             db=db,
             mobile=payload.mobile,
             code=payload.code,
+            invite_code=payload.invite_code,
         )
 
         # 登录成功记录日志
@@ -442,6 +465,7 @@ def wechat_bind_mobile_api(
             bind_user_id=int(bind_user_id),
             mobile=payload.mobile,
             code=payload.code,
+            invite_code=payload.invite_code,
         )
 
         # 成功日志
@@ -551,3 +575,151 @@ def logout_api():
     3. 可以在这里继续扩展
     """
     return {"message": "退出成功"}
+
+
+@router.post("/invite-codes/generate")
+def generate_invite_codes_api(
+    payload: GenerateInviteCodesRequest,
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    生成邀请码接口（管理员）
+    """
+    # 先校验管理员密钥
+    verify_invite_admin_key(x_admin_key)
+
+    try:
+        rows = create_invite_codes(
+            db=db,
+            count=payload.count,
+            expires_days=payload.expires_days,
+            note=payload.note,
+            issued_by_user_id=None,
+        )
+
+        return {
+            "items": [
+                {
+                    "code": row.code,
+                    "status": row.status,
+                    "issued_to_mobile": row.issued_to_mobile,
+                    "used_by_user_id": row.used_by_user_id,
+                    "issued_time": row.issued_time,
+                    "used_time": row.used_time,
+                    "expires_time": row.expires_time,
+                    "note": row.note,
+                }
+                for row in rows
+            ]
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/invite-codes/issue")
+def issue_invite_code_api(
+    payload: IssueInviteCodeRequest,
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    发放邀请码接口（管理员）
+    """
+    # 先校验管理员密钥
+    verify_invite_admin_key(x_admin_key)
+
+    try:
+        row = issue_invite_code(
+            db=db,
+            code=payload.code,
+            mobile=payload.mobile,
+            issued_by_user_id=None,
+        )
+
+        return {
+            "code": row.code,
+            "status": row.status,
+            "issued_to_mobile": row.issued_to_mobile,
+            "used_by_user_id": row.used_by_user_id,
+            "issued_time": row.issued_time,
+            "used_time": row.used_time,
+            "expires_time": row.expires_time,
+            "note": row.note,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/invite-codes")
+def list_invite_codes_api(
+    status: str | None = Query(default=None, description="状态筛选：1=未使用，2=已使用，3=已禁用"),
+    mobile: str | None = Query(default=None, description="发放手机号筛选"),
+    code_keyword: str | None = Query(default=None, description="邀请码关键字筛选"),
+    limit: int = Query(default=50, ge=1, le=200, description="返回数量上限（1~200）"),
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    查询邀请码列表接口（管理员）
+    """
+    # 先校验管理员密钥
+    verify_invite_admin_key(x_admin_key)
+
+    rows, total = list_invite_codes(
+        db=db,
+        status=status,
+        mobile=mobile,
+        code_keyword=code_keyword,
+        limit=limit,
+    )
+
+    return {
+        "total": total,
+        "items": [
+            {
+                "code": row.code,
+                "status": row.status,
+                "issued_to_mobile": row.issued_to_mobile,
+                "used_by_user_id": row.used_by_user_id,
+                "issued_time": row.issued_time,
+                "used_time": row.used_time,
+                "expires_time": row.expires_time,
+                "note": row.note,
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.post("/invite-codes/update-status")
+def update_invite_code_status_api(
+    payload: UpdateInviteCodeStatusRequest,
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    修改邀请码状态接口（管理员）
+    """
+    # 先校验管理员密钥
+    verify_invite_admin_key(x_admin_key)
+
+    try:
+        row = update_invite_code_status(
+            db=db,
+            code=payload.code,
+            target_status=payload.status,
+        )
+
+        return {
+            "code": row.code,
+            "status": row.status,
+            "issued_to_mobile": row.issued_to_mobile,
+            "used_by_user_id": row.used_by_user_id,
+            "issued_time": row.issued_time,
+            "used_time": row.used_time,
+            "expires_time": row.expires_time,
+            "note": row.note,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

@@ -15,6 +15,8 @@ import LoginView from "../views/LoginView.vue";
 
 // 导入首页
 import HomeView from "../views/HomeView.vue";
+// 导入邀请码管理页
+import InviteAdminView from "../views/InviteAdminView.vue";
 
 /**
  * 路由表
@@ -37,6 +39,15 @@ const routes = [
     meta: {
       requiresAuth: true,
     },
+  },
+  {
+    // 邀请码管理页
+    // 说明：
+    // 1. 页面访问本身不强制登录
+    // 2. 真正权限由后端 X-Admin-Key 校验
+    path: "/invite-admin",
+    name: "invite-admin",
+    component: InviteAdminView,
   },
 ];
 

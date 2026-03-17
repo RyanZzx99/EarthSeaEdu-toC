@@ -6,3 +6,4 @@ from backend.models.auth_models import UserAuthIdentity
 from backend.models.auth_models import SmsCode
 from backend.models.auth_models import WechatLoginState
 from backend.models.auth_models import UserLoginLog
+from backend.models.auth_models import InviteCode

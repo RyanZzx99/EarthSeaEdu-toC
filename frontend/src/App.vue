@@ -1,9 +1,4 @@
 <template>
-  <!-- 直接挂登录页面 -->
-  <LoginPage />
+  <!-- 根组件只负责承载路由页面 -->
+  <router-view />
 </template>
-
-<script setup>
-// 导入登录页面组件
-import LoginPage from "./components/LoginPage.vue";
-</script>

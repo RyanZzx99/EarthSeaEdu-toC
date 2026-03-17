@@ -58,7 +58,7 @@ def send_sms_code(mobile: str, biz_type: str) -> str:
     """
 
     # 先生成 6 位数字验证码
-    code = generate_numeric_code(6)
+    code = str(generate_numeric_code(6))
 
     # 如果是开发联调模式，则不走真实腾讯云短信接口
     if settings.tencentcloud_sms_mock:
