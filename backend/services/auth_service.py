@@ -1052,6 +1052,49 @@ def set_password_for_user(db: Session, user_id: int, new_password: str) -> None:
     db.commit()
 
 
+def update_user_status(
+    db: Session,
+    target_status: str,
+    user_id: int | None = None,
+    mobile: str | None = None,
+) -> User:
+    """
+    管理员修改用户状态
+
+    说明：
+    1. 仅支持 active / disabled
+    2. user_id 与 mobile 至少传一个
+    3. 优先按 user_id 修改，其次按 mobile 修改
+    """
+    # 中文注释：用户状态只允许 active/disabled，避免落库脏数据
+    if target_status not in {"active", "disabled"}:
+        raise ValueError("用户状态仅支持 active 或 disabled")
+
+    # 中文注释：至少需要一个定位条件，避免误操作全表
+    if user_id is None and (mobile is None or not mobile.strip()):
+        raise ValueError("user_id 与 mobile 至少需要提供一个")
+
+    query = db.query(User).filter(User.delete_flag == "1")
+
+    # 中文注释：优先走 user_id 精确匹配；未提供 user_id 时再按手机号匹配
+    if user_id is not None:
+        user = query.filter(User.id == user_id).first()
+    else:
+        user = query.filter(User.mobile == mobile.strip()).first()
+
+    if not user:
+        raise ValueError("用户不存在")
+
+    # 中文注释：状态无变化时不重复提交事务
+    if user.status == target_status:
+        return user
+
+    user.status = target_status
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 def get_user_profile(db: Session, user_id: int) -> User | None:
     """
     获取当前用户资料

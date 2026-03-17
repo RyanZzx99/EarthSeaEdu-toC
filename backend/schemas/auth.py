@@ -244,6 +244,36 @@ class UpdateInviteCodeStatusRequest(BaseModel):
     )
 
 
+class UpdateUserStatusRequest(BaseModel):
+    """
+    修改用户状态请求体（管理员）
+    """
+
+    # 用户ID（与 mobile 二选一，至少传一个）
+    user_id: Optional[int] = Field(
+        default=None,
+        description="用户ID（可选）",
+        examples=[1001],
+    )
+
+    # 手机号（与 user_id 二选一，至少传一个）
+    mobile: Optional[str] = Field(
+        default=None,
+        description="手机号（可选）",
+        examples=["13800138000"],
+    )
+
+    # 目标用户状态
+    # 说明：
+    # 1. active = 启用
+    # 2. disabled = 禁用
+    status: str = Field(
+        ...,
+        description="目标用户状态：active/disabled",
+        examples=["disabled"],
+    )
+
+
 class InviteCodeItem(BaseModel):
     """
     邀请码信息响应体

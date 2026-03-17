@@ -50,6 +50,7 @@ from backend.schemas.auth import SmsLoginRequest
 from backend.schemas.auth import GenerateInviteCodesRequest
 from backend.schemas.auth import IssueInviteCodeRequest
 from backend.schemas.auth import UpdateInviteCodeStatusRequest
+from backend.schemas.auth import UpdateUserStatusRequest
 from backend.schemas.auth import UserProfileResponse
 from backend.schemas.auth import WechatBindMobileRequest
 from backend.schemas.auth import WechatLoginRequest
@@ -68,6 +69,7 @@ from backend.services.auth_service import create_invite_codes
 from backend.services.auth_service import issue_invite_code
 from backend.services.auth_service import list_invite_codes
 from backend.services.auth_service import update_invite_code_status
+from backend.services.auth_service import update_user_status
 
 # 导入微信服务
 from backend.services.wechat_service import build_wechat_qr_authorize_url
@@ -720,6 +722,34 @@ def update_invite_code_status_api(
             "used_time": row.used_time,
             "expires_time": row.expires_time,
             "note": row.note,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/users/update-status")
+def update_user_status_api(
+    payload: UpdateUserStatusRequest,
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    修改用户状态接口（管理员）
+    """
+    # 中文注释：用户状态修改属于后台管理能力，必须校验管理员密钥
+    verify_invite_admin_key(x_admin_key)
+
+    try:
+        user = update_user_status(
+            db=db,
+            target_status=payload.status,
+            user_id=payload.user_id,
+            mobile=payload.mobile,
+        )
+        return {
+            "user_id": user.id,
+            "mobile": user.mobile,
+            "status": user.status,
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

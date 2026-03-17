@@ -238,3 +238,19 @@ export function updateInviteCodeStatus(data, adminKey) {
     },
   });
 }
+
+/**
+ * 修改用户状态（管理员）
+ *
+ * 说明：
+ * 1. 需要在请求头中传 X-Admin-Key
+ * 2. data 示例：{ user_id: 1001, mobile: "13800138000", status: "disabled" }
+ * 3. user_id 与 mobile 至少传一个
+ */
+export function updateUserStatus(data, adminKey) {
+  return request.post("/api/v1/auth/users/update-status", data, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}

@@ -1,13 +1,12 @@
 <template>
-  <!-- 邀请码管理页容器 -->
-  <div class="invite-admin-page">
-    <!-- 页面标题 -->
-    <h1 class="title">邀请码管理</h1>
+  <!-- 中文注释：管理员控制台页面容器 -->
+  <div class="admin-console-page">
+    <h1 class="title">管理员控制台</h1>
 
-    <!-- 管理员密钥输入区域 -->
+    <!-- 中文注释：管理员密钥，所有管理接口都依赖它 -->
     <section class="card">
       <h2 class="card-title">管理员密钥</h2>
-      <p class="desc">用于调用生成/发放/查询邀请码接口，请填写后再操作。</p>
+      <p class="desc">请先填写 `X-Admin-Key`，再执行下方管理操作。</p>
       <input
         v-model.trim="adminKey"
         class="input"
@@ -16,11 +15,9 @@
       />
     </section>
 
-    <!-- 生成邀请码区域 -->
+    <!-- 中文注释：邀请码生成 -->
     <section class="card">
       <h2 class="card-title">生成邀请码</h2>
-
-      <!-- 生成数量 -->
       <input
         v-model.number="generateForm.count"
         class="input"
@@ -29,8 +26,6 @@
         max="200"
         placeholder="生成数量（1~200）"
       />
-
-      <!-- 过期天数 -->
       <input
         v-model.number="generateForm.expires_days"
         class="input"
@@ -39,71 +34,45 @@
         max="3650"
         placeholder="过期天数（可留空）"
       />
-
-      <!-- 批次备注 -->
       <input
         v-model.trim="generateForm.note"
         class="input"
         placeholder="批次备注（可留空）"
       />
-
-      <!-- 生成按钮 -->
       <button class="primary-btn" :disabled="loadingGenerate" @click="handleGenerate">
         {{ loadingGenerate ? "生成中..." : "生成邀请码" }}
       </button>
     </section>
 
-    <!-- 发放邀请码区域 -->
+    <!-- 中文注释：邀请码发放 -->
     <section class="card">
       <h2 class="card-title">发放邀请码</h2>
-
-      <!-- 邀请码 -->
-      <input
-        v-model.trim="issueForm.code"
-        class="input"
-        placeholder="邀请码"
-      />
-
-      <!-- 发放目标手机号 -->
-      <input
-        v-model.trim="issueForm.mobile"
-        class="input"
-        placeholder="发放目标手机号"
-      />
-
-      <!-- 发放按钮 -->
+      <input v-model.trim="issueForm.code" class="input" placeholder="邀请码" />
+      <input v-model.trim="issueForm.mobile" class="input" placeholder="发放目标手机号" />
       <button class="primary-btn" :disabled="loadingIssue" @click="handleIssue">
         {{ loadingIssue ? "发放中..." : "发放邀请码" }}
       </button>
     </section>
 
-    <!-- 查询邀请码区域 -->
+    <!-- 中文注释：邀请码查询 -->
     <section class="card">
       <h2 class="card-title">查询邀请码</h2>
-
-      <!-- 状态筛选 -->
       <select v-model="queryForm.status" class="input">
         <option value="">全部状态</option>
         <option value="1">1（未使用）</option>
         <option value="2">2（已使用）</option>
         <option value="3">3（已禁用）</option>
       </select>
-
-      <!-- 发放手机号筛选 -->
       <input
         v-model.trim="queryForm.mobile"
         class="input"
         placeholder="发放手机号筛选（可留空）"
       />
-
-      <!-- 邀请码关键字筛选 -->
       <input
         v-model.trim="queryForm.code_keyword"
         class="input"
         placeholder="邀请码关键字筛选（可留空）"
       />
-
-      <!-- 返回数量上限 -->
       <input
         v-model.number="queryForm.limit"
         class="input"
@@ -112,17 +81,41 @@
         max="200"
         placeholder="返回数量上限（1~200）"
       />
-
-      <!-- 查询按钮 -->
       <button class="primary-btn" :disabled="loadingQuery" @click="handleQuery">
         {{ loadingQuery ? "查询中..." : "查询邀请码" }}
       </button>
     </section>
 
-    <!-- 错误提示 -->
+    <!-- 中文注释：新增用户状态修改能力（非邀请码状态） -->
+    <section class="card">
+      <h2 class="card-title">修改用户状态</h2>
+      <p class="desc">支持按用户ID或手机号修改；状态仅支持 active / disabled。</p>
+      <input
+        v-model.number="userStatusForm.user_id"
+        class="input"
+        type="number"
+        min="1"
+        placeholder="用户ID（可留空，与手机号二选一）"
+      />
+      <input
+        v-model.trim="userStatusForm.mobile"
+        class="input"
+        placeholder="手机号（可留空，与用户ID二选一）"
+      />
+      <select v-model="userStatusForm.status" class="input">
+        <option value="active">active（启用）</option>
+        <option value="disabled">disabled（禁用）</option>
+      </select>
+      <button class="primary-btn" :disabled="loadingUserStatus" @click="handleUpdateUserStatus">
+        {{ loadingUserStatus ? "保存中..." : "修改用户状态" }}
+      </button>
+      <div v-if="lastUserStatusResult.user_id" class="result-box">
+        用户ID：{{ lastUserStatusResult.user_id }}，手机号：{{ lastUserStatusResult.mobile || "-" }}，状态：{{ lastUserStatusResult.status }}
+      </div>
+    </section>
+
     <div v-if="errorMessage" class="error-box">{{ errorMessage }}</div>
 
-    <!-- 生成结果展示 -->
     <section v-if="generatedItems.length" class="card">
       <h2 class="card-title">最近生成结果</h2>
       <div class="list">
@@ -134,7 +127,6 @@
       </div>
     </section>
 
-    <!-- 发放结果展示 -->
     <section v-if="lastIssued.code" class="card">
       <h2 class="card-title">最近发放结果</h2>
       <p>邀请码：{{ lastIssued.code }}</p>
@@ -143,7 +135,6 @@
       <p>发放时间：{{ formatDate(lastIssued.issued_time) }}</p>
     </section>
 
-    <!-- 查询结果展示 -->
     <section v-if="inviteList.length" class="card">
       <h2 class="card-title">查询结果（共 {{ queryTotal }} 条）</h2>
       <div class="table-wrap">
@@ -172,7 +163,6 @@
               <td>{{ formatDate(item.expires_time) }}</td>
               <td>{{ item.note || "-" }}</td>
               <td>
-                <!-- 行内状态下拉 -->
                 <select
                   class="inline-select"
                   :value="getPendingStatus(item.code, item.status)"
@@ -182,8 +172,7 @@
                   <option value="2">2（已使用）</option>
                   <option value="3">3（已禁用）</option>
                 </select>
-                <!-- 行内保存按钮 -->
-                <button class="inline-btn" @click="handleUpdateStatus(item)">保存</button>
+                <button class="inline-btn" @click="handleUpdateInviteStatus(item)">保存</button>
               </td>
             </tr>
           </tbody>
@@ -194,92 +183,52 @@
 </template>
 
 <script setup>
-// 导入 Vue 响应式 API
+// 中文注释：页面内统一使用 ref 管理状态
 import { ref } from "vue";
-
-// 导入邀请码管理接口
 import {
   generateInviteCodes,
   issueInviteCode,
   listInviteCodes,
   updateInviteCodeStatus,
+  updateUserStatus,
 } from "../api/auth";
 
-// 管理员密钥
+// 中文注释：管理员密钥
 const adminKey = ref("");
 
-// 生成邀请码表单
-const generateForm = ref({
-  // 生成数量，默认 10
-  count: 10,
-  // 过期天数，可空
-  expires_days: null,
-  // 批次备注
-  note: "",
-});
+// 中文注释：邀请码管理表单
+const generateForm = ref({ count: 10, expires_days: null, note: "" });
+const issueForm = ref({ code: "", mobile: "" });
+const queryForm = ref({ status: "", mobile: "", code_keyword: "", limit: 50 });
 
-// 发放邀请码表单
-const issueForm = ref({
-  // 邀请码
-  code: "",
-  // 发放手机号
-  mobile: "",
-});
+// 中文注释：新增用户状态管理表单
+const userStatusForm = ref({ user_id: null, mobile: "", status: "active" });
+const lastUserStatusResult = ref({});
 
-// 查询邀请码表单
-const queryForm = ref({
-  // 状态筛选：1=未使用，2=已使用，3=已禁用
-  status: "",
-  // 发放手机号筛选
-  mobile: "",
-  // 邀请码关键字筛选
-  code_keyword: "",
-  // 返回数量上限
-  limit: 50,
-});
-
-// 最近生成结果
+// 中文注释：页面展示与加载态
 const generatedItems = ref([]);
-
-// 最近发放结果
 const lastIssued = ref({});
-
-// 查询结果列表
 const inviteList = ref([]);
-
-// 查询总数
 const queryTotal = ref(0);
-
-// 生成接口 loading
+const pendingStatusMap = ref({});
 const loadingGenerate = ref(false);
-
-// 发放接口 loading
 const loadingIssue = ref(false);
-
-// 查询接口 loading
 const loadingQuery = ref(false);
-
-// 页面错误消息
+const loadingUserStatus = ref(false);
 const errorMessage = ref("");
 
-// 邀请码行内待修改状态映射
-// 说明：
-// 1. key=邀请码 code
-// 2. value=待提交状态（1/2/3）
-const pendingStatusMap = ref({});
-
-// 校验中国大陆手机号格式
+// 中文注释：手机号格式校验
 function validateMobile(mobile) {
   return /^1\d{10}$/.test(mobile);
 }
 
-// 格式化时间展示
+// 中文注释：时间格式化展示
 function formatDate(value) {
   if (!value) return "-";
   return new Date(value).toLocaleString();
 }
 
-// 邀请码状态格式化
+// 中文注释：邀请码状态格式化
 function formatInviteStatus(status) {
   if (status === "1") return "1（未使用）";
   if (status === "2") return "2（已使用）";
@@ -287,38 +236,37 @@ function formatInviteStatus(status) {
   return status || "-";
 }
 
-// 获取某个邀请码行的待修改状态
+// 中文注释：表格行内待保存状态缓存
 function getPendingStatus(code, currentStatus) {
   return pendingStatusMap.value[code] || currentStatus || "1";
 }
 
-// 设置某个邀请码行的待修改状态
+// 中文注释：更新表格行内待保存状态缓存
 function setPendingStatus(code, status) {
   pendingStatusMap.value[code] = status;
 }
 
-// 生成邀请码
-async function handleGenerate() {
-  // 清空错误
-  errorMessage.value = "";
-
-  // 管理员密钥校验
+// 中文注释：统一校验管理员密钥
+function ensureAdminKey() {
   if (!adminKey.value) {
     errorMessage.value = "请输入管理员密钥";
-    return;
+    return false;
   }
+  return true;
+}
 
-  // 数量校验
+// 中文注释：生成邀请码
+async function handleGenerate() {
+  errorMessage.value = "";
+  if (!ensureAdminKey()) return;
+
   if (!generateForm.value.count || generateForm.value.count < 1 || generateForm.value.count > 200) {
     errorMessage.value = "生成数量必须在 1~200 之间";
     return;
   }
 
   try {
-    // 打开 loading
     loadingGenerate.value = true;
-
-    // 调用后端生成接口
     const res = await generateInviteCodes(
       {
         count: generateForm.value.count,
@@ -327,46 +275,30 @@ async function handleGenerate() {
       },
       adminKey.value
     );
-
-    // 保存返回结果用于展示
     generatedItems.value = res?.data?.items || [];
   } catch (error) {
-    // 展示后端错误
     errorMessage.value = error?.response?.data?.detail || "生成邀请码失败";
   } finally {
-    // 关闭 loading
     loadingGenerate.value = false;
   }
 }
 
-// 发放邀请码
+// 中文注释：发放邀请码
 async function handleIssue() {
-  // 清空错误
   errorMessage.value = "";
+  if (!ensureAdminKey()) return;
 
-  // 管理员密钥校验
-  if (!adminKey.value) {
-    errorMessage.value = "请输入管理员密钥";
-    return;
-  }
-
-  // 邀请码校验
   if (!issueForm.value.code) {
     errorMessage.value = "请输入邀请码";
     return;
   }
-
-  // 手机号校验
   if (!validateMobile(issueForm.value.mobile)) {
     errorMessage.value = "手机号格式不正确";
     return;
   }
 
   try {
-    // 打开 loading
     loadingIssue.value = true;
-
-    // 调用后端发放接口
     const res = await issueInviteCode(
       {
         code: issueForm.value.code,
@@ -374,40 +306,26 @@ async function handleIssue() {
       },
       adminKey.value
     );
-
-    // 保存最近发放结果
     lastIssued.value = res?.data || {};
   } catch (error) {
-    // 展示后端错误
     errorMessage.value = error?.response?.data?.detail || "发放邀请码失败";
   } finally {
-    // 关闭 loading
     loadingIssue.value = false;
   }
 }
 
-// 查询邀请码列表
+// 中文注释：查询邀请码
 async function handleQuery() {
-  // 清空错误
   errorMessage.value = "";
+  if (!ensureAdminKey()) return;
 
-  // 管理员密钥校验
-  if (!adminKey.value) {
-    errorMessage.value = "请输入管理员密钥";
-    return;
-  }
-
-  // limit 校验
   if (!queryForm.value.limit || queryForm.value.limit < 1 || queryForm.value.limit > 200) {
     errorMessage.value = "返回数量上限必须在 1~200 之间";
     return;
   }
 
   try {
-    // 打开 loading
     loadingQuery.value = true;
-
-    // 调用后端查询接口
     const res = await listInviteCodes(
       {
         status: queryForm.value.status || null,
@@ -417,48 +335,33 @@ async function handleQuery() {
       },
       adminKey.value
     );
-
-    // 保存查询结果
     inviteList.value = res?.data?.items || [];
     queryTotal.value = res?.data?.total || 0;
 
-    // 每次查询后，同步初始化行内状态缓存
     const nextMap = {};
     for (const item of inviteList.value) {
       nextMap[item.code] = item.status;
     }
     pendingStatusMap.value = nextMap;
   } catch (error) {
-    // 展示后端错误
     errorMessage.value = error?.response?.data?.detail || "查询邀请码失败";
   } finally {
-    // 关闭 loading
     loadingQuery.value = false;
   }
 }
 
-// 保存某一行的邀请码状态
-async function handleUpdateStatus(item) {
-  // 清空错误
+// 中文注释：保存邀请码状态修改
+async function handleUpdateInviteStatus(item) {
   errorMessage.value = "";
+  if (!ensureAdminKey()) return;
 
-  // 管理员密钥校验
-  if (!adminKey.value) {
-    errorMessage.value = "请输入管理员密钥";
-    return;
-  }
-
-  // 读取待提交状态
   const targetStatus = getPendingStatus(item.code, item.status);
-
-  // 状态值基础校验
   if (!["1", "2", "3"].includes(targetStatus)) {
     errorMessage.value = "状态仅支持 1、2、3";
     return;
   }
 
   try {
-    // 调后端更新状态接口
     const res = await updateInviteCodeStatus(
       {
         code: item.code,
@@ -466,34 +369,68 @@ async function handleUpdateStatus(item) {
       },
       adminKey.value
     );
-
-    // 本地更新当前行展示，减少一次刷新等待
     item.status = res?.data?.status || targetStatus;
     item.used_by_user_id = res?.data?.used_by_user_id ?? item.used_by_user_id;
     item.used_time = res?.data?.used_time ?? item.used_time;
   } catch (error) {
-    // 显示后端错误
     errorMessage.value = error?.response?.data?.detail || "修改邀请码状态失败";
+  }
+}
+
+// 中文注释：保存用户状态修改（非邀请码状态）
+async function handleUpdateUserStatus() {
+  errorMessage.value = "";
+  if (!ensureAdminKey()) return;
+
+  const userId = userStatusForm.value.user_id;
+  const mobile = userStatusForm.value.mobile;
+  const status = userStatusForm.value.status;
+
+  if (!userId && !mobile) {
+    errorMessage.value = "用户ID和手机号至少填写一个";
+    return;
+  }
+  if (mobile && !validateMobile(mobile)) {
+    errorMessage.value = "手机号格式不正确";
+    return;
+  }
+  if (!["active", "disabled"].includes(status)) {
+    errorMessage.value = "用户状态仅支持 active / disabled";
+    return;
+  }
+
+  try {
+    loadingUserStatus.value = true;
+    const res = await updateUserStatus(
+      {
+        user_id: userId || null,
+        mobile: mobile || null,
+        status,
+      },
+      adminKey.value
+    );
+    lastUserStatusResult.value = res?.data || {};
+  } catch (error) {
+    errorMessage.value = error?.response?.data?.detail || "修改用户状态失败";
+  } finally {
+    loadingUserStatus.value = false;
   }
 }
 </script>
 
 <style scoped>
-/* 页面容器 */
-.invite-admin-page {
-  width: 760px;
+.admin-console-page {
+  width: 860px;
   max-width: calc(100vw - 32px);
   margin: 24px auto;
   font-family: Arial, sans-serif;
 }
 
-/* 页面标题 */
 .title {
   margin-bottom: 16px;
   text-align: center;
 }
 
-/* 卡片容器 */
 .card {
   padding: 16px;
   margin-bottom: 14px;
@@ -502,19 +439,16 @@ async function handleUpdateStatus(item) {
   background: #fff;
 }
 
-/* 卡片标题 */
 .card-title {
   margin: 0 0 10px;
 }
 
-/* 描述文字 */
 .desc {
   margin: 0 0 10px;
   color: #666;
   font-size: 14px;
 }
 
-/* 输入框 */
 .input {
   width: 100%;
   box-sizing: border-box;
@@ -522,13 +456,11 @@ async function handleUpdateStatus(item) {
   margin-bottom: 10px;
 }
 
-/* 主按钮 */
 .primary-btn {
   padding: 10px 14px;
   cursor: pointer;
 }
 
-/* 错误提示 */
 .error-box {
   margin-bottom: 14px;
   padding: 10px;
@@ -538,14 +470,22 @@ async function handleUpdateStatus(item) {
   border-radius: 8px;
 }
 
-/* 列表容器 */
+.result-box {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #d9e8ff;
+  background: #f5f9ff;
+  border-radius: 8px;
+  color: #2f5a9e;
+  font-size: 14px;
+}
+
 .list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-/* 列表项 */
 .list-item {
   display: flex;
   flex-wrap: wrap;
@@ -555,30 +495,25 @@ async function handleUpdateStatus(item) {
   border-radius: 8px;
 }
 
-/* 邀请码高亮 */
 .code {
   font-weight: 700;
 }
 
-/* 元信息 */
 .meta {
   color: #555;
   font-size: 13px;
 }
 
-/* 表格横向滚动容器 */
 .table-wrap {
   overflow-x: auto;
 }
 
-/* 表格 */
 .table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
 
-/* 表头和单元格边框 */
 .table th,
 .table td {
   border: 1px solid #e5e5e5;
@@ -587,19 +522,16 @@ async function handleUpdateStatus(item) {
   white-space: nowrap;
 }
 
-/* 表头底色 */
 .table th {
   background: #f7f7f7;
 }
 
-/* 表格行内状态下拉 */
 .inline-select {
   width: 130px;
   padding: 4px 6px;
   margin-right: 8px;
 }
 
-/* 表格行内保存按钮 */
 .inline-btn {
   padding: 4px 10px;
   cursor: pointer;
