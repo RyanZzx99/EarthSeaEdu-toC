@@ -316,9 +316,10 @@ class SetPasswordRequest(BaseModel):
     # 新密码
     new_password: str = Field(
         ...,
-        min_length=6,
-        description="新密码，至少 6 位",
-        examples=["abc123456"],
+        min_length=8,
+        max_length=24,
+        description="新密码，8-24 位，至少包含字母、数字、特殊字符中的 2 种，且不能包含空格",
+        examples=["abc12345"],
     )
 
 

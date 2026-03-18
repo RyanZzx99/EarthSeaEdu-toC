@@ -268,6 +268,18 @@ function clearLoginQueryParams() {
   window.history.replaceState({}, document.title, "/login");
 }
 
+// 处理登录过期提示
+function handleSessionExpiredTip() {
+  // 中文注释：从地址栏读取 session_expired 标记，用于展示一次性提示
+  const currentUrl = new URL(window.location.href);
+  const sessionExpired = currentUrl.searchParams.get("session_expired");
+
+  if (sessionExpired === "1") {
+    errorMessage.value = "登录已过期，请重新登录";
+    clearLoginQueryParams();
+  }
+}
+
 // 简单手机号校验
 function validateMobile(mobile) {
   // 中国大陆手机号基础校验
@@ -628,6 +640,9 @@ async function handleWechatCallbackLogin() {
 
 // 页面挂载后自动执行
 onMounted(async () => {
+  // 中文注释：优先处理登录过期提示，避免被后续逻辑覆盖
+  handleSessionExpiredTip();
+
   // 先处理微信扫码登录回跳逻辑
   await handleWechatCallbackLogin();
 });

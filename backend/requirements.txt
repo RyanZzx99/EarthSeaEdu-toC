@@ -33,3 +33,6 @@ sshtunnel==0.4.0
 
 # Python 的 SSH 底层库，sshtunnel 依赖它
 paramiko<4
+
+# Redis 客户端
+redis>=5.0.0

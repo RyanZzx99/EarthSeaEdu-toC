@@ -24,6 +24,7 @@ from datetime import timezone
 
 # 导入 hashlib，用于短信验证码 SHA256 哈希
 import hashlib
+import string
 
 # 导入 JWT 相关异常和编码工具
 from jose import JWTError
@@ -38,6 +39,9 @@ from backend.config.db_conf import settings
 
 # bcrypt 明文密码最大只支持 72 bytes（按 UTF-8 计算）
 BCRYPT_PASSWORD_MAX_BYTES = 72
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 24
+PASSWORD_SPECIAL_CHARS = string.punctuation
 
 
 def get_utf8_byte_length(value: str) -> int:
@@ -53,6 +57,37 @@ def ensure_bcrypt_password_length(password: str) -> None:
     """
     if get_utf8_byte_length(password) > BCRYPT_PASSWORD_MAX_BYTES:
         raise ValueError("密码长度不能超过 72 字节（英文约 72 位，中文约 24 位）")
+
+
+def validate_password_strength(password: str) -> None:
+    """
+    校验密码是否符合当前项目规则
+
+    当前规则：
+    1. 长度 8-24 位
+    2. 不能包含空格或其他空白字符
+    3. 至少包含字母、数字、特殊字符中的 2 种
+    4. 必须满足 bcrypt 的 72 bytes 限制
+    """
+    # 中文注释：先校验 bcrypt 的 72 字节限制，避免后续哈希时报错
+    ensure_bcrypt_password_length(password)
+
+    # 中文注释：按字符个数校验前端选定的 8-24 位规则
+    if len(password) < PASSWORD_MIN_LENGTH or len(password) > PASSWORD_MAX_LENGTH:
+        raise ValueError("密码长度需为 8-24 位")
+
+    # 中文注释：禁止任何空白字符，避免输入看起来相同但实际不同的密码
+    if any(char.isspace() for char in password):
+        raise ValueError("密码不能包含空格或其他空白字符")
+
+    # 中文注释：统计密码命中的字符类型，至少满足两类
+    has_letter = any(char.isalpha() for char in password)
+    has_digit = any(char.isdigit() for char in password)
+    has_special = any(char in PASSWORD_SPECIAL_CHARS for char in password)
+    matched_types = sum([has_letter, has_digit, has_special])
+
+    if matched_types < 2:
+        raise ValueError("密码至少需包含字母、数字、特殊字符中的 2 种")
 
 
 def hash_password(password: str) -> str:

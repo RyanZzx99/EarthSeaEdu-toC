@@ -86,9 +86,9 @@ request.interceptors.response.use(
       // 当前浏览器路径
       const currentPath = window.location.pathname;
 
-      // 如果当前不在登录页，则跳转到登录页
+      // 中文注释：如果当前不在登录页，则带上“登录已过期”标记跳转，便于登录页展示提示
       if (currentPath !== "/login") {
-        window.location.href = "/login";
+        window.location.href = "/login?session_expired=1";
       }
     }
 

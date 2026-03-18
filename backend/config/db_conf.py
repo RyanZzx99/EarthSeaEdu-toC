@@ -229,6 +229,25 @@ class Settings(BaseSettings):
     invite_admin_key: str = ""
 
     # =========================================================
+    # 十一、Redis 配置
+    # =========================================================
+
+    # Redis 主机地址
+    redis_host: str = "127.0.0.1"
+
+    # Redis 端口
+    redis_port: int = 6379
+
+    # Redis 密码
+    redis_password: str = ""
+
+    # Redis 数据库编号
+    redis_db: int = 0
+
+    # Redis 是否自动把返回结果解码为字符串
+    redis_decode_responses: bool = True
+
+    # =========================================================
     # 九、.env 文件读取配置
     # =========================================================
 
@@ -308,6 +327,25 @@ class Settings(BaseSettings):
             database=self.resolved_mysql_database,
             query={"charset": self.mysql_charset},
         ).render_as_string(hide_password=False)
+
+    @property
+    def redis_url(self) -> str:
+        """
+        构造 Redis 连接地址
+
+        说明：
+        1. 如配置了密码，则拼接带密码的 redis:// URL
+        2. 未配置密码时使用无认证 URL
+        """
+        # 中文注释：有密码时使用 :password@host 的标准 Redis URL 格式
+        if self.redis_password:
+            return (
+                f"redis://:{self.redis_password}"
+                f"@{self.redis_host}:{self.redis_port}/{self.redis_db}"
+            )
+
+        # 中文注释：无密码场景直接返回基础连接地址
+        return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
 
 @lru_cache

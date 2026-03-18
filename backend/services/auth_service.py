@@ -40,6 +40,7 @@ from backend.utils.security import create_access_token
 from backend.utils.security import create_bind_token
 from backend.utils.security import hash_code
 from backend.utils.security import hash_password
+from backend.utils.security import validate_password_strength
 from backend.utils.security import verify_code
 from backend.utils.security import verify_password
 
@@ -1044,6 +1045,9 @@ def set_password_for_user(db: Session, user_id: int, new_password: str) -> None:
     # 用户状态校验
     if user.status != "active":
         raise ValueError("用户已被禁用")
+
+    # 中文注释：设置密码前先走统一密码强度校验，确保前后端规则一致
+    validate_password_strength(new_password)
 
     # 保存密码哈希
     user.password_hash = hash_password(new_password)

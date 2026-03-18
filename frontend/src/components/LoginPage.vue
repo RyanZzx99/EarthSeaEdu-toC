@@ -167,7 +167,7 @@
           v-model="newPassword"
           class="input"
           type="password"
-          placeholder="设置新密码（至少6位）"
+          placeholder="设置新密码（8-24位，至少包含2种字符类型）"
         />
 
         <!-- 设置密码按钮 -->
@@ -235,6 +235,10 @@ const profile = ref(null);
 // 新密码
 const newPassword = ref("");
 
+// 密码规则：8-24 位、至少包含字母/数字/特殊字符中的 2 种、不能有空格
+const PASSWORD_MIN_LENGTH = 8;
+const PASSWORD_MAX_LENGTH = 24;
+
 // bcrypt 密码最大只支持 72 bytes（UTF-8）
 const BCRYPT_PASSWORD_MAX_BYTES = 72;
 
@@ -260,6 +264,36 @@ function notify(message) {
 // 计算字符串 UTF-8 字节长度
 function getUtf8ByteLength(value) {
   return new TextEncoder().encode(value).length;
+}
+
+// 校验密码是否符合当前页面规则
+function validatePassword(value) {
+  // 中文注释：密码长度必须在 8-24 位之间
+  if (value.length < PASSWORD_MIN_LENGTH || value.length > PASSWORD_MAX_LENGTH) {
+    return "密码长度需为 8-24 位";
+  }
+
+  // 中文注释：不允许空格、Tab、换行等空白字符
+  if (/\s/.test(value)) {
+    return "密码不能包含空格或其他空白字符";
+  }
+
+  // 中文注释：至少包含字母、数字、特殊字符中的两类
+  const hasLetter = /[A-Za-z]/.test(value);
+  const hasDigit = /\d/.test(value);
+  const hasSpecial = /[^A-Za-z0-9\s]/.test(value);
+  const matchedTypes = [hasLetter, hasDigit, hasSpecial].filter(Boolean).length;
+
+  if (matchedTypes < 2) {
+    return "密码至少需包含字母、数字、特殊字符中的 2 种";
+  }
+
+  // 中文注释：同步校验 bcrypt 72 字节限制
+  if (getUtf8ByteLength(value) > BCRYPT_PASSWORD_MAX_BYTES) {
+    return "密码长度不能超过 72 字节（英文约 72 位，中文约 24 位）";
+  }
+
+  return "";
 }
 
 // 获取当前登录用户信息
@@ -412,15 +446,10 @@ async function handleSetPassword() {
     return;
   }
 
-  // 基础校验：长度至少 6 位
-  if (newPassword.value.length < 6) {
-    notify("密码长度不能少于 6 位");
-    return;
-  }
-
-  // bcrypt 限制：密码不能超过 72 字节（UTF-8）
-  if (getUtf8ByteLength(newPassword.value) > BCRYPT_PASSWORD_MAX_BYTES) {
-    notify("密码长度不能超过 72 字节（英文约 72 位，中文约 24 位）");
+  // 中文注释：统一走当前页面密码规则校验
+  const passwordError = validatePassword(newPassword.value);
+  if (passwordError) {
+    notify(passwordError);
     return;
   }
 
