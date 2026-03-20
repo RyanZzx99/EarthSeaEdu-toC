@@ -91,11 +91,9 @@
       <h2 class="card-title">修改用户状态</h2>
       <p class="desc">支持按用户ID或手机号修改；状态仅支持 active / disabled。</p>
       <input
-        v-model.number="userStatusForm.user_id"
+        v-model.trim="userStatusForm.user_id"
         class="input"
-        type="number"
-        min="1"
-        placeholder="用户ID（可留空，与手机号二选一）"
+        placeholder="用户ID（UUID，可留空，与手机号二选一）"
       />
       <input
         v-model.trim="userStatusForm.mobile"
@@ -202,7 +200,7 @@ const issueForm = ref({ code: "", mobile: "" });
 const queryForm = ref({ status: "", mobile: "", code_keyword: "", limit: 50 });
 
 // 中文注释：新增用户状态管理表单
-const userStatusForm = ref({ user_id: null, mobile: "", status: "active" });
+const userStatusForm = ref({ user_id: "", mobile: "", status: "active" });
 const lastUserStatusResult = ref({});
 
 // 中文注释：页面展示与加载态

@@ -17,31 +17,22 @@
    - 绑定手机号时支持合并到已有手机号账号
 """
 
-# 导入 datetime，用于计算当天起始时间等
-from datetime import datetime
 import secrets
 
 # 导入 SQLAlchemy Session
 from sqlalchemy.orm import Session
 
 # 导入 ORM 模型
-from backend.models.auth_models import SmsCode
 from backend.models.auth_models import User
 from backend.models.auth_models import UserAuthIdentity
 from backend.models.auth_models import UserLoginLog
-from backend.models.auth_models import WechatLoginState
 from backend.models.auth_models import InviteCode
-
-# 导入系统配置
-from backend.config.db_conf import settings
 
 # 导入安全工具
 from backend.utils.security import create_access_token
 from backend.utils.security import create_bind_token
-from backend.utils.security import hash_code
 from backend.utils.security import hash_password
 from backend.utils.security import validate_password_strength
-from backend.utils.security import verify_code
 from backend.utils.security import verify_password
 
 # 导入通用工具
@@ -51,13 +42,18 @@ from backend.utils.common import now_utc
 
 # 导入短信服务
 from backend.services.tencent_sms_service import send_sms_code
+from backend.services.auth_cache_service import create_wechat_login_state_cache
+from backend.services.auth_cache_service import consume_wechat_login_state_cache
+from backend.services.auth_cache_service import save_sms_code_cache
+from backend.services.auth_cache_service import validate_sms_send_allowed
+from backend.services.auth_cache_service import verify_sms_code_cache
 
 # 导入微信服务
 from backend.services.wechat_service import get_wechat_access_info_by_code
 from backend.services.wechat_service import get_wechat_userinfo
 
 
-def get_active_user_by_id(db: Session, user_id: int) -> User | None:
+def get_active_user_by_id(db: Session, user_id: str) -> User | None:
     """
     按用户 ID 查询有效用户
 
@@ -120,7 +116,7 @@ def get_active_user_by_wechat_openid(db: Session, openid: str) -> User | None:
     return get_active_user_by_id(db, identity.user_id)
 
 
-def get_active_wechat_identity_by_user_id(db: Session, user_id: int) -> UserAuthIdentity | None:
+def get_active_wechat_identity_by_user_id(db: Session, user_id: str) -> UserAuthIdentity | None:
     """
     查询某个用户当前有效的微信身份绑定记录
     """
@@ -135,12 +131,42 @@ def get_active_wechat_identity_by_user_id(db: Session, user_id: int) -> UserAuth
     )
 
 
+def apply_wechat_profile_to_user(user: User, userinfo: dict) -> None:
+    """
+    把微信公开资料同步到用户对象
+
+    说明：
+    1. 这里统一收口微信资料落库逻辑，避免分散在多个流程里
+    2. 仅在微信接口实际返回了对应字段时才覆盖，避免把已有值误清空
+    """
+    # 中文注释：昵称和头像属于微信登录时最常见的公开资料，若微信返回则同步到用户表
+    if userinfo.get("nickname"):
+        user.nickname = userinfo.get("nickname")
+
+    if userinfo.get("headimgurl"):
+        user.avatar_url = userinfo.get("headimgurl")
+
+    # 中文注释：微信 sex 通常为 0/1/2，这里仅在返回值存在时同步
+    if userinfo.get("sex") is not None:
+        user.sex = userinfo.get("sex")
+
+    # 中文注释：地理字段用微信公开资料补齐，方便后续统计和展示
+    if userinfo.get("province"):
+        user.province = userinfo.get("province")
+
+    if userinfo.get("city"):
+        user.city = userinfo.get("city")
+
+    if userinfo.get("country"):
+        user.country = userinfo.get("country")
+
+
 def create_login_log(
         db: Session,
         login_type: str,
         login_identifier: str | None,
         success: bool,
-        user_id: int | None = None,
+        user_id: str | None = None,
         failure_reason: str | None = None,
         ip: str | None = None,
         user_agent: str | None = None,
@@ -175,22 +201,16 @@ def create_wechat_state(db: Session) -> str:
     说明：
     1. 前端获取微信扫码地址时调用
     2. 用于防止 CSRF
-    3. 这里会把 state 入库，后续微信回调时校验
+    3. 这里会把 state 写入 Redis，后续微信回调时校验
     """
     # 生成随机 state
     state = generate_state(16)
 
-    # 创建 state 记录
-    state_record = WechatLoginState(
+    # 中文注释：微信扫码登录 state 属于短期一次性状态，改为写入 Redis
+    create_wechat_login_state_cache(
         state=state,
-        is_used=0,
-        expires_time=add_minutes(10),
-        delete_flag="1",
+        expire_minutes=10,
     )
-
-    # 入库
-    db.add(state_record)
-    db.commit()
 
     # 返回 state
     return state
@@ -202,38 +222,13 @@ def verify_wechat_state(db: Session, state: str) -> bool:
 
     校验规则：
     1. 必须存在
-    2. 必须 delete_flag='1'
-    3. 必须未使用
+    2. Redis key 必须存在
+    3. 必须未被消费
     4. 必须未过期
-    5. 校验成功后立即标记为已使用，防止重复使用
+    5. 校验成功后立即删除，防止重复使用
     """
-    # 查询有效 state
-    record = (
-        db.query(WechatLoginState)
-        .filter(
-            WechatLoginState.state == state,
-            WechatLoginState.delete_flag == "1",
-        )
-        .first()
-    )
-
-    # 不存在则失败
-    if not record:
-        return False
-
-    # 已使用则失败
-    if record.is_used == 1:
-        return False
-
-    # 已过期则失败
-    if record.expires_time < now_utc():
-        return False
-
-    # 标记已使用
-    record.is_used = 1
-    db.commit()
-
-    return True
+    # 中文注释：直接从 Redis 中原子消费 state，消费失败即说明无效或已过期
+    return consume_wechat_login_state_cache(state)
 
 
 def send_and_save_sms_code(db: Session, mobile: str, biz_type: str) -> None:
@@ -248,64 +243,23 @@ def send_and_save_sms_code(db: Session, mobile: str, biz_type: str) -> None:
     1. 同手机号同业务，60 秒内不能重复发
     2. 同手机号同业务，每天最多发送固定次数
     3. 只保存验证码哈希，不保存明文
+    4. 短期状态全部改走 Redis，不再写 MySQL
     """
-    # 先查最近一条有效验证码记录
-    latest_record = (
-        db.query(SmsCode)
-        .filter(
-            SmsCode.mobile == mobile,
-            SmsCode.biz_type == biz_type,
-            SmsCode.delete_flag == "1",
-        )
-        .order_by(SmsCode.create_time.desc())
-        .first()
-    )
-
-    # 如果有最近一条记录，则做冷却时间校验
-    if latest_record:
-        # 计算最近发送时间到当前的秒数差
-        delta_seconds = (datetime.utcnow() - latest_record.create_time).total_seconds()
-
-        # 如果还没到冷却时间，则拒绝发送
-        if delta_seconds < settings.sms_send_cooldown_seconds:
-            raise ValueError("发送过于频繁，请稍后再试")
-
-    # 计算今天零点
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-
-    # 统计今天该手机号该业务的发送次数
-    today_count = (
-        db.query(SmsCode)
-        .filter(
-            SmsCode.mobile == mobile,
-            SmsCode.biz_type == biz_type,
-            SmsCode.delete_flag == "1",
-            SmsCode.create_time >= today_start,
-        )
-        .count()
-    )
-
-    # 超出每日上限则拒绝发送
-    if today_count >= settings.sms_daily_limit:
-        raise ValueError("今日验证码发送次数已达上限")
-
-    # 真正发送短信
-    # 注意：send_sms_code 返回的是明文验证码，仅用于本次立即做哈希入库
-    code = send_sms_code(mobile=mobile, biz_type=biz_type)
-
-    # 创建验证码记录
-    record = SmsCode(
+    # 中文注释：先做 Redis 前置校验，避免冷却期内或超过日限时仍然触发真实短信发送
+    validate_sms_send_allowed(
         mobile=mobile,
         biz_type=biz_type,
-        code_hash=hash_code(code),
-        is_used=0,
-        expires_time=add_minutes(settings.sms_code_expire_minutes),
-        delete_flag="1",
     )
 
-    # 入库
-    db.add(record)
-    db.commit()
+    # 中文注释：先由短信服务生成并下发明文验证码，随后只把哈希写入 Redis
+    code = send_sms_code(mobile=mobile, biz_type=biz_type)
+
+    # 中文注释：验证码、冷却时间、每日次数统一使用 Redis 维护
+    save_sms_code_cache(
+        mobile=mobile,
+        biz_type=biz_type,
+        code=code,
+    )
 
 
 def verify_sms_code(db: Session, mobile: str, biz_type: str, code: str) -> bool:
@@ -313,41 +267,17 @@ def verify_sms_code(db: Session, mobile: str, biz_type: str, code: str) -> bool:
     校验短信验证码
 
     校验逻辑：
-    1. 查询最近一条有效、未使用的验证码
-    2. 必须未过期
+    1. 从 Redis 读取当前有效验证码
+    2. Redis TTL 负责过期控制
     3. 验证码必须匹配
-    4. 成功后立即标记为已使用
+    4. 成功后立即删除，防止重复使用
     """
-    # 查询最近一条有效验证码
-    record = (
-        db.query(SmsCode)
-        .filter(
-            SmsCode.mobile == mobile,
-            SmsCode.biz_type == biz_type,
-            SmsCode.delete_flag == "1",
-            SmsCode.is_used == 0,
-        )
-        .order_by(SmsCode.create_time.desc())
-        .first()
+    # 中文注释：Redis 中不存在即表示验证码错误、已过期或已被使用
+    return verify_sms_code_cache(
+        mobile=mobile,
+        biz_type=biz_type,
+        code=code,
     )
-
-    # 没记录则失败
-    if not record:
-        return False
-
-    # 过期则失败
-    if record.expires_time < now_utc():
-        return False
-
-    # 验证码不匹配则失败
-    if not verify_code(code, record.code_hash):
-        return False
-
-    # 标记已使用
-    record.is_used = 1
-    db.commit()
-
-    return True
 
 
 def register_user_by_mobile(db: Session, mobile: str) -> User:
@@ -393,7 +323,7 @@ def create_invite_codes(
         count: int,
         expires_days: int | None = None,
         note: str | None = None,
-        issued_by_user_id: int | None = None,
+        issued_by_user_id: str | None = None,
 ) -> list[InviteCode]:
     """
     批量生成邀请码
@@ -448,7 +378,7 @@ def issue_invite_code(
         db: Session,
         code: str,
         mobile: str,
-        issued_by_user_id: int | None = None,
+        issued_by_user_id: str | None = None,
 ) -> InviteCode:
     """
     发放邀请码给指定手机号
@@ -831,12 +761,19 @@ def login_by_wechat(db: Session, code: str, state: str) -> dict:
             mobile=None,
             mobile_verified=0,
             password_hash=None,
-            nickname=userinfo.get("nickname"),
-            avatar_url=userinfo.get("headimgurl"),
+            nickname=None,
+            avatar_url=None,
+            sex=None,
+            province=None,
+            city=None,
+            country=None,
             status="active",
             is_temp_wechat_user=1,
             delete_flag="1",
         )
+
+        # 中文注释：新建微信临时用户后，统一把微信公开资料同步到用户对象
+        apply_wechat_profile_to_user(user, userinfo)
 
         db.add(user)
         db.commit()
@@ -853,6 +790,16 @@ def login_by_wechat(db: Session, code: str, state: str) -> dict:
 
         db.add(identity)
         db.commit()
+
+    # 中文注释：已存在的微信用户每次登录时也同步一遍微信公开资料，保证资料尽量保持最新
+    if access_info.get("access_token"):
+        latest_userinfo = get_wechat_userinfo(
+            access_token=access_info.get("access_token"),
+            openid=openid,
+        )
+        apply_wechat_profile_to_user(user, latest_userinfo)
+        db.commit()
+        db.refresh(user)
 
     # 用户状态检查
     if user.status != "active":
@@ -886,7 +833,7 @@ def login_by_wechat(db: Session, code: str, state: str) -> dict:
 
 def bind_mobile_for_wechat_user(
         db: Session,
-        bind_user_id: int,
+        bind_user_id: str,
         mobile: str,
         code: str,
         invite_code: str | None = None,
@@ -999,12 +946,25 @@ def bind_mobile_for_wechat_user(
     existing_mobile_user.mobile_verified = 1
 
     # 如果老用户缺昵称，可继承临时微信用户昵称
-    if not existing_mobile_user.nickname and current_user.nickname:
+    if current_user.nickname:
         existing_mobile_user.nickname = current_user.nickname
 
     # 如果老用户缺头像，可继承临时微信用户头像
-    if not existing_mobile_user.avatar_url and current_user.avatar_url:
+    if current_user.avatar_url:
         existing_mobile_user.avatar_url = current_user.avatar_url
+
+    # 中文注释：微信资料字段在合并账号时一并迁移到正式账号，避免历史微信资料丢失
+    if current_user.sex is not None:
+        existing_mobile_user.sex = current_user.sex
+
+    if current_user.province:
+        existing_mobile_user.province = current_user.province
+
+    if current_user.city:
+        existing_mobile_user.city = current_user.city
+
+    if current_user.country:
+        existing_mobile_user.country = current_user.country
 
     # 当前临时用户不做物理删除，改成逻辑停用
     # 这样更利于审计和问题排查
@@ -1026,7 +986,7 @@ def bind_mobile_for_wechat_user(
     }
 
 
-def set_password_for_user(db: Session, user_id: int, new_password: str) -> None:
+def set_password_for_user(db: Session, user_id: str, new_password: str) -> None:
     """
     当前登录用户设置密码
 
@@ -1046,6 +1006,10 @@ def set_password_for_user(db: Session, user_id: int, new_password: str) -> None:
     if user.status != "active":
         raise ValueError("用户已被禁用")
 
+    # 中文注释：如果用户已经设置过密码，则新密码不能与当前密码相同
+    if user.password_hash and verify_password(new_password, user.password_hash):
+        raise ValueError("新密码不能与当前密码相同")
+
     # 中文注释：设置密码前先走统一密码强度校验，确保前后端规则一致
     validate_password_strength(new_password)
 
@@ -1056,10 +1020,110 @@ def set_password_for_user(db: Session, user_id: int, new_password: str) -> None:
     db.commit()
 
 
+def check_nickname_availability(
+    db: Session,
+    user_id: str,
+    nickname: str,
+) -> tuple[bool, str]:
+    """
+    检查当前用户准备修改的昵称是否可用
+    """
+    # 中文注释：先确认当前用户有效，避免给失效账号执行可用性校验
+    user = get_active_user_by_id(db, user_id)
+    if not user:
+        raise ValueError("用户不存在")
+
+    if user.status != "active":
+        raise ValueError("用户已被禁用")
+
+    normalized_nickname = nickname.strip()
+    if not normalized_nickname:
+        return False, "请输入昵称"
+
+    if len(normalized_nickname) > 100:
+        return False, "昵称长度不能超过 100 位"
+
+    # 中文注释：若与当前昵称一致，则按不可用处理，避免用户误以为已发生变更
+    if normalized_nickname == (user.nickname or ""):
+        return False, "该昵称与当前昵称相同"
+
+    duplicate_user = (
+        db.query(User)
+        .filter(
+            User.nickname == normalized_nickname,
+            User.delete_flag == "1",
+            User.id != user_id,
+        )
+        .first()
+    )
+
+    if duplicate_user:
+        return False, "该昵称已被占用"
+
+    return True, "该昵称可以使用"
+
+
+def update_nickname_for_user(db: Session, user_id: str, nickname: str) -> User:
+    """
+    当前登录用户修改昵称
+
+    说明：
+    1. 只允许修改有效用户的昵称
+    2. 用户状态必须是 active
+    3. 昵称会自动去掉首尾空白
+    """
+    # 中文注释：昵称修改前先走统一可用性校验，避免和检查接口规则不一致
+    available, message = check_nickname_availability(
+        db=db,
+        user_id=user_id,
+        nickname=nickname,
+    )
+    if not available:
+        raise ValueError(message)
+
+    user = get_active_user_by_id(db, user_id)
+    if not user:
+        raise ValueError("用户不存在")
+
+    normalized_nickname = nickname.strip()
+
+    user.nickname = normalized_nickname
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def check_password_availability(
+    db: Session,
+    user_id: str,
+    new_password: str,
+) -> tuple[bool, str]:
+    """
+    检查当前用户准备设置的新密码是否可用
+    """
+    user = get_active_user_by_id(db, user_id)
+    if not user:
+        raise ValueError("用户不存在")
+
+    if user.status != "active":
+        raise ValueError("用户已被禁用")
+
+    # 中文注释：如果已存在旧密码，则禁止新密码与当前密码重复
+    if user.password_hash and verify_password(new_password, user.password_hash):
+        return False, "新密码不能与当前密码相同"
+
+    try:
+        validate_password_strength(new_password)
+    except ValueError as e:
+        return False, str(e)
+
+    return True, "该密码可以使用"
+
+
 def update_user_status(
     db: Session,
     target_status: str,
-    user_id: int | None = None,
+    user_id: str | None = None,
     mobile: str | None = None,
 ) -> User:
     """
@@ -1099,7 +1163,7 @@ def update_user_status(
     return user
 
 
-def get_user_profile(db: Session, user_id: int) -> User | None:
+def get_user_profile(db: Session, user_id: str) -> User | None:
     """
     获取当前用户资料
 

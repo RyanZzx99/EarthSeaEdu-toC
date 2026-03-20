@@ -1,193 +1,304 @@
 <template>
-  <!-- 登录页面最外层容器 -->
-  <div class="login-page">
-    <!-- 页面标题 -->
-    <h1 class="title">用户登录</h1>
+  <!-- 中文注释：登录页按设计稿改为左右双栏布局，保留现有登录与绑定逻辑 -->
+  <div class="login-screen">
+    <section class="brand-panel">
+      <div class="brand-glow brand-glow-top"></div>
+      <div class="brand-glow brand-glow-bottom"></div>
 
-    <!-- 登录方式切换区域 -->
-    <div class="tabs">
-      <!-- 手机号 + 密码登录 tab -->
-      <button
-          class="tab-btn"
-          :class="{ active: mode === 'password' }"
-          @click="switchMode('password')"
-      >
-        手机号 + 密码
-      </button>
+      <div class="brand-top">
+        <div class="brand-name">路途 LutoolBox</div>
+      </div>
 
-      <!-- 手机验证码登录 tab -->
-      <button
-          class="tab-btn"
-          :class="{ active: mode === 'sms' }"
-          @click="switchMode('sms')"
-      >
-        手机验证码
-      </button>
+      <div class="brand-main">
+        <div class="brand-copy">
+          <h1>欢迎使用路途，你的留学申请工具包</h1>
+          <p>备考、选校、申请、查分，一站式搞定。</p>
+        </div>
 
-      <!-- 微信扫码登录 tab -->
-      <button
-          class="tab-btn"
-          :class="{ active: mode === 'wechat' }"
-          @click="switchMode('wechat')"
-      >
-        微信扫码登录
-      </button>
-    </div>
+        <img
+          class="brand-illustration"
+          src="/assets/lutoolbox-login-illustration.png"
+          alt="LutoolBox Illustration"
+        />
 
-    <!-- 手机号 + 密码登录面板 -->
-    <div v-if="mode === 'password'" class="panel">
-      <!-- 手机号输入框 -->
-      <input
-          v-model.trim="passwordForm.mobile"
-          class="input"
-          placeholder="请输入手机号"
-      />
+        <div class="brand-stats">
+          <div class="brand-stat">
+            <strong>3</strong>
+            <span>登录方式</span>
+          </div>
+          <div class="brand-stat">
+            <strong>24h</strong>
+            <span>随时访问</span>
+          </div>
+          <div class="brand-stat">
+            <strong>1站式</strong>
+            <span>留学工具包</span>
+          </div>
+        </div>
+      </div>
 
-      <!-- 密码输入框 -->
-      <input
-          v-model="passwordForm.password"
-          class="input"
-          type="password"
-          placeholder="请输入密码"
-      />
+      <div class="brand-footer">© 2026 路途 LutoolBox</div>
+    </section>
 
-      <!-- 登录按钮 -->
-      <button
-          class="submit-btn"
-          :disabled="loading"
-          @click="handlePasswordLogin"
-      >
-        {{ loading ? "登录中..." : "登录" }}
-      </button>
-    </div>
+    <section class="form-panel">
+      <div class="form-card">
+        <div class="form-head">
+          <h2>{{ panelTitle }}</h2>
+          <p>{{ panelDescription }}</p>
+        </div>
 
-    <!-- 手机验证码登录面板 -->
-    <div v-if="mode === 'sms'" class="panel">
-      <!-- 手机号输入框 -->
-      <input
-          v-model.trim="smsForm.mobile"
-          class="input"
-          placeholder="请输入手机号"
-      />
+        <div v-if="mode !== 'bind_mobile'" class="tab-switcher">
+          <button
+            v-for="tab in tabs"
+            :key="tab.key"
+            type="button"
+            class="tab-switcher__item"
+            :class="{ active: mode === tab.key }"
+            @click="switchMode(tab.key)"
+          >
+            {{ tab.label }}
+          </button>
+        </div>
 
-      <!-- 验证码输入框 -->
-      <input
-          v-model.trim="smsForm.code"
-          class="input"
-          placeholder="请输入验证码"
-      />
+        <div v-if="mode === 'password'" class="form-stack">
+          <div class="field-group">
+            <label class="field-label">手机号</label>
+            <div class="field-shell">
+              <span class="field-prefix">+86</span>
+              <input
+                v-model.trim="passwordForm.mobile"
+                class="field-input"
+                type="tel"
+                maxlength="11"
+                placeholder="请输入手机号"
+              />
+            </div>
+          </div>
 
-      <!-- 邀请码输入框（仅新用户注册时必填） -->
-      <input
-          v-model.trim="smsForm.invite_code"
-          class="input"
-          placeholder="请输入邀请码（新用户注册时必填）"
-      />
+          <div class="field-group">
+            <label class="field-label">密码</label>
+            <div class="field-shell">
+              <input
+                v-model="passwordForm.password"
+                class="field-input"
+                :type="showPassword ? 'text' : 'password'"
+                placeholder="请输入密码"
+              />
+              <button type="button" class="field-action" @click="showPassword = !showPassword">
+                {{ showPassword ? "隐藏" : "显示" }}
+              </button>
+            </div>
+          </div>
 
-      <!-- 操作按钮行 -->
-      <div class="row">
-        <!-- 发送验证码 -->
-        <button
-            class="secondary-btn"
-            :disabled="sendCodeLoading"
-            @click="handleSendLoginCode"
-        >
-          {{ sendCodeLoading ? "发送中..." : "发送验证码" }}
-        </button>
+          <div class="inline-actions">
+            <label class="remember-row">
+              <input v-model="rememberLogin" type="checkbox" />
+              <span>记住我</span>
+            </label>
+            <button type="button" class="text-action" @click="showUnavailableTip('找回密码')">
+              忘记密码？
+            </button>
+          </div>
 
-        <!-- 验证码登录 -->
-        <button
-            class="submit-btn"
+          <button
+            type="button"
+            class="primary-btn"
+            :disabled="loading"
+            @click="handlePasswordLogin"
+          >
+            {{ loading ? "登录中..." : "登录" }}
+          </button>
+        </div>
+
+        <div v-else-if="mode === 'sms'" class="form-stack">
+          <div class="field-group">
+            <label class="field-label">手机号</label>
+            <div class="field-shell">
+              <span class="field-prefix">+86</span>
+              <input
+                v-model.trim="smsForm.mobile"
+                class="field-input"
+                type="tel"
+                maxlength="11"
+                placeholder="请输入手机号"
+              />
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">验证码</label>
+            <div class="code-row">
+              <div class="field-shell code-row__input">
+                <input
+                  v-model.trim="smsForm.code"
+                  class="field-input"
+                  type="text"
+                  maxlength="6"
+                  placeholder="请输入验证码"
+                />
+              </div>
+              <button
+                type="button"
+                class="secondary-btn code-row__btn"
+                :disabled="sendCodeLoading || smsCountdown > 0"
+                @click="handleSendLoginCode"
+              >
+                {{ smsSendButtonText }}
+              </button>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">邀请码</label>
+            <div class="field-shell">
+              <input
+                v-model.trim="smsForm.invite_code"
+                class="field-input"
+                type="text"
+                placeholder="新用户注册时必填，老用户登录可留空"
+              />
+            </div>
+          </div>
+
+          <p class="field-tip">未注册的手机号验证成功后将自动注册，首次注册必须通过邀请码校验。</p>
+
+          <button
+            type="button"
+            class="primary-btn"
             :disabled="loading"
             @click="handleSmsLogin"
-        >
-          {{ loading ? "登录中..." : "验证码登录" }}
-        </button>
-      </div>
-    </div>
+          >
+            {{ loading ? "提交中..." : "登录 / 注册" }}
+          </button>
+        </div>
 
-    <!-- 微信扫码登录面板 -->
-    <div v-if="mode === 'wechat'" class="panel">
-      <!-- 提示说明 -->
-      <p class="desc">
-        点击下方按钮后会跳转到微信扫码页，扫码完成后会自动返回本页面。
-      </p>
+        <div v-else-if="mode === 'wechat'" class="form-stack wechat-stack">
+          <div class="wechat-qr-card">
+            <div class="wechat-qr">
+              <div class="wechat-qr__finder finder-top-left"></div>
+              <div class="wechat-qr__finder finder-top-right"></div>
+              <div class="wechat-qr__finder finder-bottom-left"></div>
+              <div class="wechat-qr__dots"></div>
+              <div class="wechat-badge">微信</div>
+            </div>
+          </div>
 
-      <!-- 去微信扫码 -->
-      <button
-          class="submit-btn"
-          :disabled="loading"
-          @click="handleWechatAuthorize"
-      >
-        {{ loading ? "跳转中..." : "去微信扫码登录" }}
-      </button>
-    </div>
+          <div class="wechat-copy">
+            <p>使用微信扫描二维码登录</p>
+            <span>点击下方按钮后会跳转到微信扫码页，扫码完成后自动返回本页。</span>
+          </div>
 
-    <!-- 微信绑定手机号面板 -->
-    <div v-if="mode === 'bind_mobile'" class="panel">
-      <!-- 提示说明 -->
-      <p class="desc">
-        微信登录成功，请先绑定手机号后再进入系统。
-      </p>
+          <button
+            type="button"
+            class="primary-btn wechat-btn"
+            :disabled="loading"
+            @click="handleWechatAuthorize"
+          >
+            {{ loading ? "跳转中..." : "去微信扫码登录" }}
+          </button>
 
-      <!-- 手机号输入框 -->
-      <input
-          v-model.trim="bindForm.mobile"
-          class="input"
-          placeholder="请输入要绑定的手机号"
-      />
+          <div class="alt-login-row">
+            <button type="button" class="outline-btn" @click="switchMode('password')">密码登录</button>
+            <button type="button" class="outline-btn" @click="switchMode('sms')">验证码登录</button>
+          </div>
+        </div>
 
-      <!-- 验证码输入框 -->
-      <input
-          v-model.trim="bindForm.code"
-          class="input"
-          placeholder="请输入验证码"
-      />
+        <div v-else class="form-stack">
+          <div class="bind-tip-box">
+            微信登录成功，请先绑定手机号后再进入系统。
+          </div>
 
-      <!-- 邀请码输入框（仅新手机号注册时必填） -->
-      <input
-          v-model.trim="bindForm.invite_code"
-          class="input"
-          placeholder="请输入邀请码（新用户注册时必填）"
-      />
+          <div class="field-group">
+            <label class="field-label">手机号</label>
+            <div class="field-shell">
+              <span class="field-prefix">+86</span>
+              <input
+                v-model.trim="bindForm.mobile"
+                class="field-input"
+                type="tel"
+                maxlength="11"
+                placeholder="请输入要绑定的手机号"
+              />
+            </div>
+          </div>
 
-      <!-- 按钮区域 -->
-      <div class="row">
-        <!-- 发送绑定验证码 -->
-        <button
-            class="secondary-btn"
-            :disabled="sendCodeLoading"
-            @click="handleSendBindCode"
-        >
-          {{ sendCodeLoading ? "发送中..." : "发送绑定验证码" }}
-        </button>
+          <div class="field-group">
+            <label class="field-label">验证码</label>
+            <div class="code-row">
+              <div class="field-shell code-row__input">
+                <input
+                  v-model.trim="bindForm.code"
+                  class="field-input"
+                  type="text"
+                  maxlength="6"
+                  placeholder="请输入验证码"
+                />
+              </div>
+              <button
+                type="button"
+                class="secondary-btn code-row__btn"
+                :disabled="sendCodeLoading || bindCountdown > 0"
+                @click="handleSendBindCode"
+              >
+                {{ bindSendButtonText }}
+              </button>
+            </div>
+          </div>
 
-        <!-- 提交绑定 -->
-        <button
-            class="submit-btn"
+          <div class="field-group">
+            <label class="field-label">邀请码</label>
+            <div class="field-shell">
+              <input
+                v-model.trim="bindForm.invite_code"
+                class="field-input"
+                type="text"
+                placeholder="新手机号首次注册时必填，老账号绑定可留空"
+              />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            class="primary-btn"
             :disabled="loading"
             @click="handleBindMobile"
-        >
-          {{ loading ? "绑定中..." : "绑定并登录" }}
-        </button>
-      </div>
-    </div>
+          >
+            {{ loading ? "绑定中..." : "绑定并登录" }}
+          </button>
 
-    <!-- 错误提示区域 -->
-    <div v-if="errorMessage" class="error-box">
-      {{ errorMessage }}
-    </div>
+          <button type="button" class="text-action text-action--center" @click="resetBindState">
+            返回其他登录方式
+          </button>
+        </div>
+
+        <div v-if="errorMessage" class="feedback-box feedback-box--error">
+          {{ errorMessage }}
+        </div>
+
+        <div v-if="successMessage" class="feedback-box feedback-box--success">
+          {{ successMessage }}
+        </div>
+
+        <div v-if="mode !== 'wechat' && mode !== 'bind_mobile'" class="agreement-copy">
+          登录即表示同意
+          <button type="button" class="text-action" @click="showUnavailableTip('用户协议')">用户协议</button>
+          与
+          <button type="button" class="text-action" @click="showUnavailableTip('隐私政策')">隐私政策</button>
+        </div>
+
+        <div class="bottom-copy">
+          还没有账号？
+          <button type="button" class="text-action" @click="switchMode('sms')">免费注册</button>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
 <script setup>
-// 导入 Vue API
-import {onMounted, ref} from "vue";
-
-// 导入路由实例
-import {useRouter} from "vue-router";
-
-// 导入认证接口
+// 中文注释：登录页复用现有认证接口，只替换页面视觉与交互样式
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import {
   getWechatAuthorizeUrl,
   passwordLogin,
@@ -197,80 +308,148 @@ import {
   wechatLogin,
 } from "../api/auth";
 
-// 路由实例
 const router = useRouter();
 
-// 当前页面模式
-// 可选值：
-// password / sms / wechat / bind_mobile
+// 中文注释：bind_mobile 不是常驻 tab，只在微信未绑定手机号时进入
 const mode = ref("password");
-
-// 全局 loading
 const loading = ref(false);
-
-// 发送验证码 loading
 const sendCodeLoading = ref(false);
-
-// 错误消息
 const errorMessage = ref("");
-
-// bind token
+const successMessage = ref("");
 const bindToken = ref("");
+const showPassword = ref(false);
+const rememberLogin = ref(false);
+const smsCountdown = ref(0);
+const bindCountdown = ref(0);
+let smsCountdownTimer = null;
+let bindCountdownTimer = null;
 
-// 手机号 + 密码表单
+const tabs = [
+  { key: "password", label: "密码登录" },
+  { key: "sms", label: "验证码登录" },
+  { key: "wechat", label: "微信扫码" },
+];
+
 const passwordForm = ref({
   mobile: "",
   password: "",
 });
 
-// 验证码登录表单
 const smsForm = ref({
   mobile: "",
   code: "",
-  // 邀请码（仅新用户注册时后端强制校验）
   invite_code: "",
 });
 
-// 绑定手机号表单
 const bindForm = ref({
   mobile: "",
   code: "",
-  // 邀请码（仅新手机号注册时后端强制校验）
   invite_code: "",
 });
 
-// 切换模式
-function switchMode(nextMode) {
-  // 切换模式时清空错误
-  errorMessage.value = "";
+const panelTitle = computed(() => {
+  if (mode.value === "bind_mobile") {
+    return "绑定手机号";
+  }
+  return "欢迎回来";
+});
 
-  // 更新模式
-  mode.value = nextMode;
-}
+const panelDescription = computed(() => {
+  if (mode.value === "bind_mobile") {
+    return "完成手机号绑定后即可进入系统。";
+  }
+  return "登录您的学习账户，继续探索留学之路。";
+});
 
-// 统一提示函数
+const smsSendButtonText = computed(() => {
+  if (sendCodeLoading.value && mode.value === "sms") {
+    return "发送中...";
+  }
+  if (smsCountdown.value > 0) {
+    return `${smsCountdown.value}s 后重发`;
+  }
+  return "获取验证码";
+});
+
+const bindSendButtonText = computed(() => {
+  if (sendCodeLoading.value && mode.value === "bind_mobile") {
+    return "发送中...";
+  }
+  if (bindCountdown.value > 0) {
+    return `${bindCountdown.value}s 后重发`;
+  }
+  return "获取验证码";
+});
+
 function notify(message) {
-  // 当前先用 alert，后续可替换成 UI 组件消息提示
-  // TODO: 后续可接入 Element Plus / Naive UI / Ant Design Vue 消息组件
-  alert(message);
+  window.alert(message);
 }
 
-// 保存 access token
 function saveAccessToken(token) {
-  // 保存到浏览器本地存储
   localStorage.setItem("access_token", token);
 }
 
-// 清理 URL 中的 query 参数
 function clearLoginQueryParams() {
-  // 当前使用前端路由 /login
-  // 这里清理 code / state / wechat_error，避免刷新重复触发
   window.history.replaceState({}, document.title, "/login");
 }
 
-// 处理登录过期提示
+function clearMessages() {
+  errorMessage.value = "";
+  successMessage.value = "";
+}
+
+function switchMode(nextMode) {
+  clearMessages();
+  mode.value = nextMode;
+}
+
+function showUnavailableTip(label) {
+  notify(`${label}功能暂未接入`);
+}
+
+function validateMobile(mobile) {
+  return /^1\d{10}$/.test(mobile);
+}
+
+function startCountdown(target) {
+  if (target === "sms") {
+    clearInterval(smsCountdownTimer);
+    smsCountdown.value = 60;
+    smsCountdownTimer = window.setInterval(() => {
+      if (smsCountdown.value <= 1) {
+        clearInterval(smsCountdownTimer);
+        smsCountdown.value = 0;
+        return;
+      }
+      smsCountdown.value -= 1;
+    }, 1000);
+    return;
+  }
+
+  clearInterval(bindCountdownTimer);
+  bindCountdown.value = 60;
+  bindCountdownTimer = window.setInterval(() => {
+    if (bindCountdown.value <= 1) {
+      clearInterval(bindCountdownTimer);
+      bindCountdown.value = 0;
+      return;
+    }
+    bindCountdown.value -= 1;
+  }, 1000);
+}
+
+function resetBindState() {
+  clearMessages();
+  bindToken.value = "";
+  bindForm.value = {
+    mobile: "",
+    code: "",
+    invite_code: "",
+  };
+  mode.value = "password";
+}
+
 function handleSessionExpiredTip() {
-  // 中文注释：从地址栏读取 session_expired 标记，用于展示一次性提示
   const currentUrl = new URL(window.location.href);
   const sessionExpired = currentUrl.searchParams.get("session_expired");
 
@@ -280,471 +459,784 @@ function handleSessionExpiredTip() {
   }
 }
 
-// 简单手机号校验
-function validateMobile(mobile) {
-  // 中国大陆手机号基础校验
-  return /^1\d{10}$/.test(mobile);
-}
-
-// 手机号 + 密码登录
 async function handlePasswordLogin() {
-  // 清空错误
-  errorMessage.value = "";
+  clearMessages();
 
-  // 基础校验：手机号不能为空
   if (!passwordForm.value.mobile) {
     errorMessage.value = "请输入手机号";
     return;
   }
 
-  // 基础校验：手机号格式
   if (!validateMobile(passwordForm.value.mobile)) {
     errorMessage.value = "手机号格式不正确";
     return;
   }
 
-  // 基础校验：密码不能为空
   if (!passwordForm.value.password) {
     errorMessage.value = "请输入密码";
     return;
   }
 
   try {
-    // 打开 loading
     loading.value = true;
-
-    // 调后端密码登录接口
     const res = await passwordLogin({
       mobile: passwordForm.value.mobile,
       password: passwordForm.value.password,
     });
 
-    // 保存 access token
     saveAccessToken(res.data.access_token);
-
-    // 提示成功
-    notify("登录成功");
-
-    // 跳转首页
+    successMessage.value = "登录成功，正在跳转...";
     router.push("/");
   } catch (error) {
-    // 显示错误
     errorMessage.value = error?.response?.data?.detail || "登录失败";
   } finally {
-    // 关闭 loading
     loading.value = false;
   }
 }
 
-// 发送登录验证码
 async function handleSendLoginCode() {
-  // 清空错误
-  errorMessage.value = "";
+  clearMessages();
 
-  // 校验手机号
   if (!smsForm.value.mobile) {
     errorMessage.value = "请输入手机号";
     return;
   }
 
-  // 校验手机号格式
   if (!validateMobile(smsForm.value.mobile)) {
     errorMessage.value = "手机号格式不正确";
     return;
   }
 
   try {
-    // 打开发送验证码 loading
     sendCodeLoading.value = true;
-
-    // 调发送验证码接口
     await sendSmsCode({
       mobile: smsForm.value.mobile,
       biz_type: "login",
     });
-
-    // 提示发送成功
-    notify("验证码已发送");
+    successMessage.value = "验证码已发送，请注意查收";
+    startCountdown("sms");
   } catch (error) {
-    // 显示错误
     errorMessage.value = error?.response?.data?.detail || "验证码发送失败";
   } finally {
-    // 关闭发送验证码 loading
     sendCodeLoading.value = false;
   }
 }
 
-// 手机验证码登录
 async function handleSmsLogin() {
-  // 清空错误
-  errorMessage.value = "";
+  clearMessages();
 
-  // 校验手机号
   if (!smsForm.value.mobile) {
     errorMessage.value = "请输入手机号";
     return;
   }
 
-  // 校验手机号格式
   if (!validateMobile(smsForm.value.mobile)) {
     errorMessage.value = "手机号格式不正确";
     return;
   }
 
-  // 校验验证码
   if (!smsForm.value.code) {
     errorMessage.value = "请输入验证码";
     return;
   }
 
   try {
-    // 打开 loading
     loading.value = true;
-
-    // 调验证码登录接口
     const res = await smsLogin({
       mobile: smsForm.value.mobile,
       code: smsForm.value.code,
-      // 老用户登录可不填，后端仅在新注册场景强制
       invite_code: smsForm.value.invite_code || null,
     });
 
-    // 保存 token
     saveAccessToken(res.data.access_token);
-
-    // 提示成功
-    notify("登录成功");
-
-    // 跳转首页
+    successMessage.value = "登录成功，正在跳转...";
     router.push("/");
   } catch (error) {
-    // 显示错误
     errorMessage.value = error?.response?.data?.detail || "登录失败";
   } finally {
-    // 关闭 loading
     loading.value = false;
   }
 }
 
-// 获取微信扫码地址并跳转
 async function handleWechatAuthorize() {
-  // 清空错误
-  errorMessage.value = "";
+  clearMessages();
 
   try {
-    // 打开 loading
     loading.value = true;
-
-    // 调后端接口获取微信扫码地址
     const res = await getWechatAuthorizeUrl();
-
-    // 浏览器直接跳转到微信扫码页
     window.location.href = res.data.authorize_url;
   } catch (error) {
-    // 显示错误
     errorMessage.value = error?.response?.data?.detail || "获取微信登录地址失败";
   } finally {
-    // 关闭 loading
     loading.value = false;
   }
 }
 
-// 发送绑定手机号验证码
 async function handleSendBindCode() {
-  // 清空错误
-  errorMessage.value = "";
+  clearMessages();
 
-  // 校验手机号
   if (!bindForm.value.mobile) {
     errorMessage.value = "请输入要绑定的手机号";
     return;
   }
 
-  // 校验手机号格式
   if (!validateMobile(bindForm.value.mobile)) {
     errorMessage.value = "手机号格式不正确";
     return;
   }
 
   try {
-    // 打开发送验证码 loading
     sendCodeLoading.value = true;
-
-    // 调发送绑定验证码接口
     await sendSmsCode({
       mobile: bindForm.value.mobile,
       biz_type: "bind_mobile",
     });
-
-    // 提示成功
-    notify("验证码已发送");
+    successMessage.value = "验证码已发送，请注意查收";
+    startCountdown("bind");
   } catch (error) {
-    // 显示错误
     errorMessage.value = error?.response?.data?.detail || "验证码发送失败";
   } finally {
-    // 关闭发送验证码 loading
     sendCodeLoading.value = false;
   }
 }
 
-// 提交绑定手机号
 async function handleBindMobile() {
-  // 清空错误
-  errorMessage.value = "";
+  clearMessages();
 
-  // bind token 必须存在
   if (!bindToken.value) {
     errorMessage.value = "绑定令牌不存在，请重新走微信登录流程";
     return;
   }
 
-  // 校验手机号
   if (!bindForm.value.mobile) {
     errorMessage.value = "请输入要绑定的手机号";
     return;
   }
 
-  // 校验手机号格式
   if (!validateMobile(bindForm.value.mobile)) {
     errorMessage.value = "手机号格式不正确";
     return;
   }
 
-  // 校验验证码
   if (!bindForm.value.code) {
     errorMessage.value = "请输入验证码";
     return;
   }
 
   try {
-    // 打开 loading
     loading.value = true;
-
-    // 调绑定手机号接口
     const res = await wechatBindMobile({
       bind_token: bindToken.value,
       mobile: bindForm.value.mobile,
       code: bindForm.value.code,
-      // 老用户合并账号可不填，后端仅在新注册场景强制
       invite_code: bindForm.value.invite_code || null,
     });
 
-    // 保存正式登录 token
     saveAccessToken(res.data.access_token);
-
-    // 清理 bind token
+    successMessage.value = "绑定成功，正在跳转...";
     bindToken.value = "";
-
-    // 提示成功
-    notify("绑定成功，已登录");
-
-    // 跳转首页
     router.push("/");
   } catch (error) {
-    // 显示错误
     errorMessage.value = error?.response?.data?.detail || "绑定失败";
   } finally {
-    // 关闭 loading
     loading.value = false;
   }
 }
 
-// 处理微信扫码回跳后的自动登录
 async function handleWechatCallbackLogin() {
-  // 读取当前页面 URL
   const currentUrl = new URL(window.location.href);
-
-  // 读取微信回调 code
   const code = currentUrl.searchParams.get("code");
-
-  // 读取微信回调 state
   const state = currentUrl.searchParams.get("state");
-
-  // 读取微信回调错误
   const wechatError = currentUrl.searchParams.get("wechat_error");
 
-  // 如果微信回调带了错误参数
   if (wechatError) {
-    // 显示错误
     errorMessage.value = `微信登录失败：${wechatError}`;
-
-    // 清理地址栏
     clearLoginQueryParams();
-
     return;
   }
 
-  // 如果没有 code 或 state，说明当前不是微信回跳场景
   if (!code || !state) {
     return;
   }
 
   try {
-    // 打开 loading
     loading.value = true;
-
-    // 调后端微信登录接口
     const res = await wechatLogin({
       code,
       state,
     });
 
-    // 情况 1：微信账号已经绑定手机号，直接返回 access_token
     if (res.data.access_token) {
-      // 保存 token
       saveAccessToken(res.data.access_token);
-
-      // 提示成功
-      notify("微信登录成功");
-
-      // 清理地址栏
       clearLoginQueryParams();
-
-      // 跳转首页
+      successMessage.value = "微信登录成功，正在跳转...";
       router.push("/");
-
       return;
     }
 
-    // 情况 2：微信账号未绑定手机号，需要继续绑定
     if (res.data.next_step === "bind_mobile") {
-      // 保存 bind token
       bindToken.value = res.data.bind_token;
-
-      // 切换到绑定手机号模式
       mode.value = "bind_mobile";
-
-      // 提示用户
-      notify(res.data.message || "请先绑定手机号");
-
-      // 清理地址栏
+      successMessage.value = res.data.message || "请先绑定手机号";
       clearLoginQueryParams();
-
       return;
     }
 
-    // 理论上不会走到这里，做兜底
     errorMessage.value = "微信登录返回结果异常";
     clearLoginQueryParams();
   } catch (error) {
-    // 显示错误
     errorMessage.value = error?.response?.data?.detail || "微信登录失败";
-
-    // 清理地址栏
     clearLoginQueryParams();
   } finally {
-    // 关闭 loading
     loading.value = false;
   }
 }
 
-// 页面挂载后自动执行
 onMounted(async () => {
-  // 中文注释：优先处理登录过期提示，避免被后续逻辑覆盖
   handleSessionExpiredTip();
-
-  // 先处理微信扫码登录回跳逻辑
   await handleWechatCallbackLogin();
+});
+
+onBeforeUnmount(() => {
+  clearInterval(smsCountdownTimer);
+  clearInterval(bindCountdownTimer);
 });
 </script>
 
 <style scoped>
-/* 页面整体容器 */
-.login-page {
-  width: 420px;
-  margin: 40px auto;
-  padding: 24px;
-  border: 1px solid #ddd;
-  border-radius: 12px;
-  background: #fff;
-  font-family: Arial, sans-serif;
-  box-sizing: border-box;
+/* 中文注释：整体按设计稿做双栏布局，同时兼顾当前项目的响应式需求 */
+.login-screen {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(420px, 1.1fr) minmax(360px, 0.9fr);
+  background: #ffffff;
 }
 
-/* 标题 */
-.title {
-  text-align: center;
-  margin-bottom: 20px;
-}
-
-/* tab 容器 */
-.tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 20px;
-}
-
-/* tab 按钮 */
-.tab-btn {
-  flex: 1;
-  padding: 10px;
-  cursor: pointer;
-  border: 1px solid #ccc;
-  background: #f7f7f7;
-}
-
-/* 激活状态 tab */
-.tab-btn.active {
-  background: #222;
-  color: #fff;
-  border-color: #222;
-}
-
-/* 面板区域 */
-.panel {
+.brand-panel {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
+  padding: 36px 44px;
+  background: linear-gradient(135deg, #0a1220 0%, #111d34 48%, #16223f 100%);
+  color: #ffffff;
+}
+
+.brand-glow {
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+  filter: blur(8px);
+}
+
+.brand-glow-top {
+  top: 8%;
+  left: 18%;
+  width: 360px;
+  height: 360px;
+  background: radial-gradient(circle, rgba(75, 139, 245, 0.28) 0%, rgba(75, 139, 245, 0) 70%);
+}
+
+.brand-glow-bottom {
+  right: 6%;
+  bottom: 12%;
+  width: 260px;
+  height: 260px;
+  background: radial-gradient(circle, rgba(54, 199, 171, 0.18) 0%, rgba(54, 199, 171, 0) 72%);
+}
+
+.brand-top,
+.brand-main,
+.brand-footer {
+  position: relative;
+  z-index: 1;
+}
+
+.brand-name {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.brand-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 28px;
+}
+
+.brand-copy h1 {
+  margin: 0 0 12px;
+  font-size: 46px;
+  line-height: 1.28;
+  letter-spacing: -0.02em;
+}
+
+.brand-copy p {
+  margin: 0;
+  max-width: 520px;
+  font-size: 20px;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.74);
+}
+
+.brand-illustration {
+  width: min(78%, 500px);
+  max-width: 500px;
+  object-fit: contain;
+  filter: drop-shadow(0 18px 50px rgba(0, 0, 0, 0.2));
+}
+
+.brand-stats {
+  display: flex;
+  gap: 30px;
+  flex-wrap: wrap;
+}
+
+.brand-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.brand-stat strong {
+  font-size: 24px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.brand-stat span {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.48);
+}
+
+.brand-footer {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.form-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 28px;
+  background: #ffffff;
+}
+
+.form-card {
+  width: 100%;
+  max-width: 392px;
+}
+
+.form-head {
+  margin-bottom: 26px;
+}
+
+.form-head h2 {
+  margin: 0 0 8px;
+  color: #111827;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.form-head p {
+  margin: 0;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.tab-switcher {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 5px;
+  margin-bottom: 26px;
+  border-radius: 14px;
+  background: #f3f4f6;
+}
+
+.tab-switcher__item {
+  padding: 10px 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab-switcher__item.active {
+  background: #ffffff;
+  color: #1a2744;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.field-label {
+  color: #374151;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.field-shell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 50px;
+  padding: 0 16px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fafafa;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.field-shell:focus-within {
+  border-color: #2c4a8a;
+  box-shadow: 0 0 0 3px rgba(44, 74, 138, 0.08);
+}
+
+.field-prefix {
+  padding-right: 12px;
+  border-right: 1px solid #e5e7eb;
+  color: #9ca3af;
+  font-size: 14px;
+}
+
+.field-input {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #111827;
+  font-size: 14px;
+}
+
+.field-input::placeholder {
+  color: #9ca3af;
+}
+
+.field-action {
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.inline-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: -2px;
+}
+
+.remember-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #6b7280;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.primary-btn,
+.secondary-btn,
+.outline-btn {
+  border-radius: 14px;
+  font-weight: 600;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease, background 0.16s ease;
+}
+
+.primary-btn {
+  min-height: 50px;
+  border: none;
+  background: linear-gradient(135deg, #1a2744 0%, #2c4a8a 100%);
+  color: #ffffff;
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(26, 39, 68, 0.2);
+}
+
+.primary-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(26, 39, 68, 0.3);
+}
+
+.primary-btn:disabled,
+.secondary-btn:disabled,
+.outline-btn:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.secondary-btn,
+.outline-btn {
+  min-height: 50px;
+  border: 1.5px solid #dbe2ef;
+  background: #ffffff;
+  color: #2c4a8a;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.secondary-btn:hover:not(:disabled),
+.outline-btn:hover:not(:disabled) {
+  background: #f5f8ff;
+}
+
+.code-row {
+  display: flex;
   gap: 12px;
 }
 
-/* 输入框 */
-.input {
-  width: 100%;
-  padding: 10px;
-  box-sizing: border-box;
+.code-row__input {
+  flex: 1;
 }
 
-/* 横向按钮区域 */
-.row {
+.code-row__btn {
+  width: 116px;
+  flex: 0 0 116px;
+}
+
+.field-tip {
+  margin: -4px 0 0;
+  color: #9ca3af;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.wechat-stack {
+  align-items: center;
+}
+
+.wechat-qr-card {
+  padding: 18px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 22px;
+  background: #fafafa;
+}
+
+.wechat-qr {
+  position: relative;
+  width: 188px;
+  height: 188px;
+  border-radius: 20px;
+  background:
+    linear-gradient(90deg, #111827 8px, transparent 8px) 0 0/24px 24px,
+    linear-gradient(#111827 8px, transparent 8px) 0 0/24px 24px,
+    #ffffff;
+  overflow: hidden;
+}
+
+.wechat-qr__finder {
+  position: absolute;
+  width: 46px;
+  height: 46px;
+  border: 8px solid #111827;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.finder-top-left {
+  top: 12px;
+  left: 12px;
+}
+
+.finder-top-right {
+  top: 12px;
+  right: 12px;
+}
+
+.finder-bottom-left {
+  bottom: 12px;
+  left: 12px;
+}
+
+.wechat-qr__dots {
+  position: absolute;
+  inset: 62px 26px 26px 62px;
+  background:
+    radial-gradient(circle at 10px 10px, #111827 0 4px, transparent 4.5px) 0 0/26px 26px,
+    radial-gradient(circle at 16px 16px, #111827 0 4px, transparent 4.5px) 0 0/26px 26px;
+  opacity: 0.96;
+}
+
+.wechat-badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
   display: flex;
-  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: #07c160;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 10px 18px rgba(7, 193, 96, 0.3);
 }
 
-/* 主按钮 */
-.submit-btn {
-  padding: 10px;
-  cursor: pointer;
+.wechat-copy {
+  text-align: center;
 }
 
-/* 次按钮 */
-.secondary-btn {
-  padding: 10px;
-  cursor: pointer;
-}
-
-/* 禁用态按钮 */
-.submit-btn:disabled,
-.secondary-btn:disabled,
-.tab-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-/* 描述文本 */
-.desc {
-  color: #666;
+.wechat-copy p {
+  margin: 0 0 6px;
+  color: #374151;
   font-size: 14px;
+  font-weight: 600;
+}
+
+.wechat-copy span {
+  color: #9ca3af;
+  font-size: 12px;
   line-height: 1.6;
 }
 
-/* 错误提示框 */
-.error-box {
-  margin-top: 16px;
-  padding: 10px 12px;
+.wechat-btn {
+  width: 100%;
+}
+
+.alt-login-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.bind-tip-box {
+  padding: 13px 14px;
+  border: 1px solid #d8e4ff;
+  border-radius: 14px;
+  background: #f4f8ff;
+  color: #355387;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.feedback-box {
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.feedback-box--error {
   border: 1px solid #f0b4b4;
   background: #fff4f4;
   color: #c0392b;
-  border-radius: 8px;
-  font-size: 14px;
+}
+
+.feedback-box--success {
+  border: 1px solid #bfe4cb;
+  background: #f2fbf5;
+  color: #24744c;
+}
+
+.agreement-copy,
+.bottom-copy {
+  color: #9ca3af;
+  font-size: 12px;
+  text-align: center;
+}
+
+.agreement-copy {
+  margin-top: 4px;
+}
+
+.bottom-copy {
+  margin-top: 8px;
+  padding-top: 20px;
+  border-top: 1px solid #f3f4f6;
+}
+
+.text-action {
+  border: none;
+  background: transparent;
+  color: #2c4a8a;
+  cursor: pointer;
+  font-size: inherit;
+  font-weight: 600;
+}
+
+.text-action--center {
+  align-self: center;
+}
+
+@media (max-width: 1080px) {
+  .login-screen {
+    grid-template-columns: 1fr;
+  }
+
+  .brand-panel {
+    min-height: 380px;
+    padding: 30px 26px;
+  }
+
+  .brand-copy h1 {
+    font-size: 34px;
+  }
+
+  .brand-copy p {
+    font-size: 17px;
+  }
+
+  .brand-illustration {
+    width: min(68%, 360px);
+  }
+}
+
+@media (max-width: 640px) {
+  .brand-panel {
+    min-height: auto;
+  }
+
+  .brand-stats {
+    gap: 18px;
+  }
+
+  .form-panel {
+    padding: 24px 16px 36px;
+  }
+
+  .form-card {
+    max-width: none;
+  }
+
+  .tab-switcher {
+    grid-template-columns: 1fr;
+  }
+
+  .code-row,
+  .alt-login-row {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .code-row__btn {
+    width: 100%;
+    flex: 1 1 auto;
+  }
 }
 </style>

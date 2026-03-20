@@ -23,6 +23,7 @@
 
 # 导入 datetime，用于时间字段类型定义和默认时间
 from datetime import datetime
+from uuid import uuid4
 
 # 导入 SQLAlchemy 字段类型
 from sqlalchemy import BigInteger
@@ -61,12 +62,12 @@ class User(Base):
 
     # 主键 ID
     # 说明：
-    # 1. 数据库中是 BIGINT UNSIGNED AUTO_INCREMENT
-    # 2. Python 侧一般按 int 使用即可
-    id: Mapped[int] = mapped_column(
-        BigInteger,
+    # 1. 当前改为 UUID 字符串主键
+    # 2. 默认由后端生成标准 36 位 UUID
+    id: Mapped[str] = mapped_column(
+        String(36),
         primary_key=True,
-        autoincrement=True,
+        default=lambda: str(uuid4()),
         comment="主键ID，用户唯一标识",
     )
 
@@ -125,6 +126,49 @@ class User(Base):
         String(500),
         nullable=True,
         comment="用户头像地址，可来源于微信头像",
+    )
+
+    # 性别
+    # 说明：
+    # 1. 当前主要用于记录微信返回的 sex
+    # 2. 微信常见取值：
+    #    0 = 未知
+    #    1 = 男
+    #    2 = 女
+    sex: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="用户性别，当前主要记录微信返回值：0=未知，1=男，2=女",
+    )
+
+    # 省份
+    # 说明：
+    # 1. 当前主要记录微信返回的 province
+    # 2. 允许为空，避免非微信注册用户无法落库
+    province: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="用户省份，当前主要记录微信返回的 province",
+    )
+
+    # 城市
+    # 说明：
+    # 1. 当前主要记录微信返回的 city
+    # 2. 允许为空，避免非微信注册用户无法落库
+    city: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="用户城市，当前主要记录微信返回的 city",
+    )
+
+    # 国家
+    # 说明：
+    # 1. 当前主要记录微信返回的 country
+    # 2. 允许为空，避免非微信注册用户无法落库
+    country: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="用户国家，当前主要记录微信返回的 country",
     )
 
     # 用户状态
@@ -232,8 +276,8 @@ class UserAuthIdentity(Base):
     # 说明：
     # 1. 对应 users.id
     # 2. 这是多种身份归属于同一个用户的关键关联字段
-    user_id: Mapped[int] = mapped_column(
-        BigInteger,
+    user_id: Mapped[str] = mapped_column(
+        String(36),
         ForeignKey("users.id", ondelete="RESTRICT", onupdate="CASCADE"),
         nullable=False,
         index=True,
@@ -329,7 +373,7 @@ class SmsCode(Base):
 
     # 主键 ID
     id: Mapped[int] = mapped_column(
-        BigInteger,
+        Integer,
         primary_key=True,
         autoincrement=True,
         comment="主键ID",
@@ -438,7 +482,7 @@ class WechatLoginState(Base):
 
     # 主键 ID
     id: Mapped[int] = mapped_column(
-        BigInteger,
+        Integer,
         primary_key=True,
         autoincrement=True,
         comment="主键ID",
@@ -524,7 +568,7 @@ class UserLoginLog(Base):
 
     # 主键 ID
     id: Mapped[int] = mapped_column(
-        BigInteger,
+        Integer,
         primary_key=True,
         autoincrement=True,
         comment="主键ID",
@@ -534,8 +578,8 @@ class UserLoginLog(Base):
     # 说明：
     # 1. 登录成功时通常有值
     # 2. 登录失败时可能为空
-    user_id: Mapped[int | None] = mapped_column(
-        BigInteger,
+    user_id: Mapped[str | None] = mapped_column(
+        String(36),
         ForeignKey("users.id", ondelete="SET NULL", onupdate="CASCADE"),
         nullable=True,
         index=True,
@@ -643,7 +687,7 @@ class InviteCode(Base):
 
     # 主键 ID
     id: Mapped[int] = mapped_column(
-        BigInteger,
+        Integer,
         primary_key=True,
         autoincrement=True,
         comment="主键ID",
@@ -686,15 +730,15 @@ class InviteCode(Base):
     )
 
     # 发放人用户 ID（可空）
-    issued_by_user_id: Mapped[int | None] = mapped_column(
-        BigInteger,
+    issued_by_user_id: Mapped[str | None] = mapped_column(
+        String(36),
         nullable=True,
         comment="发放人用户ID，可为空",
     )
 
     # 使用人用户 ID（可空）
-    used_by_user_id: Mapped[int | None] = mapped_column(
-        BigInteger,
+    used_by_user_id: Mapped[str | None] = mapped_column(
+        String(36),
         nullable=True,
         index=True,
         comment="使用人用户ID，可为空",

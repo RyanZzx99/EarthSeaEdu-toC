@@ -15,6 +15,8 @@ import LoginView from "../views/LoginView.vue";
 
 // 导入首页
 import HomeView from "../views/HomeView.vue";
+// 导入用户信息页
+import ProfileView from "../views/ProfileView.vue";
 // 导入管理员控制台页面
 import AdminConsoleView from "../views/AdminConsoleView.vue";
 
@@ -36,6 +38,14 @@ const routes = [
     path: "/",
     name: "home",
     component: HomeView,
+    meta: {
+      requiresAuth: true,
+    },
+  },
+  {
+    path: "/profile",
+    name: "profile",
+    component: ProfileView,
     meta: {
       requiresAuth: true,
     },

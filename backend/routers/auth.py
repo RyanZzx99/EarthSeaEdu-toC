@@ -42,6 +42,9 @@ from backend.config.db_conf import settings
 
 # 导入请求/响应 schema
 from backend.schemas.auth import BindMobileRequiredResponse
+from backend.schemas.auth import AvailabilityCheckResponse
+from backend.schemas.auth import CheckNicknameAvailabilityRequest
+from backend.schemas.auth import CheckPasswordAvailabilityRequest
 from backend.schemas.auth import LoginResponse
 from backend.schemas.auth import PasswordLoginRequest
 from backend.schemas.auth import SendSmsCodeRequest
@@ -49,6 +52,7 @@ from backend.schemas.auth import SetPasswordRequest
 from backend.schemas.auth import SmsLoginRequest
 from backend.schemas.auth import GenerateInviteCodesRequest
 from backend.schemas.auth import IssueInviteCodeRequest
+from backend.schemas.auth import UpdateNicknameRequest
 from backend.schemas.auth import UpdateInviteCodeStatusRequest
 from backend.schemas.auth import UpdateUserStatusRequest
 from backend.schemas.auth import UserProfileResponse
@@ -64,7 +68,10 @@ from backend.services.auth_service import login_by_password
 from backend.services.auth_service import login_by_sms
 from backend.services.auth_service import login_by_wechat
 from backend.services.auth_service import send_and_save_sms_code
+from backend.services.auth_service import check_nickname_availability
+from backend.services.auth_service import check_password_availability
 from backend.services.auth_service import set_password_for_user
+from backend.services.auth_service import update_nickname_for_user
 from backend.services.auth_service import create_invite_codes
 from backend.services.auth_service import issue_invite_code
 from backend.services.auth_service import list_invite_codes
@@ -123,7 +130,7 @@ def extract_bearer_token(authorization: str | None) -> str | None:
     return authorization.replace("Bearer ", "", 1).strip()
 
 
-def get_current_user_id(authorization: str | None) -> int:
+def get_current_user_id(authorization: str | None) -> str:
     """
     从 access token 中解析当前登录用户 ID
 
@@ -158,8 +165,8 @@ def get_current_user_id(authorization: str | None) -> int:
     if not user_id:
         raise HTTPException(status_code=401, detail="token 缺少用户信息")
 
-    # 返回 int 类型用户 ID
-    return int(user_id)
+    # 中文注释：当前用户主键已切换为 UUID 字符串，因此这里直接返回原始 sub
+    return str(user_id)
 
 
 @router.get("/wechat/authorize-url")
@@ -464,7 +471,7 @@ def wechat_bind_mobile_api(
         # 调 service 执行绑定手机号
         result = bind_mobile_for_wechat_user(
             db=db,
-            bind_user_id=int(bind_user_id),
+            bind_user_id=str(bind_user_id),
             mobile=payload.mobile,
             code=payload.code,
             invite_code=payload.invite_code,
@@ -557,8 +564,90 @@ def me_api(
         "mobile": user.mobile,
         "nickname": user.nickname,
         "avatar_url": user.avatar_url,
+        "sex": user.sex,
+        "province": user.province,
+        "city": user.city,
+        "country": user.country,
         "status": user.status,
+        # 中文注释：前端据此判断密码区域默认显示“设置/修改密码”按钮还是直接展开表单
+        "has_password": bool(user.password_hash),
     }
+
+
+@router.post("/me/nickname")
+def update_my_nickname_api(
+    payload: UpdateNicknameRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """
+    当前登录用户修改昵称接口
+    """
+    # 中文注释：昵称修改属于登录态内操作，因此需要先解析当前用户 ID
+    user_id = get_current_user_id(authorization)
+
+    try:
+        user = update_nickname_for_user(
+            db=db,
+            user_id=user_id,
+            nickname=payload.nickname,
+        )
+        return {
+            "user_id": user.id,
+            "nickname": user.nickname,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/me/nickname/check", response_model=AvailabilityCheckResponse)
+def check_my_nickname_api(
+    payload: CheckNicknameAvailabilityRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """
+    当前登录用户检查昵称是否可用接口
+    """
+    user_id = get_current_user_id(authorization)
+
+    try:
+        available, message = check_nickname_availability(
+            db=db,
+            user_id=user_id,
+            nickname=payload.nickname,
+        )
+        return {
+            "available": available,
+            "message": message,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/me/password/check", response_model=AvailabilityCheckResponse)
+def check_my_password_api(
+    payload: CheckPasswordAvailabilityRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """
+    当前登录用户检查新密码是否可用接口
+    """
+    user_id = get_current_user_id(authorization)
+
+    try:
+        available, message = check_password_availability(
+            db=db,
+            user_id=user_id,
+            new_password=payload.new_password,
+        )
+        return {
+            "available": available,
+            "message": message,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/logout")

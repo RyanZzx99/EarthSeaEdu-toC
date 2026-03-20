@@ -250,10 +250,10 @@ class UpdateUserStatusRequest(BaseModel):
     """
 
     # 用户ID（与 mobile 二选一，至少传一个）
-    user_id: Optional[int] = Field(
+    user_id: Optional[str] = Field(
         default=None,
         description="用户ID（可选）",
-        examples=[1001],
+        examples=["550e8400-e29b-41d4-a716-446655440000"],
     )
 
     # 手机号（与 user_id 二选一，至少传一个）
@@ -289,7 +289,7 @@ class InviteCodeItem(BaseModel):
     issued_to_mobile: Optional[str] = Field(default=None, description="发放目标手机号")
 
     # 使用人用户 ID
-    used_by_user_id: Optional[int] = Field(default=None, description="使用人用户ID")
+    used_by_user_id: Optional[str] = Field(default=None, description="使用人用户ID")
 
     # 发放时间
     issued_time: Optional[datetime] = Field(default=None, description="发放时间")
@@ -323,6 +323,60 @@ class SetPasswordRequest(BaseModel):
     )
 
 
+class UpdateNicknameRequest(BaseModel):
+    """
+    修改当前登录用户昵称请求体
+    """
+
+    # 中文注释：昵称去除首尾空白后不能为空，并限制最长 100 位，避免超长脏数据
+    nickname: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="用户昵称",
+        examples=["Ryan"],
+    )
+
+
+class CheckNicknameAvailabilityRequest(BaseModel):
+    """
+    检查昵称是否可用请求体
+    """
+
+    # 中文注释：昵称检查与昵称修改使用同一套长度约束，避免前后规则不一致
+    nickname: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="待检查的昵称",
+        examples=["Ryan"],
+    )
+
+
+class CheckPasswordAvailabilityRequest(BaseModel):
+    """
+    检查新密码是否可用请求体
+    """
+
+    # 中文注释：沿用设置密码的长度限制，具体强度规则仍由 service 统一校验
+    new_password: str = Field(
+        ...,
+        min_length=8,
+        max_length=24,
+        description="待检查的新密码",
+        examples=["abc12345"],
+    )
+
+
+class AvailabilityCheckResponse(BaseModel):
+    """
+    可用性检查响应体
+    """
+
+    available: bool = Field(..., description="是否可用")
+    message: str = Field(..., description="检查结果提示文案")
+
+
 class LoginResponse(BaseModel):
     """
     正常登录成功响应体
@@ -347,7 +401,7 @@ class LoginResponse(BaseModel):
     )
 
     # 当前用户 ID
-    user_id: int = Field(
+    user_id: str = Field(
         ...,
         description="用户ID",
     )
@@ -396,7 +450,7 @@ class UserProfileResponse(BaseModel):
     """
 
     # 用户 ID
-    user_id: int = Field(
+    user_id: str = Field(
         ...,
         description="用户ID",
     )
@@ -419,8 +473,38 @@ class UserProfileResponse(BaseModel):
         description="头像地址",
     )
 
+    # 性别
+    sex: Optional[int] = Field(
+        default=None,
+        description="性别，0=未知，1=男，2=女",
+    )
+
+    # 省份
+    province: Optional[str] = Field(
+        default=None,
+        description="省份",
+    )
+
+    # 城市
+    city: Optional[str] = Field(
+        default=None,
+        description="城市",
+    )
+
+    # 国家
+    country: Optional[str] = Field(
+        default=None,
+        description="国家",
+    )
+
     # 用户状态
     status: str = Field(
         ...,
         description="用户状态，例如 active / disabled",
+    )
+
+    # 是否已设置密码
+    has_password: bool = Field(
+        ...,
+        description="当前用户是否已设置登录密码",
     )

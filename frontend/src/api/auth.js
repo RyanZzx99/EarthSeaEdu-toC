@@ -162,6 +162,27 @@ export function setPassword(data) {
 }
 
 /**
+ * 修改当前登录用户昵称
+ */
+export function updateMyNickname(data) {
+  return request.post("/api/v1/auth/me/nickname", data);
+}
+
+/**
+ * 检查当前登录用户昵称是否可用
+ */
+export function checkMyNickname(data) {
+  return request.post("/api/v1/auth/me/nickname/check", data);
+}
+
+/**
+ * 检查当前登录用户新密码是否可用
+ */
+export function checkMyPassword(data) {
+  return request.post("/api/v1/auth/me/password/check", data);
+}
+
+/**
  * 获取当前登录用户信息
  */
 export function getMe() {
@@ -244,7 +265,7 @@ export function updateInviteCodeStatus(data, adminKey) {
  *
  * 说明：
  * 1. 需要在请求头中传 X-Admin-Key
- * 2. data 示例：{ user_id: 1001, mobile: "13800138000", status: "disabled" }
+ * 2. data 示例：{ user_id: "550e8400-e29b-41d4-a716-446655440000", mobile: "13800138000", status: "disabled" }
  * 3. user_id 与 mobile 至少传一个
  */
 export function updateUserStatus(data, adminKey) {
