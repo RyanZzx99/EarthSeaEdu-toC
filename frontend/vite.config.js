@@ -1,26 +1,17 @@
 import { defineConfig } from "vite";
-import vue from "@vitejs/plugin-vue";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  plugins: [vue()],
-
+  plugins: [react()],
   server: {
-    // 允许局域网访问，方便你手机或其他设备调试
+    // 中文注释：允许局域网访问，便于本机和移动端联调
     host: "0.0.0.0",
-
-    // 前端开发端口
     port: 5173,
-
     proxy: {
-      // 只要请求路径以 /api 开头，就代理到后端
       "/api": {
-        // 你的 FastAPI 地址
+        // 中文注释：认证接口继续复用本地 FastAPI 服务
         target: "http://127.0.0.1:8000",
-
-        // 修改请求源
         changeOrigin: true,
-
-        // 是否启用 https 校验证书
         secure: false,
       },
     },
