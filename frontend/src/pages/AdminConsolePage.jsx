@@ -39,6 +39,54 @@ const inviteStatusOptions = [
   { value: "3", label: "3（已禁用）" },
 ];
 
+const groupTypeLabelMap = {
+  reserved: "保留词（reserved）",
+  black: "黑名单（black）",
+  review: "人工复核（review）",
+  whitelist: "白名单（whitelist）",
+  contact: "联系方式（contact）",
+};
+
+const statusLabelMap = {
+  draft: "草稿（draft）",
+  active: "启用（active）",
+  disabled: "停用（disabled）",
+};
+
+const matchTypeLabelMap = {
+  contains: "包含（contains）",
+  exact: "完全匹配（exact）",
+  prefix: "前缀（prefix）",
+  suffix: "后缀（suffix）",
+  regex: "正则（regex）",
+};
+
+const decisionLabelMap = {
+  reject: "拒绝（reject）",
+  review: "复核（review）",
+  pass: "放行（pass）",
+};
+
+const contactTypeLabelMap = {
+  mobile: "手机号（mobile）",
+  wechat: "微信（wechat）",
+  qq: "QQ（qq）",
+  email: "邮箱（email）",
+  social: "社交平台（social）",
+};
+
+const riskLevelLabelMap = {
+  low: "低（low）",
+  medium: "中（medium）",
+  high: "高（high）",
+  critical: "严重（critical）",
+};
+
+const sceneLabelMap = {
+  check: "检查（check）",
+  update: "更新（update）",
+};
+
 const groupTypeOptions = ["reserved", "black", "review", "whitelist", "contact"];
 const groupStatusOptions = ["draft", "active", "disabled"];
 const wordMatchTypeOptions = ["contains", "exact", "prefix", "suffix", "regex"];
@@ -59,6 +107,34 @@ function formatDate(value) {
 function formatInviteStatus(status) {
   const item = inviteStatusOptions.find((option) => option.value === status);
   return item?.label || status || "-";
+}
+
+function formatGroupType(value) {
+  return groupTypeLabelMap[value] || value || "-";
+}
+
+function formatStatus(value) {
+  return statusLabelMap[value] || value || "-";
+}
+
+function formatMatchType(value) {
+  return matchTypeLabelMap[value] || value || "-";
+}
+
+function formatDecision(value) {
+  return decisionLabelMap[value] || value || "-";
+}
+
+function formatContactType(value) {
+  return contactTypeLabelMap[value] || value || "-";
+}
+
+function formatRiskLevel(value) {
+  return riskLevelLabelMap[value] || value || "-";
+}
+
+function formatScene(value) {
+  return sceneLabelMap[value] || value || "-";
 }
 
 function formatRuleTargetType(value) {
@@ -140,13 +216,20 @@ function DataPlaceholder({ text }) {
   return <div className="admin-empty-state">{text}</div>;
 }
 
-function GroupSelect({ value, onChange, groups, placeholder = "全部分组", allowEmpty = true }) {
+function GroupSelect({
+  value,
+  onChange,
+  groups,
+  placeholder = "全部分组",
+  allowEmpty = true,
+  optionLabel = (item) => `${item.group_name}（${item.group_code}）`,
+}) {
   return (
     <select className="input" value={value} onChange={onChange}>
       {allowEmpty ? <option value="">{placeholder}</option> : null}
       {groups.map((item) => (
         <option key={item.id} value={item.id}>
-          {item.group_name}（{item.group_code}）
+          {optionLabel(item)}
         </option>
       ))}
     </select>
@@ -167,6 +250,10 @@ export default function AdminConsolePage() {
     status: "draft",
     priority: 100,
     description: "",
+  });
+  const [groupQueryForm, setGroupQueryForm] = useState({
+    status: "",
+    group_type: "",
   });
   const [wordRuleForm, setWordRuleForm] = useState({
     group_id: "",
@@ -404,7 +491,13 @@ export default function AdminConsolePage() {
     if (!ensureAdminKey()) return;
     try {
       setLoadingGroupList(true);
-      const response = await listNicknameRuleGroups({}, adminKey);
+      const response = await listNicknameRuleGroups(
+        {
+          status: groupQueryForm.status || undefined,
+          group_type: groupQueryForm.group_type || undefined,
+        },
+        adminKey
+      );
       setGroupList(response.data.items || []);
     } catch (error) {
       setErrorMessage(error?.response?.data?.detail || "规则分组查询失败");
@@ -589,6 +682,14 @@ export default function AdminConsolePage() {
     } finally {
       setLoadingRuleStatus(false);
     }
+  }
+
+  function handleRuleTargetTypeChange(targetType) {
+    setRuleStatusForm((previous) => ({
+      ...previous,
+      target_type: targetType,
+      target_id: "",
+    }));
   }
 
   async function handleListAuditLogs() {
@@ -845,13 +946,31 @@ export default function AdminConsolePage() {
                 <div className="admin-form-grid">
                   <Field label="分组编码"><input className="input" value={groupForm.group_code} onChange={(event) => setGroupForm((previous) => ({ ...previous, group_code: event.target.value }))} placeholder="例如：contact_wechat" /></Field>
                   <Field label="分组名称"><input className="input" value={groupForm.group_name} onChange={(event) => setGroupForm((previous) => ({ ...previous, group_name: event.target.value }))} placeholder="例如：微信导流" /></Field>
-                  <Field label="分组类型"><select className="input" value={groupForm.group_type} onChange={(event) => setGroupForm((previous) => ({ ...previous, group_type: event.target.value }))}>{groupTypeOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
-                  <Field label="状态"><select className="input" value={groupForm.status} onChange={(event) => setGroupForm((previous) => ({ ...previous, status: event.target.value }))}>{groupStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
+                  <Field label="分组类型"><select className="input" value={groupForm.group_type} onChange={(event) => setGroupForm((previous) => ({ ...previous, group_type: event.target.value }))}>{groupTypeOptions.map((item) => <option key={item} value={item}>{formatGroupType(item)}</option>)}</select></Field>
+                  <Field label="状态"><select className="input" value={groupForm.status} onChange={(event) => setGroupForm((previous) => ({ ...previous, status: event.target.value }))}>{groupStatusOptions.map((item) => <option key={item} value={item}>{formatStatus(item)}</option>)}</select></Field>
                   <Field label="优先级"><input className="input" type="number" min="1" max="10000" value={groupForm.priority} onChange={(event) => setGroupForm((previous) => ({ ...previous, priority: event.target.value }))} /></Field>
                   <Field label="分组说明"><input className="input" value={groupForm.description} onChange={(event) => setGroupForm((previous) => ({ ...previous, description: event.target.value }))} placeholder="说明这个分组的运营用途" /></Field>
                 </div>
                 <div className="admin-button-row">
                   <button type="button" className="primary-btn" disabled={loadingGroupCreate} onClick={handleCreateGroup}>{loadingGroupCreate ? "创建中..." : "创建规则分组"}</button>
+                </div>
+                <div className="admin-divider" />
+                <div className="admin-filter-grid">
+                  <Field label="查询状态">
+                    <select className="input" value={groupQueryForm.status} onChange={(event) => setGroupQueryForm((previous) => ({ ...previous, status: event.target.value }))}>
+                      <option value="">全部状态</option>
+                      {groupStatusOptions.map((item) => <option key={item} value={item}>{formatStatus(item)}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="查询类型">
+                    <select className="input" value={groupQueryForm.group_type} onChange={(event) => setGroupQueryForm((previous) => ({ ...previous, group_type: event.target.value }))}>
+                      <option value="">全部类型</option>
+                      {groupTypeOptions.map((item) => <option key={item} value={item}>{formatGroupType(item)}</option>)}
+                    </select>
+                  </Field>
+                </div>
+                <div className="admin-button-row">
+                  <button type="button" className="secondary-btn" disabled={loadingGroupList} onClick={handleListGroups}>{loadingGroupList ? "查询中..." : "查询分组列表"}</button>
                 </div>
                 {groupList.length ? (
                   <div className="table-wrap">
@@ -863,8 +982,8 @@ export default function AdminConsolePage() {
                             <td>{item.id}</td>
                             <td>{item.group_code}</td>
                             <td>{item.group_name}</td>
-                            <td>{item.group_type}</td>
-                            <td>{item.status}</td>
+                            <td>{formatGroupType(item.group_type)}</td>
+                            <td>{formatStatus(item.status)}</td>
                             <td>{item.priority}</td>
                           </tr>
                         ))}
@@ -876,16 +995,29 @@ export default function AdminConsolePage() {
 
               <AdminPanel title="规则启停" description="统一维护分组、词条、联系方式规则的状态。">
                 <div className="admin-form-grid">
-                  <Field label="目标类型"><select className="input" value={ruleStatusForm.target_type} onChange={(event) => setRuleStatusForm((previous) => ({ ...previous, target_type: event.target.value }))}><option value="group">group（分组）</option><option value="word">word（词条）</option><option value="pattern">pattern（联系方式规则）</option></select></Field>
-                  <Field label="目标 ID"><input className="input" type="number" min="1" value={ruleStatusForm.target_id} onChange={(event) => setRuleStatusForm((previous) => ({ ...previous, target_id: event.target.value }))} placeholder="输入表中的目标 ID" /></Field>
-                  <Field label="更新状态"><select className="input" value={ruleStatusForm.status} onChange={(event) => setRuleStatusForm((previous) => ({ ...previous, status: event.target.value }))}>{groupStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
+                  <Field label="目标类型"><select className="input" value={ruleStatusForm.target_type} onChange={(event) => handleRuleTargetTypeChange(event.target.value)}><option value="group">分组（group）</option><option value="word">词条（word）</option><option value="pattern">联系方式规则（pattern）</option></select></Field>
+                  {ruleStatusForm.target_type === "group" ? (
+                    <Field label="分组编码">
+                      <GroupSelect
+                        value={ruleStatusForm.target_id}
+                        onChange={(event) => setRuleStatusForm((previous) => ({ ...previous, target_id: event.target.value }))}
+                        groups={groupList}
+                        placeholder="请选择分组编码"
+                        allowEmpty={false}
+                        optionLabel={(item) => `${item.group_code}（${item.group_name}）`}
+                      />
+                    </Field>
+                  ) : (
+                    <Field label="目标 ID"><input className="input" type="number" min="1" value={ruleStatusForm.target_id} onChange={(event) => setRuleStatusForm((previous) => ({ ...previous, target_id: event.target.value }))} placeholder="输入表中的目标 ID" /></Field>
+                  )}
+                  <Field label="更新状态"><select className="input" value={ruleStatusForm.status} onChange={(event) => setRuleStatusForm((previous) => ({ ...previous, status: event.target.value }))}>{groupStatusOptions.map((item) => <option key={item} value={item}>{formatStatus(item)}</option>)}</select></Field>
                 </div>
                 <div className="admin-button-row">
                   <button type="button" className="primary-btn" disabled={loadingRuleStatus} onClick={handleUpdateRuleStatus}>{loadingRuleStatus ? "更新中..." : "更新规则状态"}</button>
                 </div>
                 {lastRuleStatusResult.id ? (
                   <div className="result-box">
-                    已更新 {formatRuleTargetType(ruleStatusForm.target_type)} ID {lastRuleStatusResult.id}，当前状态：{lastRuleStatusResult.status}
+                    已更新 {formatRuleTargetType(ruleStatusForm.target_type)} ID {lastRuleStatusResult.id}，当前状态：{formatStatus(lastRuleStatusResult.status)}
                   </div>
                 ) : <DataPlaceholder text="状态更新结果会显示在这里。" />}
               </AdminPanel>
@@ -896,11 +1028,11 @@ export default function AdminConsolePage() {
                 <div className="admin-form-grid">
                   <Field label="所属分组"><GroupSelect value={wordRuleForm.group_id} onChange={(event) => setWordRuleForm((previous) => ({ ...previous, group_id: event.target.value }))} groups={groupList} placeholder="请选择分组" allowEmpty={false} /></Field>
                   <Field label="词条"><input className="input" value={wordRuleForm.word} onChange={(event) => setWordRuleForm((previous) => ({ ...previous, word: event.target.value }))} placeholder="输入标准词条" /></Field>
-                  <Field label="匹配方式"><select className="input" value={wordRuleForm.match_type} onChange={(event) => setWordRuleForm((previous) => ({ ...previous, match_type: event.target.value }))}>{wordMatchTypeOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
-                  <Field label="命中决策"><select className="input" value={wordRuleForm.decision} onChange={(event) => setWordRuleForm((previous) => ({ ...previous, decision: event.target.value }))}>{wordDecisionOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
-                  <Field label="状态"><select className="input" value={wordRuleForm.status} onChange={(event) => setWordRuleForm((previous) => ({ ...previous, status: event.target.value }))}>{groupStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
+                  <Field label="匹配方式"><select className="input" value={wordRuleForm.match_type} onChange={(event) => setWordRuleForm((previous) => ({ ...previous, match_type: event.target.value }))}>{wordMatchTypeOptions.map((item) => <option key={item} value={item}>{formatMatchType(item)}</option>)}</select></Field>
+                  <Field label="命中决策"><select className="input" value={wordRuleForm.decision} onChange={(event) => setWordRuleForm((previous) => ({ ...previous, decision: event.target.value }))}>{wordDecisionOptions.map((item) => <option key={item} value={item}>{formatDecision(item)}</option>)}</select></Field>
+                  <Field label="状态"><select className="input" value={wordRuleForm.status} onChange={(event) => setWordRuleForm((previous) => ({ ...previous, status: event.target.value }))}>{groupStatusOptions.map((item) => <option key={item} value={item}>{formatStatus(item)}</option>)}</select></Field>
                   <Field label="优先级"><input className="input" type="number" min="1" max="10000" value={wordRuleForm.priority} onChange={(event) => setWordRuleForm((previous) => ({ ...previous, priority: event.target.value }))} /></Field>
-                  <Field label="风险等级"><select className="input" value={wordRuleForm.risk_level} onChange={(event) => setWordRuleForm((previous) => ({ ...previous, risk_level: event.target.value }))}>{riskLevelOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
+                  <Field label="风险等级"><select className="input" value={wordRuleForm.risk_level} onChange={(event) => setWordRuleForm((previous) => ({ ...previous, risk_level: event.target.value }))}>{riskLevelOptions.map((item) => <option key={item} value={item}>{formatRiskLevel(item)}</option>)}</select></Field>
                   <Field label="备注"><input className="input" value={wordRuleForm.note} onChange={(event) => setWordRuleForm((previous) => ({ ...previous, note: event.target.value }))} placeholder="可留空" /></Field>
                 </div>
                 <div className="admin-button-row">
@@ -909,8 +1041,8 @@ export default function AdminConsolePage() {
                 <div className="admin-divider" />
                 <div className="admin-filter-grid">
                   <Field label="分组筛选"><GroupSelect value={wordRuleQueryForm.group_id} onChange={(event) => setWordRuleQueryForm((previous) => ({ ...previous, group_id: event.target.value }))} groups={groupList} /></Field>
-                  <Field label="状态"><select className="input" value={wordRuleQueryForm.status} onChange={(event) => setWordRuleQueryForm((previous) => ({ ...previous, status: event.target.value }))}><option value="">全部状态</option>{groupStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
-                  <Field label="决策"><select className="input" value={wordRuleQueryForm.decision} onChange={(event) => setWordRuleQueryForm((previous) => ({ ...previous, decision: event.target.value }))}><option value="">全部决策</option>{wordDecisionOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
+                  <Field label="状态"><select className="input" value={wordRuleQueryForm.status} onChange={(event) => setWordRuleQueryForm((previous) => ({ ...previous, status: event.target.value }))}><option value="">全部状态</option>{groupStatusOptions.map((item) => <option key={item} value={item}>{formatStatus(item)}</option>)}</select></Field>
+                  <Field label="决策"><select className="input" value={wordRuleQueryForm.decision} onChange={(event) => setWordRuleQueryForm((previous) => ({ ...previous, decision: event.target.value }))}><option value="">全部决策</option>{wordDecisionOptions.map((item) => <option key={item} value={item}>{formatDecision(item)}</option>)}</select></Field>
                   <Field label="关键字"><input className="input" value={wordRuleQueryForm.keyword} onChange={(event) => setWordRuleQueryForm((previous) => ({ ...previous, keyword: event.target.value }))} placeholder="词条或备注关键字" /></Field>
                   <Field label="返回条数"><input className="input" type="number" min="1" max="200" value={wordRuleQueryForm.limit} onChange={(event) => setWordRuleQueryForm((previous) => ({ ...previous, limit: event.target.value }))} /></Field>
                 </div>
@@ -929,9 +1061,9 @@ export default function AdminConsolePage() {
                             <td>{item.group_id}</td>
                             <td>{item.word}</td>
                             <td>{item.normalized_word}</td>
-                            <td>{item.match_type}</td>
-                            <td>{item.decision}</td>
-                            <td>{item.status}</td>
+                            <td>{formatMatchType(item.match_type)}</td>
+                            <td>{formatDecision(item.decision)}</td>
+                            <td>{formatStatus(item.status)}</td>
                             <td>{item.priority}</td>
                           </tr>
                         ))}
@@ -945,12 +1077,12 @@ export default function AdminConsolePage() {
                 <div className="admin-form-grid">
                   <Field label="所属分组"><GroupSelect value={contactPatternForm.group_id} onChange={(event) => setContactPatternForm((previous) => ({ ...previous, group_id: event.target.value }))} groups={groupList} /></Field>
                   <Field label="规则名称"><input className="input" value={contactPatternForm.pattern_name} onChange={(event) => setContactPatternForm((previous) => ({ ...previous, pattern_name: event.target.value }))} placeholder="例如：中国大陆手机号" /></Field>
-                  <Field label="规则类型"><select className="input" value={contactPatternForm.pattern_type} onChange={(event) => setContactPatternForm((previous) => ({ ...previous, pattern_type: event.target.value }))}>{contactTypeOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
+                  <Field label="规则类型"><select className="input" value={contactPatternForm.pattern_type} onChange={(event) => setContactPatternForm((previous) => ({ ...previous, pattern_type: event.target.value }))}>{contactTypeOptions.map((item) => <option key={item} value={item}>{formatContactType(item)}</option>)}</select></Field>
                   <Field label="正则表达式"><input className="input" value={contactPatternForm.pattern_regex} onChange={(event) => setContactPatternForm((previous) => ({ ...previous, pattern_regex: event.target.value }))} placeholder="输入正则" /></Field>
-                  <Field label="命中决策"><select className="input" value={contactPatternForm.decision} onChange={(event) => setContactPatternForm((previous) => ({ ...previous, decision: event.target.value }))}>{contactDecisionOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
-                  <Field label="状态"><select className="input" value={contactPatternForm.status} onChange={(event) => setContactPatternForm((previous) => ({ ...previous, status: event.target.value }))}>{groupStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
+                  <Field label="命中决策"><select className="input" value={contactPatternForm.decision} onChange={(event) => setContactPatternForm((previous) => ({ ...previous, decision: event.target.value }))}>{contactDecisionOptions.map((item) => <option key={item} value={item}>{formatDecision(item)}</option>)}</select></Field>
+                  <Field label="状态"><select className="input" value={contactPatternForm.status} onChange={(event) => setContactPatternForm((previous) => ({ ...previous, status: event.target.value }))}>{groupStatusOptions.map((item) => <option key={item} value={item}>{formatStatus(item)}</option>)}</select></Field>
                   <Field label="优先级"><input className="input" type="number" min="1" max="10000" value={contactPatternForm.priority} onChange={(event) => setContactPatternForm((previous) => ({ ...previous, priority: event.target.value }))} /></Field>
-                  <Field label="风险等级"><select className="input" value={contactPatternForm.risk_level} onChange={(event) => setContactPatternForm((previous) => ({ ...previous, risk_level: event.target.value }))}>{riskLevelOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
+                  <Field label="风险等级"><select className="input" value={contactPatternForm.risk_level} onChange={(event) => setContactPatternForm((previous) => ({ ...previous, risk_level: event.target.value }))}>{riskLevelOptions.map((item) => <option key={item} value={item}>{formatRiskLevel(item)}</option>)}</select></Field>
                   <Field label="归一化说明"><input className="input" value={contactPatternForm.normalized_hint} onChange={(event) => setContactPatternForm((previous) => ({ ...previous, normalized_hint: event.target.value }))} placeholder="可留空" /></Field>
                   <Field label="备注"><input className="input" value={contactPatternForm.note} onChange={(event) => setContactPatternForm((previous) => ({ ...previous, note: event.target.value }))} placeholder="可留空" /></Field>
                 </div>
@@ -960,8 +1092,8 @@ export default function AdminConsolePage() {
                 <div className="admin-divider" />
                 <div className="admin-filter-grid">
                   <Field label="分组筛选"><GroupSelect value={contactPatternQueryForm.group_id} onChange={(event) => setContactPatternQueryForm((previous) => ({ ...previous, group_id: event.target.value }))} groups={groupList} /></Field>
-                  <Field label="状态"><select className="input" value={contactPatternQueryForm.status} onChange={(event) => setContactPatternQueryForm((previous) => ({ ...previous, status: event.target.value }))}><option value="">全部状态</option>{groupStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
-                  <Field label="规则类型"><select className="input" value={contactPatternQueryForm.pattern_type} onChange={(event) => setContactPatternQueryForm((previous) => ({ ...previous, pattern_type: event.target.value }))}><option value="">全部类型</option>{contactTypeOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
+                  <Field label="状态"><select className="input" value={contactPatternQueryForm.status} onChange={(event) => setContactPatternQueryForm((previous) => ({ ...previous, status: event.target.value }))}><option value="">全部状态</option>{groupStatusOptions.map((item) => <option key={item} value={item}>{formatStatus(item)}</option>)}</select></Field>
+                  <Field label="规则类型"><select className="input" value={contactPatternQueryForm.pattern_type} onChange={(event) => setContactPatternQueryForm((previous) => ({ ...previous, pattern_type: event.target.value }))}><option value="">全部类型</option>{contactTypeOptions.map((item) => <option key={item} value={item}>{formatContactType(item)}</option>)}</select></Field>
                   <Field label="关键字"><input className="input" value={contactPatternQueryForm.keyword} onChange={(event) => setContactPatternQueryForm((previous) => ({ ...previous, keyword: event.target.value }))} placeholder="规则名或备注关键字" /></Field>
                   <Field label="返回条数"><input className="input" type="number" min="1" max="200" value={contactPatternQueryForm.limit} onChange={(event) => setContactPatternQueryForm((previous) => ({ ...previous, limit: event.target.value }))} /></Field>
                 </div>
@@ -979,9 +1111,9 @@ export default function AdminConsolePage() {
                             <td>{item.id}</td>
                             <td>{item.group_id || "-"}</td>
                             <td>{item.pattern_name}</td>
-                            <td>{item.pattern_type}</td>
-                            <td>{item.decision}</td>
-                            <td>{item.status}</td>
+                            <td>{formatContactType(item.pattern_type)}</td>
+                            <td>{formatDecision(item.decision)}</td>
+                            <td>{formatStatus(item.status)}</td>
                             <td>{item.priority}</td>
                             <td>{item.pattern_regex}</td>
                           </tr>
@@ -998,8 +1130,8 @@ export default function AdminConsolePage() {
             <div className="admin-workbench-grid">
               <AdminPanel title="审核日志查询" description="按决策、场景、规则分组快速筛选最近的命中记录。">
                 <div className="admin-filter-grid">
-                  <Field label="结果"><select className="input" value={auditLogQueryForm.decision} onChange={(event) => setAuditLogQueryForm((previous) => ({ ...previous, decision: event.target.value }))}><option value="">全部结果</option><option value="pass">pass</option><option value="reject">reject</option><option value="review">review</option></select></Field>
-                  <Field label="场景"><select className="input" value={auditLogQueryForm.scene} onChange={(event) => setAuditLogQueryForm((previous) => ({ ...previous, scene: event.target.value }))}><option value="">全部场景</option><option value="check">check</option><option value="update">update</option></select></Field>
+                  <Field label="结果"><select className="input" value={auditLogQueryForm.decision} onChange={(event) => setAuditLogQueryForm((previous) => ({ ...previous, decision: event.target.value }))}><option value="">全部结果</option><option value="pass">{formatDecision("pass")}</option><option value="reject">{formatDecision("reject")}</option><option value="review">{formatDecision("review")}</option></select></Field>
+                  <Field label="场景"><select className="input" value={auditLogQueryForm.scene} onChange={(event) => setAuditLogQueryForm((previous) => ({ ...previous, scene: event.target.value }))}><option value="">全部场景</option><option value="check">{formatScene("check")}</option><option value="update">{formatScene("update")}</option></select></Field>
                   <Field label="规则分组编码"><input className="input" value={auditLogQueryForm.hit_group_code} onChange={(event) => setAuditLogQueryForm((previous) => ({ ...previous, hit_group_code: event.target.value }))} placeholder="可留空" /></Field>
                   <Field label="返回条数"><input className="input" type="number" min="1" max="200" value={auditLogQueryForm.limit} onChange={(event) => setAuditLogQueryForm((previous) => ({ ...previous, limit: event.target.value }))} /></Field>
                 </div>
@@ -1015,9 +1147,9 @@ export default function AdminConsolePage() {
                         {auditLogList.map((item) => (
                           <tr key={item.id}>
                             <td>{item.id}</td>
-                            <td>{item.scene}</td>
+                            <td>{formatScene(item.scene)}</td>
                             <td>{item.raw_nickname}</td>
-                            <td>{item.decision}</td>
+                            <td>{formatDecision(item.decision)}</td>
                             <td>{item.hit_group_code || "-"}</td>
                             <td>{item.hit_content || "-"}</td>
                             <td>{item.message || "-"}</td>
@@ -1038,7 +1170,7 @@ export default function AdminConsolePage() {
                 <div className="admin-form-grid">
                   <Field label="用户 ID" hint="和手机号二选一，至少填写一个。"><input className="input" value={userStatusForm.user_id} onChange={(event) => setUserStatusForm((previous) => ({ ...previous, user_id: event.target.value }))} placeholder="输入 UUID" /></Field>
                   <Field label="手机号"><input className="input" value={userStatusForm.mobile} onChange={(event) => setUserStatusForm((previous) => ({ ...previous, mobile: event.target.value }))} placeholder="11 位手机号" /></Field>
-                  <Field label="目标状态"><select className="input" value={userStatusForm.status} onChange={(event) => setUserStatusForm((previous) => ({ ...previous, status: event.target.value }))}><option value="active">active（启用）</option><option value="disabled">disabled（禁用）</option></select></Field>
+                  <Field label="目标状态"><select className="input" value={userStatusForm.status} onChange={(event) => setUserStatusForm((previous) => ({ ...previous, status: event.target.value }))}><option value="active">{formatStatus("active")}</option><option value="disabled">{formatStatus("disabled")}</option></select></Field>
                 </div>
                 <div className="admin-button-row">
                   <button type="button" className="primary-btn" disabled={loadingUserStatus} onClick={handleUpdateUserStatus}>{loadingUserStatus ? "保存中..." : "修改用户状态"}</button>
@@ -1050,7 +1182,7 @@ export default function AdminConsolePage() {
                   <div className="admin-detail-list">
                     <div><strong>用户 ID：</strong>{lastUserStatusResult.user_id}</div>
                     <div><strong>手机号：</strong>{lastUserStatusResult.mobile || "-"}</div>
-                    <div><strong>状态：</strong>{lastUserStatusResult.status}</div>
+                    <div><strong>状态：</strong>{formatStatus(lastUserStatusResult.status)}</div>
                   </div>
                 ) : <DataPlaceholder text="还没有用户状态变更记录。" />}
               </AdminPanel>
