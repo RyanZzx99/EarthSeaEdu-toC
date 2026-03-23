@@ -23,7 +23,13 @@ from backend.config.db_conf import Base
 
 
 class NicknameRuleGroup(Base):
-    """昵称规则分组表。"""
+    """
+    昵称规则分组表。
+
+    设计意图：
+    1. 把规则按业务主题分桶，例如“官方冒充”“微信导流”“教育白名单”。
+    2. 运营侧优先管理分组，再管理分组下的词条和正则规则。
+    """
 
     __tablename__ = "nickname_rule_groups"
 
@@ -117,10 +123,13 @@ class NicknameRuleGroup(Base):
         comment="删除标记",
     )
 
+    # 中文注释：一个规则分组下可以挂多条词条规则。
     word_rules: Mapped[list["NicknameWordRule"]] = relationship(
         back_populates="group",
         lazy="select",
     )
+
+    # 中文注释：同一个分组下也可以挂联系方式正则规则，便于统一运营管理。
     contact_patterns: Mapped[list["NicknameContactPattern"]] = relationship(
         back_populates="group",
         lazy="select",
@@ -128,7 +137,13 @@ class NicknameRuleGroup(Base):
 
 
 class NicknameWordRule(Base):
-    """昵称词条规则表。"""
+    """
+    昵称词条规则表。
+
+    设计意图：
+    1. 只保存“标准词”规则，变体尽量通过代码归一化吸收。
+    2. 通过 decision 区分 pass / reject / review，便于后续升级成人审流。
+    """
 
     __tablename__ = "nickname_word_rules"
 
@@ -240,6 +255,7 @@ class NicknameWordRule(Base):
         comment="删除标记",
     )
 
+    # 中文注释：词条规则归属于一个明确的分组。
     group: Mapped["NicknameRuleGroup"] = relationship(
         back_populates="word_rules",
         lazy="select",
@@ -247,7 +263,13 @@ class NicknameWordRule(Base):
 
 
 class NicknameContactPattern(Base):
-    """昵称联系方式规则表。"""
+    """
+    昵称联系方式规则表。
+
+    设计意图：
+    1. 把手机号、微信号、QQ 号、邮箱等正则规则独立出来。
+    2. 避免在词条规则表里混入 regex，降低运营维护成本。
+    """
 
     __tablename__ = "nickname_contact_patterns"
 
@@ -358,6 +380,7 @@ class NicknameContactPattern(Base):
         comment="删除标记",
     )
 
+    # 中文注释：联系方式规则通常也会挂在某个 contact 分组下，个别场景允许为空。
     group: Mapped[NicknameRuleGroup | None] = relationship(
         back_populates="contact_patterns",
         lazy="select",
@@ -365,7 +388,13 @@ class NicknameContactPattern(Base):
 
 
 class NicknameRulePublishLog(Base):
-    """昵称规则发布日志表。"""
+    """
+    昵称规则发布日志表。
+
+    作用：
+    1. 记录每次规则发布批次。
+    2. 为误杀排查、回滚、版本对比提供依据。
+    """
 
     __tablename__ = "nickname_rule_publish_logs"
 
@@ -434,7 +463,13 @@ class NicknameRulePublishLog(Base):
 
 
 class NicknameAuditLog(Base):
-    """昵称审核日志表。"""
+    """
+    昵称审核日志表。
+
+    作用：
+    1. 记录昵称检查和修改时的最终判定结果。
+    2. 运营侧可以基于这张表做误杀分析、规则命中统计和追溯。
+    """
 
     __tablename__ = "nickname_audit_logs"
 
@@ -551,7 +586,13 @@ class NicknameAuditLog(Base):
 
 
 class NicknameRuleOperationLog(Base):
-    """昵称规则操作日志表。"""
+    """
+    昵称规则操作日志表。
+
+    作用：
+    1. 记录后台运营对规则的创建、修改、启停、发布、回滚动作。
+    2. 便于做审计和责任追踪。
+    """
 
     __tablename__ = "nickname_rule_operation_logs"
 

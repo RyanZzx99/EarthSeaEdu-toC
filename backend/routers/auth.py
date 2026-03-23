@@ -53,6 +53,10 @@ from backend.schemas.auth import SmsLoginRequest
 from backend.schemas.auth import GenerateInviteCodesRequest
 from backend.schemas.auth import IssueInviteCodeRequest
 from backend.schemas.auth import UpdateNicknameRequest
+from backend.schemas.auth import CreateNicknameRuleGroupRequest
+from backend.schemas.auth import CreateNicknameWordRuleRequest
+from backend.schemas.auth import CreateNicknameContactPatternRequest
+from backend.schemas.auth import UpdateNicknameRuleTargetStatusRequest
 from backend.schemas.auth import UpdateInviteCodeStatusRequest
 from backend.schemas.auth import UpdateUserStatusRequest
 from backend.schemas.auth import UserProfileResponse
@@ -77,6 +81,14 @@ from backend.services.auth_service import issue_invite_code
 from backend.services.auth_service import list_invite_codes
 from backend.services.auth_service import update_invite_code_status
 from backend.services.auth_service import update_user_status
+from backend.services.nickname_guard_service import create_nickname_contact_pattern
+from backend.services.nickname_guard_service import create_nickname_rule_group
+from backend.services.nickname_guard_service import create_nickname_word_rule
+from backend.services.nickname_guard_service import list_nickname_audit_logs
+from backend.services.nickname_guard_service import list_nickname_contact_patterns
+from backend.services.nickname_guard_service import list_nickname_rule_groups
+from backend.services.nickname_guard_service import list_nickname_word_rules
+from backend.services.nickname_guard_service import update_nickname_rule_target_status
 
 # 导入微信服务
 from backend.services.wechat_service import build_wechat_qr_authorize_url
@@ -577,6 +589,7 @@ def me_api(
 @router.post("/me/nickname")
 def update_my_nickname_api(
     payload: UpdateNicknameRequest,
+    request: Request,
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ):
@@ -587,10 +600,13 @@ def update_my_nickname_api(
     user_id = get_current_user_id(authorization)
 
     try:
+        # 中文注释：昵称风控日志需要带上请求来源信息，因此这里把 IP 和 User-Agent 透传到 service 层
         user = update_nickname_for_user(
             db=db,
             user_id=user_id,
             nickname=payload.nickname,
+            client_ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
         )
         return {
             "user_id": user.id,
@@ -603,6 +619,7 @@ def update_my_nickname_api(
 @router.post("/me/nickname/check", response_model=AvailabilityCheckResponse)
 def check_my_nickname_api(
     payload: CheckNicknameAvailabilityRequest,
+    request: Request,
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ):
@@ -612,10 +629,13 @@ def check_my_nickname_api(
     user_id = get_current_user_id(authorization)
 
     try:
+        # 中文注释：昵称“检查”同样记录审核日志，便于区分用户只是试探还是最终真的修改成功
         available, message = check_nickname_availability(
             db=db,
             user_id=user_id,
             nickname=payload.nickname,
+            client_ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
         )
         return {
             "available": available,
@@ -842,3 +862,339 @@ def update_user_status_api(
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/nickname/rule-groups")
+def list_nickname_rule_groups_api(
+    status: str | None = Query(default=None, description="状态筛选：draft/active/disabled"),
+    group_type: str | None = Query(default=None, description="分组类型筛选"),
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    查询昵称规则分组列表接口（管理员）
+    """
+    verify_invite_admin_key(x_admin_key)
+
+    rows = list_nickname_rule_groups(
+        db=db,
+        status=status,
+        group_type=group_type,
+    )
+    return {
+        "items": [
+            {
+                "id": row.id,
+                "group_code": row.group_code,
+                "group_name": row.group_name,
+                "group_type": row.group_type,
+                "scope": row.scope,
+                "status": row.status,
+                "priority": row.priority,
+                "description": row.description,
+                "version_no": row.version_no,
+                "create_time": row.create_time,
+                "update_time": row.update_time,
+            }
+            for row in rows
+        ]
+    }
+
+
+@router.post("/nickname/rule-groups")
+def create_nickname_rule_group_api(
+    payload: CreateNicknameRuleGroupRequest,
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    创建昵称规则分组接口（管理员）
+    """
+    verify_invite_admin_key(x_admin_key)
+
+    try:
+        row = create_nickname_rule_group(
+            db=db,
+            group_code=payload.group_code,
+            group_name=payload.group_name,
+            group_type=payload.group_type,
+            scope=payload.scope,
+            status=payload.status,
+            priority=payload.priority,
+            description=payload.description,
+        )
+        return {
+            "id": row.id,
+            "group_code": row.group_code,
+            "group_name": row.group_name,
+            "group_type": row.group_type,
+            "scope": row.scope,
+            "status": row.status,
+            "priority": row.priority,
+            "description": row.description,
+            "version_no": row.version_no,
+            "create_time": row.create_time,
+            "update_time": row.update_time,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/nickname/word-rules")
+def create_nickname_word_rule_api(
+    payload: CreateNicknameWordRuleRequest,
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    创建昵称词条规则接口（管理员）
+    """
+    verify_invite_admin_key(x_admin_key)
+
+    try:
+        row = create_nickname_word_rule(
+            db=db,
+            group_id=payload.group_id,
+            word=payload.word,
+            match_type=payload.match_type,
+            decision=payload.decision,
+            status=payload.status,
+            priority=payload.priority,
+            risk_level=payload.risk_level,
+            source=payload.source,
+            note=payload.note,
+        )
+        return {
+            "id": row.id,
+            "group_id": row.group_id,
+            "word": row.word,
+            "normalized_word": row.normalized_word,
+            "match_type": row.match_type,
+            "decision": row.decision,
+            "status": row.status,
+            "priority": row.priority,
+            "risk_level": row.risk_level,
+            "source": row.source,
+            "note": row.note,
+            "version_no": row.version_no,
+            "create_time": row.create_time,
+            "update_time": row.update_time,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/nickname/word-rules")
+def list_nickname_word_rules_api(
+    group_id: int | None = Query(default=None, ge=1, description="规则分组ID筛选"),
+    status: str | None = Query(default=None, description="状态筛选：draft/active/disabled"),
+    decision: str | None = Query(default=None, description="决策筛选：pass/reject/review"),
+    keyword: str | None = Query(default=None, description="词条关键字筛选"),
+    limit: int = Query(default=50, ge=1, le=200, description="返回数量上限（1~200）"),
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    查询昵称词条规则列表接口（管理员）
+    """
+    verify_invite_admin_key(x_admin_key)
+
+    rows, total = list_nickname_word_rules(
+        db=db,
+        group_id=group_id,
+        status=status,
+        decision=decision,
+        keyword=keyword,
+        limit=limit,
+    )
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": row.id,
+                "group_id": row.group_id,
+                "word": row.word,
+                "normalized_word": row.normalized_word,
+                "match_type": row.match_type,
+                "decision": row.decision,
+                "status": row.status,
+                "priority": row.priority,
+                "risk_level": row.risk_level,
+                "source": row.source,
+                "note": row.note,
+                "version_no": row.version_no,
+                "create_time": row.create_time,
+                "update_time": row.update_time,
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.post("/nickname/contact-patterns")
+def create_nickname_contact_pattern_api(
+    payload: CreateNicknameContactPatternRequest,
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    创建昵称联系方式规则接口（管理员）
+    """
+    verify_invite_admin_key(x_admin_key)
+
+    try:
+        row = create_nickname_contact_pattern(
+            db=db,
+            group_id=payload.group_id,
+            pattern_name=payload.pattern_name,
+            pattern_type=payload.pattern_type,
+            pattern_regex=payload.pattern_regex,
+            decision=payload.decision,
+            status=payload.status,
+            priority=payload.priority,
+            risk_level=payload.risk_level,
+            normalized_hint=payload.normalized_hint,
+            note=payload.note,
+        )
+        return {
+            "id": row.id,
+            "group_id": row.group_id,
+            "pattern_name": row.pattern_name,
+            "pattern_type": row.pattern_type,
+            "pattern_regex": row.pattern_regex,
+            "decision": row.decision,
+            "status": row.status,
+            "priority": row.priority,
+            "risk_level": row.risk_level,
+            "normalized_hint": row.normalized_hint,
+            "note": row.note,
+            "version_no": row.version_no,
+            "create_time": row.create_time,
+            "update_time": row.update_time,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/nickname/contact-patterns")
+def list_nickname_contact_patterns_api(
+    group_id: int | None = Query(default=None, ge=1, description="规则分组ID筛选"),
+    status: str | None = Query(default=None, description="状态筛选：draft/active/disabled"),
+    pattern_type: str | None = Query(default=None, description="规则类型筛选"),
+    keyword: str | None = Query(default=None, description="规则名称或正则关键字筛选"),
+    limit: int = Query(default=50, ge=1, le=200, description="返回数量上限（1~200）"),
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    查询昵称联系方式规则列表接口（管理员）
+    """
+    verify_invite_admin_key(x_admin_key)
+
+    rows, total = list_nickname_contact_patterns(
+        db=db,
+        group_id=group_id,
+        status=status,
+        pattern_type=pattern_type,
+        keyword=keyword,
+        limit=limit,
+    )
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": row.id,
+                "group_id": row.group_id,
+                "pattern_name": row.pattern_name,
+                "pattern_type": row.pattern_type,
+                "pattern_regex": row.pattern_regex,
+                "decision": row.decision,
+                "status": row.status,
+                "priority": row.priority,
+                "risk_level": row.risk_level,
+                "normalized_hint": row.normalized_hint,
+                "note": row.note,
+                "version_no": row.version_no,
+                "create_time": row.create_time,
+                "update_time": row.update_time,
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.post("/nickname/rules/update-status")
+def update_nickname_rule_target_status_api(
+    payload: UpdateNicknameRuleTargetStatusRequest,
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    修改昵称规则目标状态接口（管理员）
+    """
+    verify_invite_admin_key(x_admin_key)
+
+    try:
+        row = update_nickname_rule_target_status(
+            db=db,
+            target_type=payload.target_type,
+            target_id=payload.target_id,
+            status=payload.status,
+        )
+        return {
+            "id": row.id,
+            "status": row.status,
+            "update_time": row.update_time,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/nickname/audit-logs")
+def list_nickname_audit_logs_api(
+    decision: str | None = Query(default=None, description="结果筛选：pass/reject/review"),
+    scene: str | None = Query(default=None, description="场景筛选：check/update"),
+    hit_group_code: str | None = Query(default=None, description="规则分组编码筛选"),
+    limit: int = Query(default=50, ge=1, le=200, description="返回数量上限（1~200）"),
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    查询昵称审核日志接口（管理员）
+    """
+    verify_invite_admin_key(x_admin_key)
+
+    rows, total = list_nickname_audit_logs(
+        db=db,
+        decision=decision,
+        scene=scene,
+        hit_group_code=hit_group_code,
+        limit=limit,
+    )
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": row.id,
+                "trace_id": row.trace_id,
+                "user_id": row.user_id,
+                "scene": row.scene,
+                "raw_nickname": row.raw_nickname,
+                "normalized_nickname": row.normalized_nickname,
+                "decision": row.decision,
+                "hit_source": row.hit_source,
+                "hit_rule_id": row.hit_rule_id,
+                "hit_pattern_id": row.hit_pattern_id,
+                "hit_group_code": row.hit_group_code,
+                "hit_content": row.hit_content,
+                "message": row.message,
+                "client_ip": row.client_ip,
+                "user_agent": row.user_agent,
+                "app_version": row.app_version,
+                "rule_version_batch": row.rule_version_batch,
+                "extra_json": row.extra_json,
+                "create_time": row.create_time,
+            }
+            for row in rows
+        ],
+    }

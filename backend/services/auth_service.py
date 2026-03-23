@@ -51,6 +51,9 @@ from backend.services.auth_cache_service import verify_sms_code_cache
 # 导入微信服务
 from backend.services.wechat_service import get_wechat_access_info_by_code
 from backend.services.wechat_service import get_wechat_userinfo
+from backend.services.nickname_guard_service import create_nickname_audit_log
+from backend.services.nickname_guard_service import evaluate_nickname_guard
+from backend.services.nickname_guard_service import NicknameGuardHit
 
 
 def get_active_user_by_id(db: Session, user_id: str) -> User | None:
@@ -1024,9 +1027,19 @@ def check_nickname_availability(
     db: Session,
     user_id: str,
     nickname: str,
+    scene: str = "check",
+    write_audit_log: bool = True,
+    client_ip: str | None = None,
+    user_agent: str | None = None,
 ) -> tuple[bool, str]:
     """
     检查当前用户准备修改的昵称是否可用
+
+    说明：
+    1. 这是昵称“检查”和“修改”共用的统一入口。
+    2. scene 用于区分本次调用来源，便于审核日志落到不同业务场景。
+    3. write_audit_log 允许上层在复用本函数时控制是否立即写日志，避免重复记账。
+    4. client_ip / user_agent 由路由层透传，用于补全审核日志上下文。
     """
     # 中文注释：先确认当前用户有效，避免给失效账号执行可用性校验
     user = get_active_user_by_id(db, user_id)
@@ -1038,14 +1051,81 @@ def check_nickname_availability(
 
     normalized_nickname = nickname.strip()
     if not normalized_nickname:
+        # 中文注释：空昵称属于接口基础校验失败，不是词库命中，因此手工构造 system 类型命中结果。
+        guard_hit = NicknameGuardHit(
+            decision="reject",
+            message="请输入昵称",
+            normalized_nickname="",
+            hit_source="system",
+        )
+        if write_audit_log:
+            create_nickname_audit_log(
+                db=db,
+                scene=scene,
+                raw_nickname=nickname,
+                user_id=user_id,
+                guard_hit=guard_hit,
+                client_ip=client_ip,
+                user_agent=user_agent,
+            )
         return False, "请输入昵称"
 
     if len(normalized_nickname) > 100:
+        # 中文注释：超长昵称也属于基础规则，仍统一记入昵称审核日志，方便统计无效输入。
+        guard_hit = NicknameGuardHit(
+            decision="reject",
+            message="昵称长度不能超过 100 位",
+            normalized_nickname=normalized_nickname,
+            hit_source="system",
+        )
+        if write_audit_log:
+            create_nickname_audit_log(
+                db=db,
+                scene=scene,
+                raw_nickname=nickname,
+                user_id=user_id,
+                guard_hit=guard_hit,
+                client_ip=client_ip,
+                user_agent=user_agent,
+            )
         return False, "昵称长度不能超过 100 位"
 
     # 中文注释：若与当前昵称一致，则按不可用处理，避免用户误以为已发生变更
     if normalized_nickname == (user.nickname or ""):
+        # 中文注释：这里同样不是词库命中，而是业务幂等校验失败。
+        guard_hit = NicknameGuardHit(
+            decision="reject",
+            message="该昵称与当前昵称相同",
+            normalized_nickname=normalized_nickname,
+            hit_source="system",
+        )
+        if write_audit_log:
+            create_nickname_audit_log(
+                db=db,
+                scene=scene,
+                raw_nickname=nickname,
+                user_id=user_id,
+                guard_hit=guard_hit,
+                client_ip=client_ip,
+                user_agent=user_agent,
+            )
         return False, "该昵称与当前昵称相同"
+
+    # 中文注释：真正的昵称风控从这里开始，调用独立 service 统一执行词条和联系方式规则。
+    guard_hit = evaluate_nickname_guard(db, normalized_nickname)
+    if not guard_hit.passed:
+        # 中文注释：命中风控时直接记日志并返回，不再继续做重名校验。
+        if write_audit_log:
+            create_nickname_audit_log(
+                db=db,
+                scene=scene,
+                raw_nickname=nickname,
+                user_id=user_id,
+                guard_hit=guard_hit,
+                client_ip=client_ip,
+                user_agent=user_agent,
+            )
+        return False, guard_hit.message
 
     duplicate_user = (
         db.query(User)
@@ -1058,12 +1138,47 @@ def check_nickname_availability(
     )
 
     if duplicate_user:
+        # 中文注释：重名属于业务约束，不属于词库命中，所以依旧构造 system 类型日志。
+        guard_hit = NicknameGuardHit(
+            decision="reject",
+            message="该昵称已被占用",
+            normalized_nickname=normalized_nickname,
+            hit_source="system",
+        )
+        if write_audit_log:
+            create_nickname_audit_log(
+                db=db,
+                scene=scene,
+                raw_nickname=nickname,
+                user_id=user_id,
+                guard_hit=guard_hit,
+                client_ip=client_ip,
+                user_agent=user_agent,
+            )
         return False, "该昵称已被占用"
+
+    # 中文注释：走到这里说明昵称在风控和业务唯一性上都通过，可以记录一条 pass 日志。
+    if write_audit_log:
+        create_nickname_audit_log(
+            db=db,
+            scene=scene,
+            raw_nickname=nickname,
+            user_id=user_id,
+            guard_hit=guard_hit,
+            client_ip=client_ip,
+            user_agent=user_agent,
+        )
 
     return True, "该昵称可以使用"
 
 
-def update_nickname_for_user(db: Session, user_id: str, nickname: str) -> User:
+def update_nickname_for_user(
+    db: Session,
+    user_id: str,
+    nickname: str,
+    client_ip: str | None = None,
+    user_agent: str | None = None,
+) -> User:
     """
     当前登录用户修改昵称
 
@@ -1071,12 +1186,21 @@ def update_nickname_for_user(db: Session, user_id: str, nickname: str) -> User:
     1. 只允许修改有效用户的昵称
     2. 用户状态必须是 active
     3. 昵称会自动去掉首尾空白
+
+    额外说明：
+    1. 修改接口复用 check_nickname_availability，保证“先检查”和“真正保存”规则一致。
+    2. 这里调用检查逻辑时关闭其自动写日志，避免 update 过程产生两条相同失败日志。
+    3. client_ip / user_agent 会传入审核日志，用于后续运营排查来源。
     """
     # 中文注释：昵称修改前先走统一可用性校验，避免和检查接口规则不一致
     available, message = check_nickname_availability(
         db=db,
         user_id=user_id,
         nickname=nickname,
+        scene="update",
+        write_audit_log=False,
+        client_ip=client_ip,
+        user_agent=user_agent,
     )
     if not available:
         raise ValueError(message)
@@ -1090,6 +1214,25 @@ def update_nickname_for_user(db: Session, user_id: str, nickname: str) -> User:
     user.nickname = normalized_nickname
     db.commit()
     db.refresh(user)
+
+    # 中文注释：昵称真正修改成功后，再单独记录一条 update 场景的 pass 日志。
+    # 这样后续在运营后台可以区分：
+    # 1. 用户只是试过某个昵称
+    # 2. 用户最终真的把昵称改成了什么
+    create_nickname_audit_log(
+        db=db,
+        scene="update",
+        raw_nickname=nickname,
+        user_id=user_id,
+        guard_hit=NicknameGuardHit(
+            decision="pass",
+            message="昵称修改成功",
+            normalized_nickname=normalized_nickname,
+            hit_source="system",
+        ),
+        client_ip=client_ip,
+        user_agent=user_agent,
+    )
     return user
 
 

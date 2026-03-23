@@ -508,3 +508,60 @@ class UserProfileResponse(BaseModel):
         ...,
         description="当前用户是否已设置登录密码",
     )
+
+
+class CreateNicknameRuleGroupRequest(BaseModel):
+    """
+    创建昵称规则分组请求体。
+    """
+
+    group_code: str = Field(..., min_length=1, max_length=50, description="分组编码")
+    group_name: str = Field(..., min_length=1, max_length=100, description="分组名称")
+    group_type: str = Field(..., min_length=1, max_length=20, description="分组类型")
+    scope: str = Field(default="nickname", min_length=1, max_length=20, description="作用范围")
+    status: str = Field(default="draft", min_length=1, max_length=20, description="状态")
+    priority: int = Field(default=100, ge=1, le=10000, description="优先级")
+    description: Optional[str] = Field(default=None, max_length=255, description="说明")
+
+
+class CreateNicknameWordRuleRequest(BaseModel):
+    """
+    创建昵称词条规则请求体。
+    """
+
+    group_id: int = Field(..., ge=1, description="规则分组ID")
+    word: str = Field(..., min_length=1, max_length=100, description="原始词条")
+    match_type: str = Field(default="contains", min_length=1, max_length=20, description="匹配方式")
+    decision: str = Field(default="reject", min_length=1, max_length=20, description="命中决策")
+    status: str = Field(default="draft", min_length=1, max_length=20, description="状态")
+    priority: int = Field(default=100, ge=1, le=10000, description="优先级")
+    risk_level: str = Field(default="medium", min_length=1, max_length=20, description="风险等级")
+    source: str = Field(default="manual", min_length=1, max_length=20, description="来源")
+    note: Optional[str] = Field(default=None, max_length=255, description="备注")
+
+
+class CreateNicknameContactPatternRequest(BaseModel):
+    """
+    创建昵称联系方式规则请求体。
+    """
+
+    group_id: Optional[int] = Field(default=None, ge=1, description="规则分组ID")
+    pattern_name: str = Field(..., min_length=1, max_length=100, description="规则名称")
+    pattern_type: str = Field(..., min_length=1, max_length=20, description="规则类型")
+    pattern_regex: str = Field(..., min_length=1, max_length=500, description="正则表达式")
+    decision: str = Field(default="reject", min_length=1, max_length=20, description="命中决策")
+    status: str = Field(default="draft", min_length=1, max_length=20, description="状态")
+    priority: int = Field(default=100, ge=1, le=10000, description="优先级")
+    risk_level: str = Field(default="high", min_length=1, max_length=20, description="风险等级")
+    normalized_hint: Optional[str] = Field(default=None, max_length=255, description="归一化说明")
+    note: Optional[str] = Field(default=None, max_length=255, description="备注")
+
+
+class UpdateNicknameRuleTargetStatusRequest(BaseModel):
+    """
+    更新昵称规则目标状态请求体。
+    """
+
+    target_type: str = Field(..., min_length=1, max_length=20, description="对象类型：group/word/pattern")
+    target_id: int = Field(..., ge=1, description="对象ID")
+    status: str = Field(..., min_length=1, max_length=20, description="目标状态")

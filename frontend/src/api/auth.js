@@ -275,3 +275,95 @@ export function updateUserStatus(data, adminKey) {
     },
   });
 }
+
+/**
+ * 查询昵称规则分组列表（管理员）
+ */
+export function listNicknameRuleGroups(params, adminKey) {
+  return request.get("/api/v1/auth/nickname/rule-groups", {
+    params,
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
+
+/**
+ * 创建昵称规则分组（管理员）
+ */
+export function createNicknameRuleGroup(data, adminKey) {
+  return request.post("/api/v1/auth/nickname/rule-groups", data, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
+
+/**
+ * 查询昵称词条规则列表（管理员）
+ */
+export function listNicknameWordRules(params, adminKey) {
+  return request.get("/api/v1/auth/nickname/word-rules", {
+    params,
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
+
+/**
+ * 创建昵称词条规则（管理员）
+ */
+export function createNicknameWordRule(data, adminKey) {
+  return request.post("/api/v1/auth/nickname/word-rules", data, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
+
+/**
+ * 查询昵称联系方式规则列表（管理员）
+ */
+export function listNicknameContactPatterns(params, adminKey) {
+  return request.get("/api/v1/auth/nickname/contact-patterns", {
+    params,
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
+
+/**
+ * 创建昵称联系方式规则（管理员）
+ */
+export function createNicknameContactPattern(data, adminKey) {
+  return request.post("/api/v1/auth/nickname/contact-patterns", data, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
+
+/**
+ * 修改昵称规则目标状态（管理员）
+ */
+export function updateNicknameRuleTargetStatus(data, adminKey) {
+  return request.post("/api/v1/auth/nickname/rules/update-status", data, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
+
+/**
+ * 查询昵称审核日志（管理员）
+ */
+export function listNicknameAuditLogs(params, adminKey) {
+  return request.get("/api/v1/auth/nickname/audit-logs", {
+    params,
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
