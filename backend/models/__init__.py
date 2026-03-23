@@ -7,3 +7,9 @@ from backend.models.auth_models import SmsCode
 from backend.models.auth_models import WechatLoginState
 from backend.models.auth_models import UserLoginLog
 from backend.models.auth_models import InviteCode
+from backend.models.nickname_guard_models import NicknameRuleGroup
+from backend.models.nickname_guard_models import NicknameWordRule
+from backend.models.nickname_guard_models import NicknameContactPattern
+from backend.models.nickname_guard_models import NicknameRulePublishLog
+from backend.models.nickname_guard_models import NicknameAuditLog
+from backend.models.nickname_guard_models import NicknameRuleOperationLog
