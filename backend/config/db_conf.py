@@ -229,6 +229,39 @@ class Settings(BaseSettings):
     invite_admin_key: str = ""
 
     # =========================================================
+    # 十二、AI 模型调用配置
+    # =========================================================
+
+    # AI 模型服务基础地址
+    # 说明：
+    # 1. 这里预期接 OpenAI 兼容接口。
+    # 2. 例如官方接口可配置为 https://api.openai.com/v1
+    # 3. 如果你后面换成兼容 OpenAI 协议的其它供应商，也只需要改这个地址。
+    ai_model_base_url: str = ""
+
+    # AI 模型服务 API Key
+    # 说明：
+    # 1. 当前统一给 AI Prompt 调用链路使用。
+    # 2. 不要写死在代码里，统一从 .env 读取。
+    ai_model_api_key: str = ""
+
+    # 默认模型名称
+    # 说明：
+    # 1. 如果某条 Prompt 配置里没有单独指定 model_name，就回退使用这个默认模型。
+    ai_model_default_name: str = ""
+
+    # AI 接口超时时间（秒）
+    # 说明：
+    # 1. 当前主要用于 requests 调用超时控制。
+    # 2. 避免模型接口长时间无响应时，把整个 WebSocket 链路拖死。
+    ai_model_timeout_seconds: int = 60
+
+    # 默认温度参数
+    # 说明：
+    # 1. 当 Prompt 配置里没有单独配置 temperature 时使用。
+    ai_model_default_temperature: float = 0.3
+
+    # =========================================================
     # 十一、Redis 配置
     # =========================================================
 

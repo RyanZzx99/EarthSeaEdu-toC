@@ -15,6 +15,7 @@ from backend.config.db_conf import engine
 import backend.models  # noqa: F401
 
 # 导入路由
+from backend.routers import ai_chat
 from backend.routers import auth
 from backend.routers import health
 
@@ -37,6 +38,7 @@ app.add_middleware(
 # 注册路由
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+app.include_router(ai_chat.router, tags=["ai-chat"])
 
 @app.on_event("startup")
 def on_startup():
