@@ -250,11 +250,23 @@ class Settings(BaseSettings):
     # 1. 如果某条 Prompt 配置里没有单独指定 model_name，就回退使用这个默认模型。
     ai_model_default_name: str = ""
 
-    # AI 接口超时时间（秒）
+    # AI 模型连接超时时间（秒）
     # 说明：
-    # 1. 当前主要用于 requests 调用超时控制。
-    # 2. 避免模型接口长时间无响应时，把整个 WebSocket 链路拖死。
-    ai_model_timeout_seconds: int = 60
+    # 1. 仅控制 TCP / TLS 建连阶段。
+    # 2. 一般不需要太大，避免目标地址不可达时长时间卡住。
+    ai_model_connect_timeout_seconds: int = 10
+
+    # AI 模型非流式读取超时时间（秒）
+    # 说明：
+    # 1. 用于 progress / extraction / scoring 这类一次性返回结果的请求。
+    # 2. 如果模型返回较慢，应优先调大这个值。
+    ai_model_read_timeout_seconds: int = 300
+
+    # AI 模型流式读取超时时间（秒）
+    # 说明：
+    # 1. 用于 conversation_prompt 这类流式返回的请求。
+    # 2. 控制两次 chunk 之间最长允许等待时间。
+    ai_model_stream_read_timeout_seconds: int = 300
 
     # 默认温度参数
     # 说明：

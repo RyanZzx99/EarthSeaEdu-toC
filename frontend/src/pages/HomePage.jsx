@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -82,6 +82,16 @@ function createChatMessage(role, content, extra = {}) {
   };
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function logProfileFlow(step, detail = {}) {
+  console.info(`[前端六维图][${step}]`, detail);
+}
+
 function normalizeProfileResult(resultData) {
   const radarScores = resultData?.radar_scores_json || {};
 
@@ -150,7 +160,7 @@ function BrandBlock() {
   return (
     <div className="home-brand">
       <div className="home-brand-mark">录</div>
-      <div className="home-brand-text">录途 LutoolBox</div>
+      <div className="home-brand-text">录途 Toolbox</div>
     </div>
   );
 }
@@ -172,12 +182,28 @@ function getStageDisplayLabel(stage) {
     idle: "待开始",
     conversation: "对话中",
     progress_updating: "更新进度",
+    extraction: "结构化提取中",
+    scoring: "六维评分中",
+    profile_saving: "档案创建中",
     build_ready: "可建档",
     completed: "已完成",
     failed: "生成异常",
   };
 
   return stageLabelMap[stage] || stage;
+}
+
+function getProfileStatusText(resultStatus) {
+  if (resultStatus === "generated") {
+    return "档案正在创建";
+  }
+  if (resultStatus === "saved") {
+    return "档案创建完成";
+  }
+  if (resultStatus === "failed") {
+    return "六维图已生成，档案创建失败";
+  }
+  return "结果已生成";
 }
 
 export default function HomePage() {
@@ -218,6 +244,7 @@ export default function HomePage() {
   const assistantStreamingRef = useRef(false);
   const assistantThinkingRef = useRef(false);
   const createProfileLoadingRef = useRef(false);
+  const profileBuildPollingRef = useRef(false);
   const queuedOutgoingMessagesRef = useRef([]);
   const queueFlushingRef = useRef(false);
 
@@ -226,51 +253,32 @@ export default function HomePage() {
   }, [aiSessionId]);
 
   useEffect(() => {
-    // 中文注释：
-    // WebSocket onmessage 在建连时只绑定一次。
-    // 如果事件处理直接读取 React state，后续很容易拿到建连瞬间的旧值。
-    // 这里用 ref 同步最新阶段，保证事件回调拿到的是实时状态。
-    currentStageRef.current = currentStage;
+    // 涓枃娉ㄩ噴锛?    // WebSocket onmessage 鍦ㄥ缓杩炴椂鍙粦瀹氫竴娆°€?    // 濡傛灉浜嬩欢澶勭悊鐩存帴璇诲彇 React state锛屽悗缁緢瀹规槗鎷垮埌寤鸿繛鐬棿鐨勬棫鍊笺€?    // 杩欓噷鐢?ref 鍚屾鏈€鏂伴樁娈碉紝淇濊瘉浜嬩欢鍥炶皟鎷垮埌鐨勬槸瀹炴椂鐘舵€併€?    currentStageRef.current = currentStage;
   }, [currentStage]);
 
   useEffect(() => {
-    // 中文注释：
-    // 下一轮追问焦点会被 progress_updated 不断刷新。
-    // 后续 stage_changed 需要依赖这个值来生成提示文案，因此同步到 ref。
-    nextQuestionFocusRef.current = nextQuestionFocus;
+    // 涓枃娉ㄩ噴锛?    // 涓嬩竴杞拷闂劍鐐逛細琚?progress_updated 涓嶆柇鍒锋柊銆?    // 鍚庣画 stage_changed 闇€瑕佷緷璧栬繖涓€兼潵鐢熸垚鎻愮ず鏂囨锛屽洜姝ゅ悓姝ュ埌 ref銆?    nextQuestionFocusRef.current = nextQuestionFocus;
   }, [nextQuestionFocus]);
 
   useEffect(() => {
-    // 中文注释：
-    // chatEnded 表示系统是否已判断“信息足够，可以进入建档结果阶段”。
-    // WebSocket 事件处理同样会读取它，所以需要保持 ref 中也是最新值。
-    chatEndedRef.current = chatEnded;
+    // 涓枃娉ㄩ噴锛?    // chatEnded 琛ㄧず绯荤粺鏄惁宸插垽鏂€滀俊鎭冻澶燂紝鍙互杩涘叆寤烘。缁撴灉闃舵鈥濄€?    // WebSocket 浜嬩欢澶勭悊鍚屾牱浼氳鍙栧畠锛屾墍浠ラ渶瑕佷繚鎸?ref 涓篃鏄渶鏂板€笺€?    chatEndedRef.current = chatEnded;
   }, [chatEnded]);
 
   useEffect(() => {
-    // 中文注释：
-    // 自动续发排队消息时，也要拿到最新的“是否仍在流式生成”状态。
-    assistantStreamingRef.current = assistantStreaming;
+    // 涓枃娉ㄩ噴锛?    // 鑷姩缁彂鎺掗槦娑堟伅鏃讹紝涔熻鎷垮埌鏈€鏂扮殑鈥滄槸鍚︿粛鍦ㄦ祦寮忕敓鎴愨€濈姸鎬併€?    assistantStreamingRef.current = assistantStreaming;
   }, [assistantStreaming]);
 
   useEffect(() => {
-    // 中文注释：
-    // thinking 状态由多种 socket 事件共同驱动，自动续发时不能读旧值。
-    assistantThinkingRef.current = assistantThinking;
+    // 涓枃娉ㄩ噴锛?    // thinking 鐘舵€佺敱澶氱 socket 浜嬩欢鍏卞悓椹卞姩锛岃嚜鍔ㄧ画鍙戞椂涓嶈兘璇绘棫鍊笺€?    assistantThinkingRef.current = assistantThinking;
   }, [assistantThinking]);
 
   useEffect(() => {
-    // 中文注释：
-    // “立即建档”阶段会短暂进入 loading，这时不能继续自动发排队消息。
-    createProfileLoadingRef.current = createProfileLoading;
+    // 涓枃娉ㄩ噴锛?    // 鈥滅珛鍗冲缓妗ｂ€濋樁娈典細鐭殏杩涘叆 loading锛岃繖鏃朵笉鑳界户缁嚜鍔ㄥ彂鎺掗槦娑堟伅銆?    createProfileLoadingRef.current = createProfileLoading;
   }, [createProfileLoading]);
 
   useEffect(() => {
-    // 中文注释：
-    // 前端这里维护一个“待发送队列”。
-    // 当上一轮还在 assistant/progress/extraction 阶段时，
-    // 用户点击发送不会直接丢弃，而是先进入这个队列，等系统回到可发送状态后自动发出。
-    queuedOutgoingMessagesRef.current = queuedOutgoingMessages;
+    // 涓枃娉ㄩ噴锛?    // 鍓嶇杩欓噷缁存姢涓€涓€滃緟鍙戦€侀槦鍒椻€濄€?    // 褰撲笂涓€杞繕鍦?assistant/progress/extraction 闃舵鏃讹紝
+    // 鐢ㄦ埛鐐瑰嚮鍙戦€佷笉浼氱洿鎺ヤ涪寮冿紝鑰屾槸鍏堣繘鍏ヨ繖涓槦鍒楋紝绛夌郴缁熷洖鍒板彲鍙戦€佺姸鎬佸悗鑷姩鍙戝嚭銆?    queuedOutgoingMessagesRef.current = queuedOutgoingMessages;
   }, [queuedOutgoingMessages]);
 
   const radarChartData = useMemo(() => {
@@ -286,23 +294,77 @@ export default function HomePage() {
   }, [profileData]);
 
   const hasGeneratedProfile = Boolean(profileData || pendingProfileData || profileResultStatus);
+  const isArchiveCreating = currentStage === "profile_saving" || profileResultStatus === "generated";
+  const canChatInCurrentStage =
+    currentStage === "idle" ||
+    currentStage === "conversation" ||
+    currentStage === "build_ready" ||
+    currentStage === "completed" ||
+    currentStage === "failed";
+  const isRoundProcessing =
+    assistantStreaming ||
+    assistantThinking ||
+    createProfileLoading ||
+    currentStage === "progress_updating" ||
+    currentStage === "extraction" ||
+    currentStage === "scoring" ||
+    currentStage === "profile_saving";
+  const isChatBusy =
+    assistantStreaming ||
+    createProfileLoading ||
+    (assistantThinking && currentStage !== "build_ready");
+  const isBuildProfileBlocked =
+    createProfileLoading ||
+    assistantStreaming ||
+    assistantThinking ||
+    currentStage === "progress_updating" ||
+    currentStage === "extraction" ||
+    currentStage === "scoring" ||
+    currentStage === "profile_saving";
 
   useEffect(() => {
     // 中文注释：
-    // 旧版本留下的会话可能仍然停在 completed / failed。
-    // 现在的新流程里，生成过六维图后依然允许继续补充信息，
-    // 所以只要当前仍处于聊天界面且已有结果，就统一把阶段拉回 build_ready。
-    if (
-      showChat &&
-      hasGeneratedProfile &&
-      (currentStage === "completed" || currentStage === "failed")
-    ) {
+    // 这里保留一个自动续发兜底。
+    // 如果历史状态里仍残留待发送消息，并且当前已经重新回到可发送阶段，
+    // 就主动触发一次 flush，避免旧消息永远卡在队列里。
+    if (!profile?.user_id) {
+      return;
+    }
+
+    if (queuedOutgoingMessages.length === 0) {
+      return;
+    }
+
+    if (!canChatInCurrentStage || isChatBusy) {
+      return;
+    }
+
+    window.setTimeout(() => {
+      void flushQueuedMessages(profile.user_id);
+    }, 0);
+  }, [
+    queuedOutgoingMessages,
+    currentStage,
+    assistantStreaming,
+    assistantThinking,
+    createProfileLoading,
+    profile?.user_id,
+    canChatInCurrentStage,
+    isChatBusy,
+  ]);
+
+  useEffect(() => {
+    // 中文注释：
+    // 旧会话可能停留在 completed / failed。
+    // 当前新流程里，只要用户回到聊天页，就允许继续补充信息，
+    // 因此这里统一把 completed / failed 拉回 build_ready，恢复输入能力。
+    if (showChat && (currentStage === "completed" || currentStage === "failed")) {
       setCurrentStage("build_ready");
       currentStageRef.current = "build_ready";
       setChatEnded(true);
       chatEndedRef.current = true;
     }
-  }, [showChat, hasGeneratedProfile, currentStage]);
+  }, [showChat, currentStage]);
 
   function getDisplayName() {
     return profile?.nickname || profile?.mobile || "用户";
@@ -370,7 +432,8 @@ export default function HomePage() {
     return () => {
       cancelled = true;
 
-      // 中文注释：离开首页时主动关闭 WebSocket，避免旧连接残留。
+      // 中文注释：
+      // 离开首页时主动关闭 WebSocket，避免旧连接残留。
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -394,9 +457,9 @@ export default function HomePage() {
         getAiChatMessages(targetSessionId, { limit: 100 }),
       ]);
 
-      const sessionDetail = sessionDetailResponse.data;
+      const sessionDetail = sessionDetailResponse.data || {};
       const restoredMessages = normalizeVisibleMessages(messagesResponse.data?.items || []);
-      const normalizedRestoredStage =
+      const normalizedStage =
         sessionDetail.final_profile_id &&
         (sessionDetail.current_stage === "completed" || sessionDetail.current_stage === "failed")
           ? "build_ready"
@@ -407,8 +470,8 @@ export default function HomePage() {
       localStorage.setItem(AI_CHAT_SESSION_CACHE_KEY, sessionDetail.session_id);
       setMessages(restoredMessages);
       setMissingDimensions(sessionDetail.missing_dimensions || []);
-      setCurrentStage(normalizedRestoredStage);
-      currentStageRef.current = normalizedRestoredStage;
+      setCurrentStage(normalizedStage);
+      currentStageRef.current = normalizedStage;
 
       if (restoredMessages.length > 0) {
         setShowChat(true);
@@ -418,38 +481,52 @@ export default function HomePage() {
         try {
           const resultResponse = await getAiChatResult(targetSessionId);
           const normalizedResult = normalizeProfileResult(resultResponse.data);
+          const restoredResultStatus = resultResponse.data?.result_status || null;
 
           setPendingProfileData(normalizedResult);
-          setProfileResultStatus(resultResponse.data?.result_status || null);
+          setProfileData(normalizedResult);
+          setProfileResultStatus(restoredResultStatus);
           setSaveErrorMessage(resultResponse.data?.save_error_message || "");
-          if (normalizedRestoredStage === "build_ready") {
-            setChatEnded(true);
-            chatEndedRef.current = true;
-            setUiHint("已恢复最近一次建档会话，你可以继续补充信息，或直接更新六维图。");
-          } else if (resultResponse.data?.result_status === "saved") {
-            setUiHint("已恢复最近一次建档结果");
+          setShowChat(false);
+          setChatEnded(true);
+          chatEndedRef.current = true;
+
+          if (restoredResultStatus === "generated" || normalizedStage === "profile_saving") {
+            setCreateProfileLoading(true);
+            createProfileLoadingRef.current = true;
+            setUiHint("六维图结果已恢复，档案正在后台继续创建。");
+            logProfileFlow("恢复档案创建中状态", {
+              sessionId: targetSessionId,
+              currentStage: normalizedStage,
+              resultStatus: restoredResultStatus,
+            });
+            void waitForProfileGenerationResult(targetSessionId, true);
+          } else if (restoredResultStatus === "saved") {
+            setUiHint("已恢复你上一次生成的六维图结果。");
+          } else if (normalizedStage === "build_ready") {
+            setUiHint("信息已经足够，点击按钮可立即建档；如果你还想补充，也可以继续对话。");
           } else {
-            setUiHint("最近一次建档结果存在保存异常");
+            setUiHint("已恢复上一次建档结果，但正式保存存在异常。");
           }
         } catch (error) {
           console.error("恢复 AI 建档结果失败", error);
         }
       } else if (restoredMessages.length > 0) {
-        setUiHint("已恢复最近一次建档会话");
+        setUiHint("已恢复你上一次的对话记录。");
       }
 
       if (!studentId) {
-        setConnectionError("当前用户信息缺失，无法恢复建档会话。");
+        setConnectionError("当前缺少学生身份信息，暂时无法初始化 AI 对话。");
       }
     } catch (error) {
-      setConnectionError(error?.message || "排队消息发送失败，请稍后重试。");
+      setConnectionError(error?.message || "恢复 AI 会话失败，请稍后重试。");
       console.error("恢复 AI 会话失败", error);
     }
   }
 
   async function ensureSocketConnected(studentId) {
     if (!studentId) {
-      throw new Error("当前缺少 student_id，无法建立 AI 建档连接。");
+      throw new Error("缺少 student_id，无法初始化 AI 对话连接。");
     }
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && sessionIdRef.current) {
@@ -463,10 +540,20 @@ export default function HomePage() {
     connectPromiseRef.current = new Promise((resolve, reject) => {
       const ws = new WebSocket(buildAiChatWsUrl());
       let connectResolved = false;
+      let connectRejected = false;
+
+      function rejectConnect(message) {
+        if (connectResolved || connectRejected) {
+          return;
+        }
+
+        connectRejected = true;
+        reject(new Error(message));
+      }
 
       wsRef.current = ws;
       setConnectionError("");
-      setUiHint("正在连接建档助手...");
+      setUiHint("正在连接 AI 建档助手...");
 
       ws.onopen = () => {
         ws.send(
@@ -492,10 +579,24 @@ export default function HomePage() {
           setAiSessionId(data.session_id);
           sessionIdRef.current = data.session_id;
           localStorage.setItem(AI_CHAT_SESSION_CACHE_KEY, data.session_id);
-          setCurrentStage(data.payload?.current_stage || "conversation");
-          currentStageRef.current = data.payload?.current_stage || "conversation";
-          setUiHint("建档助手已准备好，可以开始对话");
+          const stage = data.payload?.current_stage || "conversation";
+          setCurrentStage(stage);
+          currentStageRef.current = stage;
+          setUiHint("AI 建档助手已连接，可以开始对话。");
           resolve(data.session_id);
+          return;
+        }
+
+        // 中文注释：
+        // connect_init 还没完成时，如果后端先返回了 error，
+        // 说明连接本身虽然建立了，但初始化鉴权 / 会话绑定已经失败。
+        // 这里必须直接让初始化 promise 失败，并把后端明确错误展示出来，
+        // 不能再等 onclose 时落成笼统的“初始化未完成”。
+        if (!connectResolved && data.type === "error") {
+          const backendMessage = data.payload?.message || "AI 对话初始化失败，请稍后重试。";
+          setConnectionError(backendMessage);
+          setUiHint("");
+          rejectConnect(backendMessage);
           return;
         }
 
@@ -504,7 +605,7 @@ export default function HomePage() {
 
       ws.onerror = () => {
         if (!connectResolved) {
-          reject(new Error("AI 建档连接失败，请确认后端服务已启动。"));
+          rejectConnect("AI 对话连接建立失败，请检查网络后重试。");
         }
       };
 
@@ -513,11 +614,11 @@ export default function HomePage() {
         assistantStreamingMessageIdRef.current = null;
 
         if (!connectResolved) {
-          reject(new Error("AI 建档连接已关闭，请稍后重试。"));
+          rejectConnect("AI 对话连接已关闭，初始化未完成。");
           return;
         }
 
-        setUiHint("建档连接已断开，下次发送消息时会自动重连");
+        setUiHint("AI 连接已断开，重新发送消息时会自动重连。");
       };
     }).finally(() => {
       connectPromiseRef.current = null;
@@ -530,70 +631,86 @@ export default function HomePage() {
     const payload = event.payload || {};
 
     switch (event.type) {
-      case "stage_changed":
-        {
-          const nextStage = payload.current_stage || "idle";
-          const previousStage = currentStageRef.current;
+      case "user_message_saved":
+        setMessages((previous) => {
+          const nextMessages = [...previous];
+          const targetIndex = [...nextMessages]
+            .map((item, index) => ({ item, index }))
+            .reverse()
+            .find(({ item }) => item.role === "user" && item.deliveryStatus !== "sent")?.index;
 
-          setCurrentStage(nextStage);
-          currentStageRef.current = nextStage;
-
-          // 中文注释：
-          // `conversation` 在当前协议里既可能表示“开始生成回复”，
-          // 也可能表示“上一轮已经处理完，重新回到等待用户输入”。
-          // 如果前一个阶段是 progress_updating / extraction，
-          // 就说明这里是“回到空闲态”，不能继续保持 thinking 状态。
-          if (nextStage === "conversation" && (previousStage === "progress_updating" || previousStage === "extraction")) {
-            setAssistantThinking(false);
-
-            if (chatEndedRef.current) {
-              setUiHint("信息已经足够，点击立即建档查看六维图");
-            } else if (nextQuestionFocusRef.current) {
-              setUiHint(
-                `当前重点还缺 ${RADAR_LABELS[nextQuestionFocusRef.current] || nextQuestionFocusRef.current} 相关信息，可以继续补充`
-              );
-            } else {
-              setUiHint("可以继续补充信息了，我会接着帮你完成建档。");
-            }
-
-            // 中文注释：
-            // 当系统从 progress / extraction 回到 conversation，
-            // 说明这一轮已经完全收尾，可以尝试把用户刚才排队的下一条消息继续发出去。
-            window.setTimeout(() => {
-              void flushQueuedMessages(profile?.user_id);
-            }, 0);
-            break;
+          if (typeof targetIndex === "number") {
+            nextMessages[targetIndex] = {
+              ...nextMessages[targetIndex],
+              deliveryStatus: "sent",
+            };
           }
-        }
 
-        const chatEnded = chatEndedRef.current;
+          return nextMessages;
+        });
+        break;
 
-        if (payload.current_stage === "conversation") {
-          setAssistantThinking(true);
-          setUiHint(chatEnded ? "系统已判断信息足够，你也可以继续补充更多内容" : "建档助手正在整理回复");
-        } else if (payload.current_stage === "progress_updating") {
-          setAssistantThinking(false);
-          setUiHint("正在更新建档进度...");
-        } else if (payload.current_stage === "build_ready") {
+      case "stage_changed": {
+        const nextStage = payload.current_stage || "idle";
+        const conversationPhase = payload.conversation_phase || null;
+        setCurrentStage(nextStage);
+        currentStageRef.current = nextStage;
+        logProfileFlow("阶段变更", {
+          sessionId: event.session_id,
+          currentStage: nextStage,
+          conversationPhase,
+        });
+
+        if (nextStage === "conversation") {
           // 中文注释：
-          // build_ready 表示“信息已经足够生成六维图”，
-          // 但当前仍允许学生继续补充信息，不会自动进入最终建档。
+          // 后端现在会把 conversation 再细分成两种子状态：
+          // 1. generating_assistant：正在生成助手回复，此时继续展示忙碌态
+          // 2. ready_for_input：本轮已经处理完成，可以恢复输入框
+          // 这样可以避免前端把“可继续输入”误判成“仍在整理回复”，导致输入框一直转圈。
+          if (conversationPhase === "generating_assistant") {
+            setAssistantThinking(true);
+            setUiHint(chatEndedRef.current ? "你可以继续补充信息，我会基于新增内容继续整理档案。" : "建档助手正在整理回复...");
+          } else {
+            setAssistantThinking(false);
+            setAssistantStreaming(false);
+            assistantStreamingMessageIdRef.current = null;
+            setUiHint(chatEndedRef.current ? "你可以继续补充信息，我会基于新增内容继续整理档案。" : "这一轮已处理完成，你可以继续输入下一条信息。");
+          }
+        } else if (nextStage === "progress_updating") {
           setAssistantThinking(false);
+          setUiHint("正在更新档案进度...");
+        } else if (nextStage === "build_ready") {
+          setAssistantThinking(false);
+          setChatEnded(true);
+          chatEndedRef.current = true;
           setUiHint("信息已经足够，点击按钮可立即建档；如果你还想补充，也可以继续对话。");
-        } else if (payload.current_stage === "completed") {
+        } else if (nextStage === "profile_saving") {
           setAssistantThinking(false);
-          setUiHint("档案已完成，可以查看六维图");
-        } else if (payload.current_stage === "failed") {
+          setCreateProfileLoading(true);
+          createProfileLoadingRef.current = true;
+          setUiHint("六维图结果已经生成，档案正在后台创建。");
+        } else if (nextStage === "completed") {
           setAssistantThinking(false);
-          setUiHint("结果已生成，但正式建档保存失败");
+          setUiHint("六维图结果已生成。");
+        } else if (nextStage === "failed") {
+          setAssistantThinking(false);
+          setAssistantStreaming(false);
+          assistantStreamingMessageIdRef.current = null;
+          setCreateProfileLoading(false);
+          createProfileLoadingRef.current = false;
+          setCurrentStage("build_ready");
+          currentStageRef.current = "build_ready";
+          setChatEnded(true);
+          chatEndedRef.current = true;
+          setUiHint("当前处理出现异常，你可以继续补充信息后再重新生成。");
         }
         break;
+      }
 
       case "assistant_token":
         setAssistantThinking(false);
         setAssistantStreaming(true);
         setUiHint("建档助手正在生成回复...");
-
         setMessages((previous) => {
           const nextMessages = [...previous];
           const streamingId = assistantStreamingMessageIdRef.current;
@@ -608,10 +725,11 @@ export default function HomePage() {
             return nextMessages;
           }
 
-          const newAssistantMessage = createChatMessage("assistant", payload.accumulated_text || payload.delta_text || "", {
-            isStreaming: true,
-          });
-
+          const newAssistantMessage = createChatMessage(
+            "assistant",
+            payload.accumulated_text || payload.delta_text || "",
+            { isStreaming: true }
+          );
           assistantStreamingMessageIdRef.current = newAssistantMessage.id;
           nextMessages.push(newAssistantMessage);
           return nextMessages;
@@ -621,8 +739,7 @@ export default function HomePage() {
       case "assistant_done":
         setAssistantStreaming(false);
         setAssistantThinking(false);
-        setUiHint("回复已完成，正在更新建档进度...");
-
+        setUiHint("助手回复完成，正在整理本轮进度...");
         setMessages((previous) => {
           const nextMessages = [...previous];
           const streamingId = assistantStreamingMessageIdRef.current;
@@ -641,11 +758,6 @@ export default function HomePage() {
               .reverse()
               .find(({ item }) => item.role === "assistant")?.index;
 
-            // 中文注释：
-            // 这里做一次幂等合并，原因是前端偶发会遇到两类边界情况：
-            // 1. 流式 assistant 气泡已经存在，但 streamingId 丢失，导致找不到对应占位消息
-            // 2. assistant_done 事件被重复消费一次，前端会把整段回复再追加一条
-            // 因此在真正 push 新消息之前，先尝试把“最后一条 assistant 消息”视作当前轮的合并目标。
             if (
               typeof lastAssistantIndex === "number" &&
               (nextMessages[lastAssistantIndex].isStreaming ||
@@ -657,20 +769,18 @@ export default function HomePage() {
                 isStreaming: false,
                 deliveryStatus: "sent",
               };
-              return nextMessages;
+            } else {
+              nextMessages.push(
+                createChatMessage("assistant", payload.content || "", {
+                  id: payload.message_id || undefined,
+                  deliveryStatus: "sent",
+                })
+              );
             }
-
-            nextMessages.push(
-              createChatMessage("assistant", payload.content || "", {
-                id: payload.message_id || undefined,
-                deliveryStatus: "sent",
-              })
-            );
           }
 
           return nextMessages;
         });
-
         assistantStreamingMessageIdRef.current = null;
         break;
 
@@ -683,11 +793,11 @@ export default function HomePage() {
         chatEndedRef.current = Boolean(payload.stop_ready);
 
         if (payload.stop_ready) {
-          setUiHint("信息已经足够，点击立即建档查看六维图");
+          setUiHint("信息已经足够，点击按钮可立即建档；如果你还想补充，也可以继续对话。");
         } else if (payload.next_question_focus) {
-          setUiHint(`当前重点还缺“${RADAR_LABELS[payload.next_question_focus] || payload.next_question_focus}”相关信息`);
+          setUiHint(`当前重点还缺 ${RADAR_LABELS[payload.next_question_focus] || payload.next_question_focus} 相关信息，可以继续补充。`);
         } else {
-          setUiHint("建档进度已更新，继续补充信息即可");
+          setUiHint("可以继续补充信息了，我会接着帮你完成建档。");
         }
         break;
 
@@ -711,7 +821,16 @@ export default function HomePage() {
       case "profile_saved":
         setProfileResultStatus(payload.result_status || null);
         setSaveErrorMessage(payload.save_error_message || "");
-        setUiHint(payload.result_status === "saved" ? "档案已准备完成，点击立即建档查看六维图" : "结果已生成，但正式保存存在异常");
+        if (payload.result_status === "saved" || payload.result_status === "failed") {
+          setCreateProfileLoading(false);
+          createProfileLoadingRef.current = false;
+        }
+        setUiHint(payload.result_status === "saved" ? "六维图与建档结果已更新完成。" : "六维图结果已生成，但正式保存存在异常。");
+        logProfileFlow("档案状态更新", {
+          sessionId: event.session_id,
+          resultStatus: payload.result_status || null,
+          saveErrorMessage: payload.save_error_message || "",
+        });
         break;
 
       case "generation_cancel_requested":
@@ -722,22 +841,15 @@ export default function HomePage() {
         setAssistantStreaming(false);
         setAssistantThinking(false);
         assistantStreamingMessageIdRef.current = null;
-        setUiHint("本轮生成已停止，你可以继续发送新的消息");
         setMessages((previous) => previous.filter((item) => !item.isStreaming));
-
-        // 中文注释：
-        // 如果用户在取消当前生成期间又补发了新消息，
-        // 那么取消完成后也应该把队列里的消息自动续上。
-        window.setTimeout(() => {
-          void flushQueuedMessages(profile?.user_id);
-        }, 0);
+        setUiHint("本轮生成已取消，你可以继续补充信息。");
         break;
 
       case "error":
         setAssistantStreaming(false);
         setAssistantThinking(false);
         assistantStreamingMessageIdRef.current = null;
-        setConnectionError(payload.message || "AI 建档链路执行失败，请稍后重试。");
+        setConnectionError(payload.message || "AI 对话过程中出现异常，请稍后重试。");
         break;
 
       default:
@@ -748,23 +860,18 @@ export default function HomePage() {
   function handleStartChat() {
     setShowChat(true);
     setConnectionError("");
-    if (
-      hasGeneratedProfile &&
-      (currentStageRef.current === "completed" || currentStageRef.current === "failed")
-    ) {
-      // 中文注释：
-      // 老会话可能是旧版本留下的 completed / failed 阶段。
-      // 新流程里生成过六维图后仍允许继续补充，因此这里把阶段拉回 build_ready，
-      // 避免继续发消息时被前端误判成“上一轮仍在处理中”。
+
+    if (hasGeneratedProfile && (currentStageRef.current === "completed" || currentStageRef.current === "failed")) {
       setCurrentStage("build_ready");
       currentStageRef.current = "build_ready";
       setChatEnded(true);
       chatEndedRef.current = true;
     }
+
     setUiHint(
       messages.length > 0
-        ? "已恢复建档会话，可以继续补充信息"
-        : "你可以直接告诉我课程体系、申请国家、专业方向或成绩情况"
+        ? "可以继续补充信息，我会基于当前会话继续整理档案。"
+        : "可以直接开始说你的申请情况，我会一步步帮你完成六维建档。"
     );
   }
 
@@ -774,13 +881,9 @@ export default function HomePage() {
   }
 
   function buildSupplementGuidanceMessage() {
-    // 中文注释：
-    // “继续补充信息”不是单纯把结果页关掉，而是要给学生一个明确的补充方向。
-    // 这里优先使用 progress_extraction 返回的缺失维度；
-    // 如果缺失维度已经为空，再退一步提示“仍可继续补强”的 partial 维度。
     const missingLabels = missingDimensions.map((key) => RADAR_LABELS[key] || key);
     if (missingLabels.length > 0) {
-      return `我们之前还没完整收集到${missingLabels.join("、")}相关信息。你可以优先补这些，我会继续帮你完善档案。`;
+      return `好的，我们继续补充信息。当前还缺 ${missingLabels.join("、")}，你可以优先补这些内容。`;
     }
 
     const partialLabels = Object.entries(dimensionProgress || {})
@@ -788,236 +891,229 @@ export default function HomePage() {
       .map(([key]) => RADAR_LABELS[key] || key);
 
     if (partialLabels.length > 0) {
-      return `目前${partialLabels.join("、")}这几部分还可以继续补得更细一些。你可以补充分数、角色、持续时间、结果或项目产出等信息。`;
+      return `目前 ${partialLabels.join("、")} 还可以继续补充更完整的信息，你可以从最有代表性的内容开始说。`;
     }
 
-    return "如果你还想继续优化六维图，可以补充更详细的成绩、活动、项目、竞赛或目标院校信息，我会在原有基础上继续完善。";
+    return "我们可以继续补充更细的信息，比如更具体的成绩、竞赛、活动或项目经历，让六维图更准确。";
   }
 
   function handleContinueSupplementInfo() {
-    // 中文注释：
-    // 六维图结果生成后，学生可以继续在同一条会话里补充信息。
-    // 这里切回聊天态，但不清空 `chatEnded`，因为当前信息仍然足够生成六维图，
-    // 也就是说“继续补充”和“随时再点更新六维图”应该同时成立。
     setProfileData(null);
     setShowChat(true);
-    setCurrentStage("conversation");
-    currentStageRef.current = "conversation";
+    setCurrentStage("build_ready");
+    currentStageRef.current = "build_ready";
+    setAssistantThinking(false);
+    assistantThinkingRef.current = false;
+    setAssistantStreaming(false);
+    assistantStreamingRef.current = false;
+    setQueuedOutgoingMessages([]);
+    queuedOutgoingMessagesRef.current = [];
     setConnectionError("");
 
     const guidanceMessage = buildSupplementGuidanceMessage();
     setUiHint(guidanceMessage);
     setMessages((previous) => {
       const lastMessage = previous[previous.length - 1];
-      if (lastMessage?.role === "assistant" && lastMessage?.content === guidanceMessage) {
+      if (lastMessage?.role === "assistant" && lastMessage.content === guidanceMessage) {
         return previous;
       }
       return [...previous, createChatMessage("assistant", guidanceMessage)];
     });
   }
 
+  async function waitForProfileGenerationResult(sessionId, hadProfileBefore) {
+    // 中文注释：
+    // 新流程里，六维图结果会先落到 ai_chat_profile_results。
+    // 因此这里不再只盯着 build_ready，而是当阶段进入 profile_saving / build_ready 时，
+    // 都主动尝试读取结果；如果结果状态还是 generated，就继续轮询直到档案创建完成。
+    profileBuildPollingRef.current = true;
+    const pollingStartedAt = Date.now();
+    let lastLoggedStage = null;
+
+    try {
+      const timeoutAt = Date.now() + 180000;
+
+      while (Date.now() < timeoutAt) {
+        const sessionDetailResponse = await getAiChatSessionDetail(sessionId);
+        const sessionDetail = sessionDetailResponse.data || {};
+        const polledStage = sessionDetail.current_stage || "idle";
+
+        setCurrentStage(polledStage);
+        currentStageRef.current = polledStage;
+        setMissingDimensions(sessionDetail.missing_dimensions || []);
+
+        if (lastLoggedStage !== polledStage) {
+          lastLoggedStage = polledStage;
+          logProfileFlow("轮询阶段变化", {
+            sessionId,
+            currentStage: polledStage,
+            elapsedMs: Date.now() - pollingStartedAt,
+          });
+        }
+
+        if (polledStage === "extraction") {
+          setUiHint("正在整理结构化档案...");
+        } else if (polledStage === "scoring") {
+          setUiHint("正在计算六维评分...");
+        } else if (polledStage === "profile_saving") {
+          setUiHint("六维图结果即将返回，档案随后会继续创建。");
+        } else if (polledStage === "failed") {
+          const failedMessage = sessionDetail.remark || "六维图生成失败，请稍后重试。";
+          setConnectionError(failedMessage);
+          setCreateProfileLoading(false);
+          createProfileLoadingRef.current = false;
+          if (hadProfileBefore) {
+            setUiHint(failedMessage);
+            setProfileResultStatus("failed");
+            setSaveErrorMessage(failedMessage);
+            setShowChat(false);
+          } else {
+            setCurrentStage("build_ready");
+            currentStageRef.current = "build_ready";
+            setChatEnded(true);
+            chatEndedRef.current = true;
+            setUiHint("本次生成失败，你可以继续补充信息后再重新生成。");
+            setShowChat(true);
+          }
+          logProfileFlow("后台生成失败", {
+            sessionId,
+            message: failedMessage,
+            elapsedMs: Date.now() - pollingStartedAt,
+          });
+          return false;
+        }
+
+        if (polledStage === "profile_saving" || polledStage === "build_ready") {
+          try {
+            const resultResponse = await getAiChatResult(sessionId);
+            const resultPayload = resultResponse.data || {};
+            const normalized = normalizeProfileResult(resultPayload);
+            const resultStatus = resultPayload.result_status || null;
+            const resultErrorMessage = resultPayload.save_error_message || "";
+
+            setPendingProfileData(normalized);
+            setProfileData(normalized);
+            setProfileResultStatus(resultStatus);
+            setSaveErrorMessage(resultErrorMessage);
+            setShowChat(false);
+            setChatEnded(true);
+            chatEndedRef.current = true;
+            setConnectionError("");
+
+            logProfileFlow("结果已返回前端", {
+              sessionId,
+              currentStage: polledStage,
+              resultStatus,
+              elapsedMs: Date.now() - pollingStartedAt,
+            });
+
+            if (resultStatus === "generated" || polledStage === "profile_saving") {
+              setUiHint("六维图已生成，档案正在后台创建。");
+              await sleep(1500);
+              continue;
+            }
+
+            setUiHint(resultStatus === "saved" ? "六维图已更新完成，档案创建完成。" : "六维图已生成，但档案创建失败。");
+            return resultStatus === "saved";
+          } catch (error) {
+            if (error?.response?.status !== 404) {
+              throw error;
+            }
+          }
+        }
+
+        await sleep(1500);
+      }
+
+      setConnectionError("生成六维图超时，请稍后重试。");
+      setUiHint("生成六维图超时，请稍后重试。");
+      if (!hadProfileBefore) {
+        setShowChat(true);
+      }
+      logProfileFlow("轮询超时", {
+        sessionId,
+        elapsedMs: Date.now() - pollingStartedAt,
+      });
+      return false;
+    } finally {
+      profileBuildPollingRef.current = false;
+      setCreateProfileLoading(false);
+      createProfileLoadingRef.current = false;
+    }
+  }
+
   function updateLocalQueuedMessageStatus(localMessageId, deliveryStatus) {
     // 中文注释：
-    // 队列里的用户消息会先以本地消息气泡展示出来，
-    // 等真正发给后端后，再把状态从 queued 改成 sent。
-    setMessages((previous) =>
-      previous.map((item) => (item.id === localMessageId ? { ...item, deliveryStatus } : item))
-    );
-    // 中文注释：
-    // 队列里的用户消息会先以本地消息气泡展示出来，
-    // 等真正发给后端时，再把状态从 queued 改成 sent。
-    setMessages((previous) =>
-      previous.map((item) => (item.id === localMessageId ? { ...item, deliveryStatus } : item))
-    );
+    // 当前交互方案已经改成“处理期间禁止继续输入”，
+    // 因此这里保留空实现，仅用于兼容之前的调用结构。
+    void localMessageId;
+    void deliveryStatus;
   }
 
   async function flushQueuedMessages(studentId) {
     // 中文注释：
-    // 这个函数只负责把队列里的第一条消息真正发出去。
-    // 一次只发一条，是为了保持当前“单轮串行”的后端处理模型，避免并发轮次冲突。
-    // 中文注释：
-    // 这个函数只负责“把排队里的第一条消息真正发出去”。
-    // 之所以一次只发一条，是因为当前后端链路仍然按“单轮串行”处理，
-    // 一次性全部放出去会重新引入并发轮次冲突。
-    if (queueFlushingRef.current) {
-      return;
-    }
-
-    const nextQueuedMessage = queuedOutgoingMessagesRef.current[0];
-    const canSendCurrentRound =
-      currentStageRef.current === "idle" ||
-      currentStageRef.current === "conversation" ||
-      currentStageRef.current === "build_ready";
-
-    if (
-      !nextQueuedMessage ||
-      !studentId ||
-      !canSendCurrentRound ||
-      assistantStreamingRef.current ||
-      assistantThinkingRef.current ||
-      createProfileLoadingRef.current
-    ) {
-      return;
-    }
-
-    queueFlushingRef.current = true;
-
-    try {
-      const sessionId = await ensureSocketConnected(studentId);
-
-      setQueuedOutgoingMessages((previous) => previous.slice(1));
-      updateLocalQueuedMessageStatus(nextQueuedMessage.localMessageId, "sent");
-      setConnectionError("");
-      setAssistantThinking(true);
-      setUiHint("已继续发送你刚才排队的消息，建档助手正在处理...");
-      setUiHint("已继续发送你刚才排队的消息，建档助手正在处理...");
-
-      wsRef.current?.send(
-        JSON.stringify({
-          type: "user_message",
-          request_id: `queued-${Date.now()}`,
-          session_id: sessionId,
-          payload: {
-            content: nextQueuedMessage.content,
-          },
-        })
-      );
-    } catch (error) {
-      setConnectionError(error?.message || "排队消息发送失败，请稍后重试。");
-    } finally {
-      queueFlushingRef.current = false;
-    }
+    // 当前版本不再启用前端消息排队发送，这里保留空实现用于兼容旧逻辑。
+    void studentId;
   }
 
   async function handleSendMessage() {
-    const trimmedInput = inputValue.trim();
-    const canSendCurrentRound =
-      currentStageRef.current === "idle" ||
-      currentStageRef.current === "conversation" ||
-      currentStageRef.current === "build_ready";
-    const hasQueuedMessages = queuedOutgoingMessagesRef.current.length > 0;
-
-    // 中文注释：
-    // 发送新消息前，除了要判断“是否正在流式输出”，
-    // 还要判断“上一轮是否仍在做 progress / extraction / scoring”。
-    // 否则用户会在上一轮还没彻底收尾时继续发消息，后端就会返回 GENERATION_IN_PROGRESS。
-    if (!trimmedInput || !profile?.user_id || createProfileLoading) {
-      return;
-    }
-
-    // 中文注释：
-    // 发送新消息前，除了要判断“是否正在流式输出”，
-    // 还要判断“上一轮是否仍在做 progress / extraction / scoring”。
-    // 否则用户会在上一轮还没彻底收尾时继续发消息，后端就会返回
-    // `GENERATION_IN_PROGRESS`，表现成页面像卡住一样。
-    if (!trimmedInput || !profile?.user_id || createProfileLoading) {
-      return;
-    }
-
-    if (hasQueuedMessages || !canSendCurrentRound || assistantStreaming || assistantThinking) {
-      const queuedMessage = createChatMessage("user", trimmedInput, {
-        deliveryStatus: "queued",
-      });
-
-      // 中文注释：
-      // 当前轮次还没结束时，用户点击发送不会直接报错，
-      // 而是先把消息展示在聊天区，并写入前端排队列表。
-      // 等系统回到可继续对话状态后，会自动把这条消息真正发给后端。
-      setMessages((previous) => [...previous, queuedMessage]);
-
-      // 中文注释：
-      // 当前轮次还没结束时，用户点击发送不会直接报错，
-      // 而是先把消息展示在聊天区，并写入前端排队列表。
-      // 等系统回到可继续对话状态后，会自动把这条消息真正发给后端。
-      setMessages((previous) => [...previous, queuedMessage]);
-      setQueuedOutgoingMessages((previous) => [
-        ...previous,
-        {
-          localMessageId: queuedMessage.id,
-          content: trimmedInput,
-        },
-      ]);
-      setInputValue("");
-      setConnectionError("");
-      setUiHint("上一轮还在整理中，这条消息已排队，处理完会自动发送。");
-
-      // 中文注释：
-      // 如果当前其实已经回到了可发送状态，只是前面还有更早排队的消息没处理，
-      // 那这里顺手触发一次 flush，保证队列按先来先发的顺序往外送。
-      if (hasQueuedMessages && canSendCurrentRound && !assistantStreaming && !assistantThinking) {
-        window.setTimeout(() => {
-          void flushQueuedMessages(profile.user_id);
-        }, 0);
-      }
-      setUiHint("上一轮还在整理中，这条消息已排队，处理完会自动发送。");
-
-      // 中文注释：
-      // 如果当前其实已经回到了可发送状态，只是前面还有更早排队的消息没处理，
-      // 那么这里顺手触发一次 flush，保证队列按先来先发的顺序往外送。
-      if (hasQueuedMessages && canSendCurrentRound && !assistantStreaming && !assistantThinking) {
-        window.setTimeout(() => {
-          void flushQueuedMessages(profile.user_id);
-        }, 0);
-      }
-      return;
-    }
-
-    try {
-      const sessionId = await ensureSocketConnected(profile.user_id);
-
-      setMessages((previous) => [...previous, createChatMessage("user", trimmedInput)]);
-      setInputValue("");
-      setConnectionError("");
-      setAssistantThinking(true);
-      setUiHint("消息已发送，建档助手正在思考...");
-      setUiHint("消息已发送，建档助手正在思考...");
-
-      wsRef.current?.send(
-        JSON.stringify({
-          type: "user_message",
-          request_id: `user-${Date.now()}`,
-          session_id: sessionId,
-          payload: {
-            content: trimmedInput,
-          },
-        })
-      );
-    } catch (error) {
-      setAssistantThinking(false);
-      setConnectionError(error?.message || "发送消息失败，请稍后重试。");
-      setConnectionError(error?.message || "发送消息失败，请稍后重试。");
-    }
+    await sendUserMessage();
   }
 
   async function handleCreateProfile() {
-    if (!sessionIdRef.current) {
-      setConnectionError("当前没有可用的建档会话，请先开始对话。");
+    // 中文注释：
+    // 用户点击“立即建档 / 更新六维图”后，只提交后台异步任务。
+    // 前端会切到 loading 态，并通过轮询等待后台完成。
+    if (isBuildProfileBlocked) {
+      setConnectionError("");
+      setUiHint("当前还有上一轮处理未完成，请等待处理结束后再生成六维图。");
       return;
     }
 
+    if (!sessionIdRef.current) {
+      setConnectionError("当前还没有可用会话，请先开始对话。");
+      return;
+    }
+
+    const hadProfileBefore = Boolean(profileData);
     setCreateProfileLoading(true);
+    createProfileLoadingRef.current = true;
     setConnectionError("");
-    setUiHint(hasGeneratedProfile ? "正在更新六维图，请稍候..." : "正在生成六维图，请稍候...");
+    setSaveErrorMessage("");
+    setProfileResultStatus(null);
+    setShowChat(false);
+    setUiHint(hasGeneratedProfile ? "正在后台更新六维图..." : "正在后台生成六维图...");
+    logProfileFlow("发起生成请求", {
+      sessionId: sessionIdRef.current,
+      hadProfileBefore,
+    });
 
     try {
-      // 中文注释：
-      // 新流程里，点击按钮时才真正触发最终建档。
-      // 因此这里直接调用后端显式建档接口，而不是像旧流程那样轮询等待自动结果。
       const response = await buildAiChatProfile(sessionIdRef.current);
-      const normalized = normalizeProfileResult(response.data);
-
-      setPendingProfileData(normalized);
-      setProfileData(normalized);
-      setProfileResultStatus(response.data?.result_status || null);
-      setSaveErrorMessage(response.data?.save_error_message || "");
-      setShowChat(false);
-      setUiHint(response.data?.result_status === "saved" ? "六维图已生成" : "六维图已生成，但正式建档保存有异常");
+      const acceptedStage = response.data?.current_stage || "extraction";
+      setCurrentStage(acceptedStage);
+      currentStageRef.current = acceptedStage;
+      logProfileFlow("后台任务已受理", {
+        sessionId: sessionIdRef.current,
+        currentStage: acceptedStage,
+      });
+      await waitForProfileGenerationResult(sessionIdRef.current, hadProfileBefore);
     } catch (error) {
-      setConnectionError(
-        error?.response?.data?.detail || error?.message || "建档结果生成失败，请稍后再试。"
-      );
+      const backendMessage = error?.response?.data?.detail;
+      if (error?.response?.status === 409) {
+        setConnectionError(backendMessage || "当前还有上一轮处理未完成，请稍后再试。");
+      } else {
+        setConnectionError(backendMessage || error?.message || "触发六维图生成失败，请稍后重试。");
+      }
+
+      if (!hadProfileBefore) {
+        setShowChat(true);
+      }
     } finally {
-      setCreateProfileLoading(false);
+      if (!profileBuildPollingRef.current) {
+        setCreateProfileLoading(false);
+        createProfileLoadingRef.current = false;
+      }
     }
   }
 
@@ -1026,61 +1122,56 @@ export default function HomePage() {
     const canSendCurrentRound =
       currentStageRef.current === "idle" ||
       currentStageRef.current === "conversation" ||
-      currentStageRef.current === "build_ready";
-    const hasQueuedMessages = queuedOutgoingMessagesRef.current.length > 0;
+      currentStageRef.current === "build_ready" ||
+      currentStageRef.current === "completed" ||
+      currentStageRef.current === "failed";
+    const isBusyNow =
+      assistantStreaming ||
+      assistantThinking ||
+      createProfileLoading ||
+      currentStageRef.current === "progress_updating" ||
+      currentStageRef.current === "extraction" ||
+      currentStageRef.current === "scoring" ||
+      currentStageRef.current === "profile_saving";
 
     // 中文注释：
-    // 这是当前页面真正使用的发送入口。
-    // 这里显式绕开前面历史遗留的旧发送函数，确保用户消息只会被前端追加一次。
+    // 现在的交互规则是：只要上一轮还在处理，就不允许继续输入，
+    // 必须等 assistant / progress / extraction / scoring 结束后再恢复输入框。
     if (!trimmedInput || !profile?.user_id || createProfileLoading) {
       return;
     }
 
-    if (hasQueuedMessages || !canSendCurrentRound || assistantStreaming || assistantThinking) {
-      const queuedMessage = createChatMessage("user", trimmedInput, {
-        deliveryStatus: "queued",
-      });
-
-      // 中文注释：
-      // 当上一轮仍在处理时，这里只在前端展示一条“待发送”的本地消息，
-      // 同时把内容写入发送队列，等待当前轮结束后自动续发。
-      setMessages((previous) => [...previous, queuedMessage]);
-      setQueuedOutgoingMessages((previous) => [
-        ...previous,
-        {
-          localMessageId: queuedMessage.id,
-          content: trimmedInput,
-        },
-      ]);
-      setInputValue("");
+    if (isBusyNow) {
       setConnectionError("");
-      setUiHint("上一轮还在整理中，这条消息已排队，处理完会自动发送。");
+      setUiHint("当前上一轮还在处理中，请等待档案信息更新完成后再继续输入。");
+      return;
+    }
 
-      if (hasQueuedMessages && canSendCurrentRound && !assistantStreaming && !assistantThinking) {
-        window.setTimeout(() => {
-          void flushQueuedMessages(profile.user_id);
-        }, 0);
-      }
+    if (!canSendCurrentRound) {
+      setConnectionError("");
+      setUiHint("当前阶段暂不支持继续输入，你可以稍后再试。");
       return;
     }
 
     try {
       const sessionId = await ensureSocketConnected(profile.user_id);
 
-      // 中文注释：
-      // 当前轮已可直接发送时，只在这里追加一次用户消息，
-      // 避免之前旧逻辑里重复 append 导致同一条输入显示两次。
       setMessages((previous) => [...previous, createChatMessage("user", trimmedInput)]);
       setInputValue("");
       setConnectionError("");
       setAssistantThinking(true);
-      setUiHint("消息已发送，建档助手正在思考...");
+      setUiHint("建档助手正在整理回复...");
 
       wsRef.current?.send(
         JSON.stringify({
           type: "user_message",
           request_id: `user-${Date.now()}`,
-          session_id: sessionId,
+          // 中文注释：
+          // 这里不再显式携带 session_id。
+          // 原因是 user_message 发送时，后端已经通过当前 WebSocket 连接绑定了唯一会话上下文，
+          // 如果前端本地缓存的 sessionIdRef 因恢复历史、切换结果态等过程发生漂移，
+          // 继续把本地 session_id 带上，反而会触发“消息中的 session_id 与当前连接绑定的 session_id 不一致”。
+          // 因此这里统一改成只依赖连接上下文，由后端以当前绑定会话为准。
           payload: {
             content: trimmedInput,
           },
@@ -1091,7 +1182,6 @@ export default function HomePage() {
       setConnectionError(error?.message || "发送消息失败，请稍后重试。");
     }
   }
-
   function handleInputKeyDown(event) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -1122,13 +1212,13 @@ export default function HomePage() {
           </nav>
 
           <div className="home-top-actions">
-            <TopActionButton label="提醒">
+            <TopActionButton label="鎻愰啋">
               <div className="home-top-icon-wrap">
                 <BellIcon />
                 <span className="home-top-icon-dot" />
               </div>
             </TopActionButton>
-            <TopActionButton label="设置">
+            <TopActionButton label="璁剧疆">
               <SettingsIcon />
             </TopActionButton>
             <div className="home-top-divider" />
@@ -1175,7 +1265,7 @@ export default function HomePage() {
               transition={{ duration: 0.8, delay: 0.2 }}
             >
               <h1 className="home-hero-title">
-                欢迎使用录途
+                欢迎使用录途 Toolbox
                 <br />
                 <span className="home-hero-title-accent">你的留学申请工具箱</span>
               </h1>
@@ -1320,30 +1410,40 @@ export default function HomePage() {
                       <p className="home-ai-error">建档保存异常：{saveErrorMessage}</p>
                     ) : null}
 
-                    <div className="home-ai-input-row">
-                      <textarea
-                        className="home-ai-input"
-                        value={inputValue}
-                        onChange={(event) => setInputValue(event.target.value)}
-                        onKeyDown={handleInputKeyDown}
-                        placeholder="直接告诉我你的课程体系、成绩、竞赛、活动或项目经历..."
-                        rows={2}
-                        disabled={createProfileLoading}
-                      />
+                    {isRoundProcessing ? (
+                      <div className="home-ai-processing-row">
+                        <div className="home-ai-processing-spinner" />
+                        <div className="home-ai-processing-copy">
+                          <strong>正在更新档案信息</strong>
+                          <span>这一轮还没处理完，处理完成后会恢复输入框和操作按钮。</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="home-ai-input-row">
+                        <textarea
+                          className="home-ai-input"
+                          value={inputValue}
+                          onChange={(event) => setInputValue(event.target.value)}
+                          onKeyDown={handleInputKeyDown}
+                          placeholder="直接告诉我你的课程体系、成绩、竞赛、活动或项目经历..."
+                          rows={2}
+                          disabled={false}
+                        />
 
-                      <motion.button
-                        type="button"
-                        className="home-ai-send"
-                        onClick={sendUserMessage}
-                        whileHover={{ scale: 1.04 }}
-                        whileTap={{ scale: 0.96 }}
-                        disabled={!inputValue.trim() || createProfileLoading}
-                      >
-                        <Send size={18} strokeWidth={2.2} />
-                      </motion.button>
-                    </div>
+                        <motion.button
+                          type="button"
+                          className="home-ai-send"
+                          onClick={sendUserMessage}
+                          whileHover={{ scale: 1.04 }}
+                          whileTap={{ scale: 0.96 }}
+                          disabled={!inputValue.trim()}
+                        >
+                          <Send size={18} strokeWidth={2.2} />
+                        </motion.button>
+                      </div>
+                    )}
 
-                    {chatEnded ? (
+                    {chatEnded && !isRoundProcessing ? (
                       <div className="home-ai-build-row">
                         <div className="home-ai-build-copy">
                           <h4>{hasGeneratedProfile ? "可以更新六维图" : "信息已足够建档"}</h4>
@@ -1360,7 +1460,7 @@ export default function HomePage() {
                           onClick={handleCreateProfile}
                           whileHover={{ scale: 1.04 }}
                           whileTap={{ scale: 0.96 }}
-                          disabled={createProfileLoading}
+                          disabled={isBuildProfileBlocked}
                         >
                           {createProfileLoading ? "正在生成..." : hasGeneratedProfile ? "更新六维图" : "立即建档"}
                           <ArrowRight size={18} strokeWidth={2.2} />
@@ -1368,6 +1468,24 @@ export default function HomePage() {
                       </div>
                     ) : null}
                   </div>
+                </motion.div>
+              ) : null}
+
+              {createProfileLoading && !profileData ? (
+                <motion.div
+                  key="profile-loading"
+                  className="home-radar-loading-shell"
+                  initial={{ opacity: 0, y: 24, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 16, scale: 0.96 }}
+                  transition={{ type: "spring", stiffness: 220, damping: 28 }}
+                >
+                  <div className="home-radar-loading-spinner" />
+                  <h3>正在生成六维图</h3>
+                  <p>
+                    系统正在后台整理结构化档案并计算六维评分，
+                    六维图结果出来后会先展示，正式档案会继续在后台创建。
+                  </p>
                 </motion.div>
               ) : null}
 
@@ -1383,9 +1501,7 @@ export default function HomePage() {
                   <div className="home-radar-header">
                     <div>
                       <h3 className="home-radar-title">你的六维建档结果</h3>
-                      <p className="home-radar-subtitle">
-                        {profileResultStatus === "saved" ? "档案已正式建档完成" : "结果已生成，当前处于结果展示态"}
-                      </p>
+                      <p className="home-radar-subtitle">{getProfileStatusText(profileResultStatus)}</p>
                     </div>
 
                     <motion.button
@@ -1399,7 +1515,26 @@ export default function HomePage() {
                     </motion.button>
                   </div>
 
-                  {saveErrorMessage && profileResultStatus !== "saved" ? (
+                  {isArchiveCreating ? (
+                    <div className="home-radar-loading-inline">
+                      <div className="home-radar-loading-spinner home-radar-loading-spinner-sm" />
+                      <span>六维图结果已生成，档案正在后台创建...</span>
+                    </div>
+                  ) : null}
+
+                  {isArchiveCreating ? (
+                    <div className="home-radar-status-banner home-radar-status-banner-pending">
+                      档案正在创建，六维图结果已经先展示给你，创建完成后会自动更新为“档案创建完成”。
+                    </div>
+                  ) : null}
+
+                  {profileResultStatus === "saved" ? (
+                    <div className="home-radar-status-banner home-radar-status-banner-saved">
+                      档案创建完成。
+                    </div>
+                  ) : null}
+
+                  {saveErrorMessage && profileResultStatus === "failed" ? (
                     <div className="home-radar-warning">
                       建档结果已生成，但正式保存存在异常：{saveErrorMessage}
                     </div>

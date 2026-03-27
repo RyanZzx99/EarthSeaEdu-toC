@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import logging
 from typing import Any
 from uuid import uuid4
 
@@ -28,6 +29,7 @@ from sqlalchemy.orm import Session
 from backend.models.ai_chat_models import AiChatMessage
 from backend.models.ai_chat_models import AiChatProfileResult
 from backend.models.ai_chat_models import AiChatSession
+from backend.utils.flow_logging import log_timed_step
 
 
 DEFAULT_BIZ_DOMAIN = "student_profile_build"
@@ -36,6 +38,9 @@ DEFAULT_STAGE = "conversation"
 
 VISIBLE_MESSAGE_TYPE = "visible_text"
 INTERNAL_STATE_MESSAGE_TYPE = "internal_state"
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -128,6 +133,7 @@ class AiChatSessionQueryResult:
     last_message_at: datetime | None
     completed_at: datetime | None
     final_profile_id: int | None
+    remark: str | None
 
 
 @dataclass(slots=True)
@@ -150,6 +156,7 @@ class AiChatProfileResultQueryResult:
     db_payload_json: dict[str, Any] | None
     save_error_message: str | None
     create_time: datetime
+    update_time: datetime
 
 
 def init_or_get_session(
@@ -499,6 +506,41 @@ def update_session_progress(
     return session
 
 
+def update_session_stage(
+    db: Session,
+    *,
+    student_id: str,
+    session_id: str,
+    current_stage: str,
+    remark: str | None = None,
+    session_status: str = DEFAULT_SESSION_STATUS,
+) -> AiChatSession:
+    """
+    仅更新会话阶段与备注。
+
+    这个函数专门给“手动生成 / 更新六维图”的后台异步任务使用。
+    设计意图：
+    1. 点击“立即建档 / 更新六维图”后，要立刻把会话切到 extraction / scoring，
+       这样前端才能基于 session detail 做轮询和 loading 展示。
+    2. 后台任务如果失败，也需要把阶段切到 failed，并把异常摘要写到 remark，
+       方便前端在不读取长堆栈的前提下给用户稳定提示。
+    3. 这个函数只负责 AI 会话元数据，不负责正式业务表入库。
+    """
+
+    session = _get_required_active_session(
+        db,
+        session_id=session_id,
+        student_id=student_id,
+    )
+    session.current_stage = current_stage
+    session.session_status = session_status
+    session.remark = (remark or None)
+    session.updated_by = student_id
+    db.commit()
+    db.refresh(session)
+    return session
+
+
 def save_profile_result(
     db: Session,
     *,
@@ -511,6 +553,8 @@ def save_profile_result(
     result_status: str,
     db_payload_json: dict[str, Any] | None = None,
     save_error_message: str | None = None,
+    session_stage: str = "build_ready",
+    session_remark: str | None = None,
 ) -> AiChatProfileResultPersistResult:
     """
     保存最终建档结果到 ai_chat_profile_results。
@@ -521,64 +565,115 @@ def save_profile_result(
     3. 同时把 ai_chat_sessions 的阶段和状态一起更新。
     """
 
-    session = _get_required_active_session(
-        db,
-        session_id=session_id,
+    with log_timed_step(
+        logger,
+        flow_name="AI建档结果",
+        step_name="保存六维图结果",
         student_id=student_id,
-    )
-
-    existing = _get_profile_result_by_session_id(
-        db,
         session_id=session_id,
-    )
-    if existing is None:
-        profile_result = AiChatProfileResult(
+    ):
+        session = _get_required_active_session(
+            db,
             session_id=session_id,
             student_id=student_id,
-            biz_domain=biz_domain,
-            result_status=result_status,
-            profile_json=profile_json,
-            radar_scores_json=radar_scores_json,
-            summary_text=summary_text,
-            db_payload_json=db_payload_json,
-            save_error_message=save_error_message,
         )
-        db.add(profile_result)
-        db.flush()
-    else:
-        profile_result = existing
-        profile_result.profile_json = profile_json
-        profile_result.radar_scores_json = radar_scores_json
-        profile_result.summary_text = summary_text
-        profile_result.db_payload_json = db_payload_json
+
+        existing = _get_profile_result_by_session_id(
+            db,
+            session_id=session_id,
+        )
+        if existing is None:
+            profile_result = AiChatProfileResult(
+                session_id=session_id,
+                student_id=student_id,
+                biz_domain=biz_domain,
+                result_status=result_status,
+                profile_json=profile_json,
+                radar_scores_json=radar_scores_json,
+                summary_text=summary_text,
+                db_payload_json=db_payload_json,
+                save_error_message=save_error_message,
+            )
+            db.add(profile_result)
+            db.flush()
+        else:
+            profile_result = existing
+            profile_result.profile_json = profile_json
+            profile_result.radar_scores_json = radar_scores_json
+            profile_result.summary_text = summary_text
+            profile_result.db_payload_json = db_payload_json
+            profile_result.result_status = result_status
+            profile_result.save_error_message = save_error_message
+
+        session.final_profile_id = profile_result.id
+        session.current_stage = session_stage
+        session.session_status = DEFAULT_SESSION_STATUS
+        session.completed_at = None
+        session.remark = session_remark or None
+        session.updated_by = student_id
+
+        db.commit()
+        db.refresh(profile_result)
+        db.refresh(session)
+
+        return AiChatProfileResultPersistResult(
+            profile_result_id=profile_result.id,
+            session_id=session_id,
+            student_id=student_id,
+            result_status=profile_result.result_status,
+        )
+
+
+def update_profile_result_status(
+    db: Session,
+    *,
+    student_id: str,
+    session_id: str,
+    result_status: str,
+    save_error_message: str | None = None,
+    session_stage: str = "build_ready",
+    session_remark: str | None = None,
+) -> AiChatProfileResultPersistResult:
+    """更新已存在的六维图结果状态，并同步刷新会话阶段。"""
+
+    with log_timed_step(
+        logger,
+        flow_name="AI建档结果",
+        step_name="更新六维图结果状态",
+        student_id=student_id,
+        session_id=session_id,
+    ):
+        session = _get_required_active_session(
+            db,
+            session_id=session_id,
+            student_id=student_id,
+        )
+        profile_result = _get_profile_result_by_session_id(
+            db,
+            session_id=session_id,
+        )
+        if profile_result is None:
+            raise ValueError("当前会话还没有可更新的六维图结果")
+
         profile_result.result_status = result_status
         profile_result.save_error_message = save_error_message
 
-    session.final_profile_id = profile_result.id
-    # 中文注释：
-    # 新的业务流程里，生成六维图不代表“本次会话彻底结束”，
-    # 学生仍然可以继续补充信息，并在合适时机再次点击“更新六维图”。
-    # 因此这里不再把 session 标成 completed / failed，而是始终保持 active。
-    #
-    # 具体口径：
-    # 1. 无论正式业务表保存成功还是失败，会话都保持 active
-    # 2. current_stage 回到 build_ready，表示“当前信息已足够再次生成结果”
-    # 3. 真正的成功/失败状态只记录在 ai_chat_profile_results.result_status 中
-    session.current_stage = "build_ready"
-    session.session_status = DEFAULT_SESSION_STATUS
-    session.completed_at = None
-    session.updated_by = student_id
+        session.current_stage = session_stage
+        session.session_status = DEFAULT_SESSION_STATUS
+        session.completed_at = None
+        session.remark = session_remark or None
+        session.updated_by = student_id
 
-    db.commit()
-    db.refresh(profile_result)
-    db.refresh(session)
+        db.commit()
+        db.refresh(profile_result)
+        db.refresh(session)
 
-    return AiChatProfileResultPersistResult(
-        profile_result_id=profile_result.id,
-        session_id=session_id,
-        student_id=student_id,
-        result_status=profile_result.result_status,
-    )
+        return AiChatProfileResultPersistResult(
+            profile_result_id=profile_result.id,
+            session_id=session_id,
+            student_id=student_id,
+            result_status=profile_result.result_status,
+        )
 
 
 def get_active_session_by_student_and_domain(
@@ -671,6 +766,7 @@ def get_profile_result_detail(
         db_payload_json=profile_result.db_payload_json,
         save_error_message=profile_result.save_error_message,
         create_time=profile_result.create_time,
+        update_time=profile_result.update_time,
     )
 
 
@@ -778,6 +874,7 @@ def _to_session_query_result(session: AiChatSession) -> AiChatSessionQueryResult
         last_message_at=session.last_message_at,
         completed_at=session.completed_at,
         final_profile_id=session.final_profile_id,
+        remark=session.remark,
     )
 
 

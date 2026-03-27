@@ -1,4 +1,6 @@
 # 导入 FastAPI
+import logging
+
 from fastapi import FastAPI
 
 # 导入 CORS 中间件
@@ -19,6 +21,13 @@ from backend.routers import ai_chat
 from backend.routers import auth
 from backend.routers import health
 
+
+# 统一初始化后端日志，控制台会直接输出中文步骤和耗时。
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+    force=True,
+)
 
 # 创建 FastAPI 应用
 app = FastAPI(

@@ -51,6 +51,60 @@ class SendSmsCodeRequest(BaseModel):
     )
 
 
+class SmsInviteRequirementCheckRequest(BaseModel):
+    """
+    检查短信登录是否需要邀请码的请求体
+
+    说明：
+    1. 前端在用户输入手机号后，可先调用这个接口做轻量预检查
+    2. 如果手机号对应的是已注册用户，则不展示邀请码输入框
+    3. 如果手机号尚未注册，则前端再展示邀请码输入框，提示首次注册需要填写
+    """
+
+    mobile: str = Field(
+        ...,
+        description="待检查的手机号",
+        examples=["13800138000"],
+    )
+
+
+class WechatBindInviteRequirementCheckRequest(BaseModel):
+    """
+    检查微信绑定手机号时是否需要邀请码的请求体
+
+    说明：
+    1. 微信首次扫码后，用户需要绑定手机号
+    2. 如果目标手机号已注册，则属于合并/绑定已有账号场景，不需要邀请码
+    3. 如果目标手机号未注册，则属于新用户注册场景，需要邀请码
+    """
+
+    bind_token: str = Field(
+        ...,
+        description="微信绑定手机号阶段使用的 bind_token",
+    )
+
+    mobile: str = Field(
+        ...,
+        description="待绑定的手机号",
+        examples=["13800138000"],
+    )
+
+
+class InviteRequirementCheckResponse(BaseModel):
+    """
+    邀请码需求检查响应体
+
+    说明：
+    1. 前端只需要根据 need_invite_code 决定是否展示邀请码输入框
+    2. user_exists 用于区分“老用户登录”和“新用户首次注册”
+    3. message 用于给前端展示更直观的辅助提示文案
+    """
+
+    need_invite_code: bool = Field(..., description="当前手机号场景是否需要邀请码")
+    user_exists: bool = Field(..., description="该手机号是否已在系统中注册")
+    message: str = Field(..., description="给前端展示的提示文案")
+
+
 class PasswordLoginRequest(BaseModel):
     """
     手机号 + 密码登录请求体

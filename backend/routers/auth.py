@@ -45,10 +45,12 @@ from backend.schemas.auth import BindMobileRequiredResponse
 from backend.schemas.auth import AvailabilityCheckResponse
 from backend.schemas.auth import CheckNicknameAvailabilityRequest
 from backend.schemas.auth import CheckPasswordAvailabilityRequest
+from backend.schemas.auth import InviteRequirementCheckResponse
 from backend.schemas.auth import LoginResponse
 from backend.schemas.auth import PasswordLoginRequest
 from backend.schemas.auth import SendSmsCodeRequest
 from backend.schemas.auth import SetPasswordRequest
+from backend.schemas.auth import SmsInviteRequirementCheckRequest
 from backend.schemas.auth import SmsLoginRequest
 from backend.schemas.auth import GenerateInviteCodesRequest
 from backend.schemas.auth import IssueInviteCodeRequest
@@ -60,11 +62,14 @@ from backend.schemas.auth import UpdateNicknameRuleTargetStatusRequest
 from backend.schemas.auth import UpdateInviteCodeStatusRequest
 from backend.schemas.auth import UpdateUserStatusRequest
 from backend.schemas.auth import UserProfileResponse
+from backend.schemas.auth import WechatBindInviteRequirementCheckRequest
 from backend.schemas.auth import WechatBindMobileRequest
 from backend.schemas.auth import WechatLoginRequest
 
 # 导入 service 层方法
 from backend.services.auth_service import bind_mobile_for_wechat_user
+from backend.services.auth_service import check_sms_login_invite_requirement
+from backend.services.auth_service import check_wechat_bind_invite_requirement
 from backend.services.auth_service import create_login_log
 from backend.services.auth_service import create_wechat_state
 from backend.services.auth_service import get_user_profile
@@ -287,6 +292,69 @@ def send_sms_code_api(
 
     except ValueError as e:
         # 业务异常返回 400
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/login/sms/invite-required", response_model=InviteRequirementCheckResponse)
+def check_sms_login_invite_required_api(
+    payload: SmsInviteRequirementCheckRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    检查短信验证码登录是否需要邀请码
+
+    接口作用：
+    1. 给前端一个“手机号预检查”能力
+    2. 当前端识别到手机号已经注册过时，不再展示邀请码输入框
+    3. 当前端识别到手机号尚未注册时，再提示用户填写邀请码
+
+    说明：
+    1. 这个接口只做轻量判断，不发送短信，也不真正执行登录
+    2. 真正的登录合法性仍以后续 /login/sms 接口为准
+    """
+    try:
+        return check_sms_login_invite_requirement(
+            db=db,
+            mobile=payload.mobile,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/wechat/bind-mobile/invite-required", response_model=InviteRequirementCheckResponse)
+def check_wechat_bind_invite_required_api(
+    payload: WechatBindInviteRequirementCheckRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    检查微信绑定手机号时是否需要邀请码
+
+    接口作用：
+    1. 当前端处于微信绑定手机号界面时，可先根据手机号判断是否需要邀请码
+    2. 如果目标手机号已注册，则前端不再强制展示邀请码输入框
+    3. 如果目标手机号未注册，则前端展示邀请码输入框，引导用户完成首次注册
+    """
+    # 中文注释：这里沿用正式绑定接口里的 bind_token 解析规则，确保前端预检查和正式提交使用同一套身份校验口径。
+    bind_payload = decode_token_safe(payload.bind_token)
+
+    if not bind_payload:
+        raise HTTPException(status_code=401, detail="bind_token 无效或已过期")
+
+    if bind_payload.get("token_use") != "bind_mobile":
+        raise HTTPException(status_code=401, detail="bind_token 类型错误")
+
+    bind_user_id = bind_payload.get("sub")
+
+    if not bind_user_id:
+        raise HTTPException(status_code=401, detail="bind_token 缺少用户信息")
+
+    try:
+        return check_wechat_bind_invite_requirement(
+            db=db,
+            bind_user_id=str(bind_user_id),
+            mobile=payload.mobile,
+        )
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 

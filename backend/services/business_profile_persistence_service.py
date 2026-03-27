@@ -20,11 +20,15 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+import logging
 from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+
+logger = logging.getLogger(__name__)
 
 
 SINGLE_ROW_TABLES = [
@@ -63,6 +67,36 @@ MULTI_ROW_TABLES = [
 ]
 
 ALL_TABLES = SINGLE_ROW_TABLES + MULTI_ROW_TABLES
+
+# 中文注释：
+# 这是当前真正参与运行的经历类枚举合法值集合。
+# 这里刻意只保留 allowed set，不再维护中文别名翻译。
+# 当前最终口径是：
+# 1. extraction_prompt 负责把中文语义转换成标准枚举码值
+# 2. 后端只负责最后一道合法性校验
+# 3. 如果不是标准枚举值，就直接置为 None，而不是继续尝试在后端做语义翻译
+ENUM_ALLOWED_VALUES: dict[str, dict[str, set[str]]] = {
+    "student_competition_entries": {
+        "competition_field": {"MATH", "CS", "PHYSICS", "CHEM", "BIO", "ECON", "DEBATE", "WRITING", "OTHER"},
+        "competition_tier": {"T1", "T2", "T3", "T4", "UNKNOWN"},
+        "competition_level": {"SCHOOL", "CITY", "PROVINCE", "NATIONAL", "INTERNATIONAL"},
+        "evidence_type": {"CERTIFICATE", "LINK", "SCHOOL_CONFIRMATION", "NONE"},
+    },
+    "student_activity_entries": {
+        "activity_category": {"LEADERSHIP", "ACADEMIC", "SPORTS", "ARTS", "COMMUNITY", "ENTREPRENEURSHIP", "OTHER"},
+        "activity_role": {"FOUNDER", "PRESIDENT", "CORE_MEMBER", "MEMBER", "OTHER"},
+        "evidence_type": {"LINK", "SCHOOL_CONFIRMATION", "PHOTO", "NONE"},
+    },
+    "student_project_entries": {
+        "project_type": {"RESEARCH", "INTERNSHIP", "ENGINEERING_PROJECT", "STARTUP", "CREATIVE_PROJECT", "VOLUNTEER_WORK", "OTHER"},
+        "project_field": {"CS", "ECON", "FIN", "BIO", "PHYS", "DESIGN", "OTHER"},
+        "relevance_to_major": {"HIGH", "MEDIUM", "LOW"},
+        "evidence_type": {"LINK", "MENTOR_LETTER", "EMPLOYER_CONFIRMATION", "NONE"},
+    },
+    "student_project_outputs": {
+        "output_type": {"PAPER", "REPORT", "CODE", "DEMO", "PRODUCT", "PORTFOLIO", "PRESENTATION", "OTHER"},
+    },
+}
 
 # 中文注释：
 # 这里维护“程序侧默认值”映射，用来兜底那些数据库层虽然配置了 DEFAULT，
@@ -129,6 +163,23 @@ COLUMN_DEFAULTS: dict[str, dict[str, Any]] = {
         "sort_order": 1,
     },
 }
+
+ACADEMIC_SUBJECT_DETAIL_CONFIGS: dict[str, dict[str, str]] = {
+    "student_academic_a_level_subject": {
+        "id_field": "al_subject_id",
+    },
+    "student_academic_ap_course": {
+        "id_field": "ap_course_id",
+    },
+    "student_academic_ib_subject": {
+        "id_field": "ib_subject_id",
+    },
+    "student_academic_chinese_high_school_subject": {
+        "id_field": "chs_subject_id",
+    },
+}
+
+ACADEMIC_SUBJECT_AUXILIARY_FIELDS = {"subject_name_text"}
 
 # 中文注释：
 # 语言明细表的结构虽然不同，但“状态推断”逻辑是一致的：
@@ -245,6 +296,258 @@ STANDARDIZED_DETAIL_TABLE_CONFIG: dict[str, Any] = {
         "act_science",
     ],
     "estimated_score_fields": ["estimated_total_score"],
+}
+
+# 中文注释：
+# 下面这组配置专门负责“经历类表”的枚举值归一化。
+# 当前 extraction_prompt 在中文对话场景里，偶尔会把这类字段提取成中文值，
+# 例如：
+# - competition_level = "校内"
+# - activity_role = "负责人"
+# - project_type = "科研"
+# 但数据库里的这些列大多是 ENUM，要求写入固定英文码值。
+# 如果程序不在正式入库前做最后一道归一化，就会直接触发：
+# - Data truncated for column ...
+# - Incorrect enum value ...
+# 因此这里统一约定：
+# 1. 如果值本身已经是合法码值，就直接保留
+# 2. 如果值是常见中文/小写英文别名，就映射到合法码值
+# 3. 如果完全无法识别，就置为 None，让该字段留空而不是整条记录保存失败
+ENUM_NORMALIZATION_CONFIG: dict[str, dict[str, dict[str, Any]]] = {
+    "student_competition_entries": {
+        "competition_field": {
+            "allowed_values": {"MATH", "CS", "PHYSICS", "CHEM", "BIO", "ECON", "DEBATE", "WRITING", "OTHER"},
+            "alias_map": {
+                "数学": "MATH",
+                "math": "MATH",
+                "计算机": "CS",
+                "编程": "CS",
+                "python": "CS",
+                "cs": "CS",
+                "物理": "PHYSICS",
+                "physics": "PHYSICS",
+                "化学": "CHEM",
+                "chem": "CHEM",
+                "chemistry": "CHEM",
+                "生物": "BIO",
+                "biology": "BIO",
+                "经济": "ECON",
+                "economics": "ECON",
+                "辩论": "DEBATE",
+                "debate": "DEBATE",
+                "写作": "WRITING",
+                "writing": "WRITING",
+                "其他": "OTHER",
+                "other": "OTHER",
+            },
+        },
+        "competition_tier": {
+            "allowed_values": {"T1", "T2", "T3", "T4", "UNKNOWN"},
+            "alias_map": {
+                "第一梯队": "T1",
+                "第二梯队": "T2",
+                "第三梯队": "T3",
+                "第四梯队": "T4",
+                "未知": "UNKNOWN",
+                "unknown": "UNKNOWN",
+            },
+        },
+        "competition_level": {
+            "allowed_values": {"SCHOOL", "CITY", "PROVINCE", "NATIONAL", "INTERNATIONAL"},
+            "alias_map": {
+                "校内": "SCHOOL",
+                "校级": "SCHOOL",
+                "学校": "SCHOOL",
+                "校际": "SCHOOL",
+                "市级": "CITY",
+                "市赛": "CITY",
+                "城市级": "CITY",
+                "省级": "PROVINCE",
+                "省赛": "PROVINCE",
+                "国家级": "NATIONAL",
+                "国级": "NATIONAL",
+                "国赛": "NATIONAL",
+                "全国": "NATIONAL",
+                "国际": "INTERNATIONAL",
+                "国际级": "INTERNATIONAL",
+                "国际赛": "INTERNATIONAL",
+            },
+        },
+        "evidence_type": {
+            "allowed_values": {"CERTIFICATE", "LINK", "SCHOOL_CONFIRMATION", "NONE"},
+            "alias_map": {
+                "证书": "CERTIFICATE",
+                "certificate": "CERTIFICATE",
+                "链接": "LINK",
+                "link": "LINK",
+                "学校证明": "SCHOOL_CONFIRMATION",
+                "校方证明": "SCHOOL_CONFIRMATION",
+                "school confirmation": "SCHOOL_CONFIRMATION",
+                "无": "NONE",
+                "没有": "NONE",
+                "none": "NONE",
+            },
+        },
+    },
+    "student_activity_entries": {
+        "activity_category": {
+            "allowed_values": {"LEADERSHIP", "ACADEMIC", "SPORTS", "ARTS", "COMMUNITY", "ENTREPRENEURSHIP", "OTHER"},
+            "alias_map": {
+                "领导力": "LEADERSHIP",
+                "leadership": "LEADERSHIP",
+                "学术": "ACADEMIC",
+                "academic": "ACADEMIC",
+                "体育": "SPORTS",
+                "sports": "SPORTS",
+                "艺术": "ARTS",
+                "arts": "ARTS",
+                "社区": "COMMUNITY",
+                "公益": "COMMUNITY",
+                "志愿": "COMMUNITY",
+                "community": "COMMUNITY",
+                "创业": "ENTREPRENEURSHIP",
+                "entrepreneurship": "ENTREPRENEURSHIP",
+                "其他": "OTHER",
+                "other": "OTHER",
+            },
+        },
+        "activity_role": {
+            "allowed_values": {"FOUNDER", "PRESIDENT", "CORE_MEMBER", "MEMBER", "OTHER"},
+            "alias_map": {
+                "创始人": "FOUNDER",
+                "发起人": "FOUNDER",
+                "founder": "FOUNDER",
+                "主席": "PRESIDENT",
+                "社长": "PRESIDENT",
+                "负责人": "PRESIDENT",
+                "president": "PRESIDENT",
+                "核心成员": "CORE_MEMBER",
+                "骨干": "CORE_MEMBER",
+                "core member": "CORE_MEMBER",
+                "成员": "MEMBER",
+                "member": "MEMBER",
+                "其他": "OTHER",
+                "other": "OTHER",
+            },
+        },
+        "evidence_type": {
+            "allowed_values": {"LINK", "SCHOOL_CONFIRMATION", "PHOTO", "NONE"},
+            "alias_map": {
+                "链接": "LINK",
+                "link": "LINK",
+                "学校证明": "SCHOOL_CONFIRMATION",
+                "校方证明": "SCHOOL_CONFIRMATION",
+                "照片": "PHOTO",
+                "图片": "PHOTO",
+                "photo": "PHOTO",
+                "无": "NONE",
+                "没有": "NONE",
+                "none": "NONE",
+            },
+        },
+    },
+    "student_project_entries": {
+        "project_type": {
+            "allowed_values": {"RESEARCH", "INTERNSHIP", "ENGINEERING_PROJECT", "STARTUP", "CREATIVE_PROJECT", "VOLUNTEER_WORK", "OTHER"},
+            "alias_map": {
+                "科研": "RESEARCH",
+                "研究": "RESEARCH",
+                "research": "RESEARCH",
+                "实习": "INTERNSHIP",
+                "internship": "INTERNSHIP",
+                "工程项目": "ENGINEERING_PROJECT",
+                "开发项目": "ENGINEERING_PROJECT",
+                "技术项目": "ENGINEERING_PROJECT",
+                "engineering project": "ENGINEERING_PROJECT",
+                "创业": "STARTUP",
+                "startup": "STARTUP",
+                "创意项目": "CREATIVE_PROJECT",
+                "创作项目": "CREATIVE_PROJECT",
+                "creative project": "CREATIVE_PROJECT",
+                "志愿服务": "VOLUNTEER_WORK",
+                "公益项目": "VOLUNTEER_WORK",
+                "volunteer work": "VOLUNTEER_WORK",
+                "其他": "OTHER",
+                "other": "OTHER",
+            },
+        },
+        "project_field": {
+            "allowed_values": {"CS", "ECON", "FIN", "BIO", "PHYS", "DESIGN", "OTHER"},
+            "alias_map": {
+                "计算机": "CS",
+                "编程": "CS",
+                "python": "CS",
+                "cs": "CS",
+                "经济": "ECON",
+                "economics": "ECON",
+                "金融": "FIN",
+                "finance": "FIN",
+                "生物": "BIO",
+                "biology": "BIO",
+                "物理": "PHYS",
+                "physics": "PHYS",
+                "设计": "DESIGN",
+                "design": "DESIGN",
+                "其他": "OTHER",
+                "other": "OTHER",
+            },
+        },
+        "relevance_to_major": {
+            "allowed_values": {"HIGH", "MEDIUM", "LOW"},
+            "alias_map": {
+                "高": "HIGH",
+                "高相关": "HIGH",
+                "high": "HIGH",
+                "中": "MEDIUM",
+                "中相关": "MEDIUM",
+                "medium": "MEDIUM",
+                "低": "LOW",
+                "低相关": "LOW",
+                "low": "LOW",
+            },
+        },
+        "evidence_type": {
+            "allowed_values": {"LINK", "MENTOR_LETTER", "EMPLOYER_CONFIRMATION", "NONE"},
+            "alias_map": {
+                "链接": "LINK",
+                "link": "LINK",
+                "导师推荐信": "MENTOR_LETTER",
+                "导师证明": "MENTOR_LETTER",
+                "mentor letter": "MENTOR_LETTER",
+                "雇主确认": "EMPLOYER_CONFIRMATION",
+                "公司证明": "EMPLOYER_CONFIRMATION",
+                "employer confirmation": "EMPLOYER_CONFIRMATION",
+                "无": "NONE",
+                "没有": "NONE",
+                "none": "NONE",
+            },
+        },
+    },
+    "student_project_outputs": {
+        "output_type": {
+            "allowed_values": {"PAPER", "REPORT", "CODE", "DEMO", "PRODUCT", "PORTFOLIO", "PRESENTATION", "OTHER"},
+            "alias_map": {
+                "论文": "PAPER",
+                "paper": "PAPER",
+                "报告": "REPORT",
+                "report": "REPORT",
+                "代码": "CODE",
+                "程序": "CODE",
+                "code": "CODE",
+                "演示": "DEMO",
+                "demo": "DEMO",
+                "产品": "PRODUCT",
+                "product": "PRODUCT",
+                "作品集": "PORTFOLIO",
+                "portfolio": "PORTFOLIO",
+                "演讲": "PRESENTATION",
+                "展示": "PRESENTATION",
+                "presentation": "PRESENTATION",
+                "其他": "OTHER",
+                "other": "OTHER",
+            },
+        },
+    },
 }
 
 # 中文注释：
@@ -403,6 +706,7 @@ def persist_business_profile_snapshot(
     persisted_tables: list[str] = []
 
     try:
+        _normalize_payload_for_persistence(db_payload)
         # 中文注释：先处理单行主表。
         # 这些表一般是一名学生只保留一条快照，因此直接 upsert 即可。
         for table_name in SINGLE_ROW_TABLES:
@@ -561,8 +865,143 @@ def _normalize_payload_for_persistence(payload: dict[str, Any]) -> None:
     2. 正式业务表存在 NOT NULL 约束，必须在程序层做最后一道兜底
     """
 
+    _normalize_academic_subject_payload(payload)
     _normalize_language_payload(payload)
     _normalize_standardized_payload(payload)
+    _normalize_experience_payload(payload)
+
+
+def _normalize_academic_subject_payload(payload: dict[str, Any]) -> None:
+    """
+    为学术科目明细做正式入库前兜底。
+
+    处理目标：
+    1. 去掉只给 AI / 中间流程使用的辅助字段，例如 subject_name_text。
+    2. 再次校验学术科目明细的必填码值字段，避免带着 null 撞数据库 NOT NULL。
+    3. 对仍无法解析的明细行做跳过，而不是让整份正式保存失败。
+    """
+
+    for table_name, config in ACADEMIC_SUBJECT_DETAIL_CONFIGS.items():
+        rows = payload.get(table_name)
+        if not isinstance(rows, list):
+            continue
+
+        normalized_rows: list[dict[str, Any]] = []
+        id_field = config["id_field"]
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+
+            normalized_row = dict(row)
+            subject_display_text = _extract_academic_subject_display_text(normalized_row)
+            for field_name in ACADEMIC_SUBJECT_AUXILIARY_FIELDS:
+                normalized_row.pop(field_name, None)
+
+            normalized_row[id_field] = _normalize_required_code_value(
+                normalized_row.get(id_field)
+            )
+            if normalized_row[id_field] is None and _is_meaningful_multi_row(
+                table_name=table_name,
+                row=normalized_row,
+            ):
+                logger.warning(
+                    "[AI建档][步骤:学术科目正式入库兜底] %s 缺少 %s，已跳过该明细：科目=%s",
+                    table_name,
+                    id_field,
+                    subject_display_text or "-",
+                )
+                continue
+
+            normalized_rows.append(normalized_row)
+
+        payload[table_name] = normalized_rows
+
+
+def _normalize_experience_payload(payload: dict[str, Any]) -> None:
+    """
+    归一化竞赛 / 活动 / 项目相关表中的枚举字段。
+
+    处理策略固定为：
+    1. 已经是合法码值：直接保留
+    2. 大小写可归一化时，转换成标准大写码值
+    3. 无法识别：置为 None，让字段留空，不让整条正式保存失败
+    """
+
+    for table_name, field_allowed_values_map in ENUM_ALLOWED_VALUES.items():
+        rows = payload.get(table_name)
+        if not isinstance(rows, list):
+            continue
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+
+            for field_name, allowed_values in field_allowed_values_map.items():
+                row[field_name] = _normalize_enum_value(
+                    raw_value=row.get(field_name),
+                    allowed_values=allowed_values,
+                )
+
+
+def _normalize_enum_value(
+    *,
+    raw_value: Any,
+    allowed_values: set[str],
+) -> str | None:
+    """
+    把单个枚举字段值归一化为数据库可接受的标准码值。
+
+    归一化顺序：
+    1. 空值直接返回 None
+    2. 去掉首尾空格后，如果本身就是合法码值，直接保留
+    3. 尝试转成大写后再次校验
+    4. 仍无法识别则返回 None，避免写入非法枚举值
+
+    这里故意不再做中文别名翻译。
+    这是因为当前方案已经改成：
+    - 由 extraction_prompt 负责输出标准枚举码值
+    - 后端只负责合法性验收，不再承担语义匹配职责
+    """
+
+    if raw_value is None:
+        return None
+
+    if not isinstance(raw_value, str):
+        raw_value = str(raw_value)
+
+    normalized_value = raw_value.strip()
+    if normalized_value == "":
+        return None
+
+    if normalized_value in allowed_values:
+        return normalized_value
+
+    upper_value = normalized_value.upper()
+    if upper_value in allowed_values:
+        return upper_value
+
+    return None
+
+
+def _extract_academic_subject_display_text(row: dict[str, Any]) -> str | None:
+    """提取日志里更容易读懂的科目文本。"""
+
+    for field_name in ("subject_name_text", "notes"):
+        value = row.get(field_name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _normalize_required_code_value(raw_value: Any) -> str | None:
+    """统一清洗必填业务码值字段。"""
+
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, str):
+        raw_value = str(raw_value)
+    normalized_value = raw_value.strip()
+    return normalized_value or None
 
 
 def _normalize_language_payload(payload: dict[str, Any]) -> None:
@@ -669,6 +1108,18 @@ def _normalize_standardized_payload(payload: dict[str, Any]) -> None:
         if not isinstance(row, dict):
             continue
 
+        # 中文注释：
+        # 标化明细里最常见的漏填字段除了 `status`，还有 `test_type`。
+        # 例如学生只说“SAT 1200”，模型有时能提取出总分 1200，
+        # 但没把 `test_type = SAT` 一起补出来。
+        # 这里在正式入库前做最后一道程序兜底，避免因为 NOT NULL 约束入库失败。
+        inferred_test_type = _infer_standardized_test_type(
+            row=row,
+            fallback_main_test_type=standardized_main.get("best_test_type"),
+        )
+        if inferred_test_type and row.get("test_type") is None:
+            row["test_type"] = inferred_test_type
+
         inferred_status = _infer_status_from_row(
             row=row,
             status_field=STANDARDIZED_DETAIL_TABLE_CONFIG["status_field"],
@@ -702,6 +1153,60 @@ def _normalize_standardized_payload(payload: dict[str, Any]) -> None:
         )
     if not standardized_main.get("best_test_date"):
         standardized_main["best_test_date"] = best_row.get("test_date")
+
+
+def _infer_standardized_test_type(
+    *,
+    row: dict[str, Any],
+    fallback_main_test_type: Any,
+) -> str | None:
+    """
+    从一条标化考试记录里推断 `test_type`。
+
+    推断顺序：
+    1. 行内已给 `test_type`，直接使用
+    2. 只要出现 SAT 分项，就判定为 `SAT`
+    3. 只要出现 ACT 分项，就判定为 `ACT`
+    4. 只有总分时，按常见分数区间推断：
+       - 大于 36 基本可视为 SAT
+       - 1 到 36 视为 ACT
+    5. 最后回退到主表已有的 `best_test_type`
+
+    这样做的原因：
+    - 当前 extraction 有时能提取出“1200”这样的标化总分，
+      但不会把考试类型一起填出来。
+    - 数据库 `student_standardized_test_records.test_type` 是 NOT NULL，
+      如果程序不兜底，就会直接入库失败。
+    """
+
+    if row.get("test_type"):
+        return str(row["test_type"])
+
+    if _has_meaningful_scalar(row.get("sat_erw")) or _has_meaningful_scalar(row.get("sat_math")):
+        return "SAT"
+
+    if (
+        _has_meaningful_scalar(row.get("act_english"))
+        or _has_meaningful_scalar(row.get("act_math"))
+        or _has_meaningful_scalar(row.get("act_reading"))
+        or _has_meaningful_scalar(row.get("act_science"))
+    ):
+        return "ACT"
+
+    total_score = row.get("total_score")
+    estimated_total_score = row.get("estimated_total_score")
+    score_candidate = total_score if _has_meaningful_scalar(total_score) else estimated_total_score
+
+    if isinstance(score_candidate, (int, float)):
+        if score_candidate > 36:
+            return "SAT"
+        if 1 <= score_candidate <= 36:
+            return "ACT"
+
+    if fallback_main_test_type:
+        return str(fallback_main_test_type)
+
+    return None
 
 
 def _infer_status_from_row(

@@ -605,6 +605,83 @@ def precheck_invite_code_for_register(
     return row
 
 
+def check_sms_login_invite_requirement(db: Session, mobile: str) -> dict:
+    """
+    检查短信验证码登录场景下是否需要邀请码
+
+    作用：
+    1. 给前端提供一个轻量预检查接口，避免页面一上来就强制展示邀请码输入框
+    2. 如果手机号已经注册过，则本次属于“老用户验证码登录”，无需邀请码
+    3. 如果手机号还没有注册过，则本次属于“新用户首次注册”，需要邀请码
+
+    返回字段说明：
+    1. need_invite_code：前端是否应该展示邀请码输入框
+    2. user_exists：该手机号是否已注册，用于区分登录和首次注册
+    3. message：给前端直接展示的提示文案，减少页面重复拼装文案
+    """
+    # 中文注释：这里沿用已有的“有效用户”查询逻辑，确保只把 delete_flag='1' 的用户视为已注册。
+    existing_user = get_active_user_by_mobile(db, mobile)
+
+    # 中文注释：只要系统里已经有这个手机号，就说明本次不是首次注册，因此无需邀请码。
+    if existing_user:
+        return {
+            "need_invite_code": False,
+            "user_exists": True,
+            "message": "该手机号已注册，可直接使用验证码登录",
+        }
+
+    # 中文注释：没有查到手机号时，前端应提示“首次注册需要邀请码”，但真正的校验仍以后端正式登录接口为准。
+    return {
+        "need_invite_code": True,
+        "user_exists": False,
+        "message": "该手机号尚未注册，首次登录需要填写邀请码",
+    }
+
+
+def check_wechat_bind_invite_requirement(
+        db: Session,
+        bind_user_id: str,
+        mobile: str,
+) -> dict:
+    """
+    检查微信绑定手机号场景下是否需要邀请码
+
+    作用：
+    1. 微信首次扫码登录后，用户会进入绑定手机号流程
+    2. 如果目标手机号已经注册，则本次属于“合并到已有账号/绑定已有账号”，不需要邀请码
+    3. 如果目标手机号未注册，则本次属于“新手机号首次注册”，需要邀请码
+
+    注意：
+    1. 这里会先校验 bind_user_id 对应的临时微信用户是否真实存在
+    2. 这里只做“是否需要邀请码”的轻量判断，不做短信验证码校验，也不做真正的绑定
+    """
+    # 中文注释：先确认当前微信绑定流程里的用户真实存在，避免前端拿着失效 bind_token 反复试探。
+    current_user = get_active_user_by_id(db, bind_user_id)
+
+    if not current_user:
+        raise ValueError("绑定用户不存在")
+
+    # 中文注释：如果当前微信用户其实已经绑定过手机号，说明前端流程已过期，不应该再继续展示绑定页。
+    if current_user.mobile:
+        raise ValueError("当前微信账号已绑定手机号")
+
+    # 中文注释：这里只关心目标手机号是否已经在系统里存在，不需要提前决定后续合并细节。
+    existing_user = get_active_user_by_mobile(db, mobile)
+
+    if existing_user:
+        return {
+            "need_invite_code": False,
+            "user_exists": True,
+            "message": "该手机号已注册，绑定时无需填写邀请码",
+        }
+
+    return {
+        "need_invite_code": True,
+        "user_exists": False,
+        "message": "该手机号尚未注册，首次绑定需要填写邀请码",
+    }
+
+
 def login_by_password(db: Session, mobile: str, password: str) -> dict:
     """
     手机号 + 密码登录

@@ -109,6 +109,18 @@ export function sendSmsCode(data) {
 }
 
 /**
+ * 检查短信验证码登录是否需要邀请码
+ *
+ * 作用：
+ * 1. 当前端拿到手机号后，先调用这个接口判断是否为首次注册
+ * 2. 如果手机号已注册，则页面不再展示邀请码输入框
+ * 3. 如果手机号未注册，则页面提示首次注册需要邀请码
+ */
+export function checkSmsInviteRequired(data) {
+  return request.post("/api/v1/auth/login/sms/invite-required", data);
+}
+
+/**
  * 手机号 + 密码登录
  */
 export function passwordLogin(data) {
@@ -150,6 +162,18 @@ export function wechatLogin(data) {
  */
 export function wechatBindMobile(data) {
   return request.post("/api/v1/auth/wechat/bind-mobile", data);
+}
+
+/**
+ * 检查微信绑定手机号时是否需要邀请码
+ *
+ * 作用：
+ * 1. 用户扫码登录后进入绑定手机号界面
+ * 2. 前端可先根据手机号做预检查，决定是否显示邀请码输入框
+ * 3. 这样老用户绑定已有手机号时，不再被邀请码输入打断
+ */
+export function checkWechatBindInviteRequired(data) {
+  return request.post("/api/v1/auth/wechat/bind-mobile/invite-required", data);
 }
 
 /**

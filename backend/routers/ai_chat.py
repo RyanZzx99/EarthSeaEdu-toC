@@ -1,21 +1,21 @@
-"""
-AI 对话 WebSocket 与 REST 路由。
-
-本文件同时承载：
-1. REST 查询接口：用于会话恢复、历史消息查询、结果查询。
-2. WebSocket 实时通道：用于对话、流式输出、取消生成。
-"""
+﻿"""
+AI 瀵硅瘽 WebSocket 涓?REST 璺敱銆?
+鏈枃浠跺悓鏃舵壙杞斤細
+1. REST 鏌ヨ鎺ュ彛锛氱敤浜庝細璇濇仮澶嶃€佸巻鍙叉秷鎭煡璇€佺粨鏋滄煡璇€?2. WebSocket 瀹炴椂閫氶亾锛氱敤浜庡璇濄€佹祦寮忚緭鍑恒€佸彇娑堢敓鎴愩€?"""
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from dataclasses import field
+from time import perf_counter
 from threading import Event
 from typing import Any
 from typing import Callable
 
 from fastapi import APIRouter
+from fastapi import BackgroundTasks
 from fastapi import Depends
 from fastapi import Header
 from fastapi import HTTPException
@@ -31,27 +31,33 @@ from backend.schemas.ai_chat import ConnectInitPayload
 from backend.schemas.ai_chat import UserMessagePayload
 from backend.services.ai_chat_pipeline_service import CONVERSATION_PROMPT_KEY
 from backend.services.ai_chat_pipeline_service import build_conversation_context
-from backend.services.ai_chat_pipeline_service import run_manual_profile_generation
-from backend.services.ai_chat_pipeline_service import run_post_assistant_pipeline
+from backend.services.ai_chat_pipeline_service import run_manual_profile_generation_background
+from backend.services.ai_chat_pipeline_service import run_progress_update_pipeline
 from backend.services.ai_chat_service import append_assistant_message
 from backend.services.ai_chat_service import append_user_message
 from backend.services.ai_chat_service import get_active_session_by_student_and_domain
+from backend.services.ai_chat_service import get_latest_progress_state
 from backend.services.ai_chat_service import get_profile_result_detail
 from backend.services.ai_chat_service import get_session_detail
 from backend.services.ai_chat_service import get_visible_messages_before_id
 from backend.services.ai_chat_service import init_or_get_session
+from backend.services.ai_chat_service import update_session_stage
 from backend.services.ai_prompt_runtime_service import PromptRuntimeError
 from backend.services.ai_prompt_runtime_service import PromptStreamChunk
 from backend.services.ai_prompt_runtime_service import PromptStreamSession
 from backend.services.ai_prompt_runtime_service import stream_prompt_with_context
+from backend.utils.flow_logging import build_flow_prefix
+from backend.utils.flow_logging import log_flow_info
+from backend.utils.flow_logging import log_timed_step
 from backend.utils.security import decode_token_safe
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _extract_bearer_token(authorization: str | None) -> str | None:
-    """从 Authorization 请求头里提取 Bearer Token。"""
+    """从 Authorization 请求头中提取 Bearer Token。"""
 
     if not authorization:
         return None
@@ -66,37 +72,31 @@ def _get_current_student_id(authorization: str | None) -> str:
 
     当前系统口径已经确认：
     1. `student_id` 直接复用 `users.id`
-    2. 当前请求中的 student_id 统一来自 access token 的 `sub`
+    2. 当前请求中的 `student_id` 统一来自 access token 的 `sub`
     """
 
     token = _extract_bearer_token(authorization)
     if not token:
-        raise HTTPException(status_code=401, detail="未登录或 token 缺失")
+        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨 token 缂哄け")
 
     payload = decode_token_safe(token)
     if not payload:
-        raise HTTPException(status_code=401, detail="token 无效或已过期")
+        raise HTTPException(status_code=401, detail="token 鏃犳晥鎴栧凡杩囨湡")
 
     if payload.get("token_use") != "access":
-        raise HTTPException(status_code=401, detail="token 类型错误")
+        raise HTTPException(status_code=401, detail="token 绫诲瀷閿欒")
 
     student_id = payload.get("sub")
     if not student_id:
-        raise HTTPException(status_code=401, detail="token 缺少用户信息")
+        raise HTTPException(status_code=401, detail="token 缂哄皯鐢ㄦ埛淇℃伅")
     return str(student_id)
 
 
 @dataclass(slots=True)
 class AiChatConnectionContext:
     """
-    单条 WebSocket 连接绑定的最小上下文。
-
-    字段说明：
-    1. `student_id / session_id / biz_domain`：连接归属的核心身份信息。
-    2. `generation_task`：当前这条连接上正在跑的生成任务。
-    3. `cancel_event`：取消生成的跨协程信号。
-    4. `stream_close_callback`：真正关闭上游流式响应的回调。
-    """
+    鍗曟潯 WebSocket 杩炴帴缁戝畾鐨勬渶灏忎笂涓嬫枃銆?
+    瀛楁璇存槑锛?    1. `student_id / session_id / biz_domain`锛氳繛鎺ュ綊灞炵殑鏍稿績韬唤淇℃伅銆?    2. `generation_task`锛氬綋鍓嶈繖鏉¤繛鎺ヤ笂姝ｅ湪璺戠殑鐢熸垚浠诲姟銆?    3. `cancel_event`锛氬彇娑堢敓鎴愮殑璺ㄥ崗绋嬩俊鍙枫€?    4. `stream_close_callback`锛氱湡姝ｅ叧闂笂娓告祦寮忓搷搴旂殑鍥炶皟銆?    """
 
     student_id: str
     session_id: str
@@ -108,14 +108,9 @@ class AiChatConnectionContext:
 
 class AiChatConnectionManager:
     """
-    管理当前进程内 WebSocket 连接状态。
-
-    这一层只做“连接级运行态管理”，不做数据库持久化。
-    主要作用：
-    1. 绑定 student_id / session_id
-    2. 记录当前是否有生成任务在跑
-    3. 支持 cancel_generation 通过连接上下文找到并打断当前流
-    """
+    绠＄悊褰撳墠杩涚▼鍐?WebSocket 杩炴帴鐘舵€併€?
+    杩欎竴灞傚彧鍋氣€滆繛鎺ョ骇杩愯鎬佺鐞嗏€濓紝涓嶅仛鏁版嵁搴撴寔涔呭寲銆?    涓昏浣滅敤锛?    1. 缁戝畾 student_id / session_id
+    2. 璁板綍褰撳墠鏄惁鏈夌敓鎴愪换鍔″湪璺?    3. 鏀寔 cancel_generation 閫氳繃杩炴帴涓婁笅鏂囨壘鍒板苟鎵撴柇褰撳墠娴?    """
 
     def __init__(self) -> None:
         self._connections: dict[int, AiChatConnectionContext] = {}
@@ -126,7 +121,7 @@ class AiChatConnectionManager:
         await websocket.accept()
 
     def bind(self, websocket: WebSocket, context: AiChatConnectionContext) -> None:
-        """把当前连接和 student_id / session_id 绑定起来。"""
+        """绑定当前连接的最小上下文。"""
 
         self._connections[id(websocket)] = context
 
@@ -144,7 +139,7 @@ class AiChatConnectionManager:
         return not context.generation_task.done()
 
     def reset_generation_control(self, websocket: WebSocket) -> None:
-        """在一轮新生成开始前，重置取消控制状态。"""
+        """在新一轮生成开始前重置取消控制状态。"""
 
         context = self.get(websocket)
         if context is None:
@@ -224,17 +219,14 @@ manager = AiChatConnectionManager()
 
 @router.get("/api/v1/ai-chat/sessions/current")
 def get_current_active_session(
-    biz_domain: str = Query(..., description="业务域；当前传 student_profile_build"),
+    biz_domain: str = Query(..., description="涓氬姟鍩燂紱褰撳墠浼?student_profile_build"),
     authorization: str | None = Header(default=None, alias="Authorization"),
     db=Depends(get_db),
 ):
     """
-    查询当前学生在指定业务域下是否存在 active 会话。
-
-    这个接口的作用：
-    1. 页面打开时先查是否已有正在进行中的 AI 建档会话。
-    2. 如果有，前端就走恢复流程；如果没有，再决定是否开始新会话。
-    """
+    鏌ヨ褰撳墠瀛︾敓鍦ㄦ寚瀹氫笟鍔″煙涓嬫槸鍚﹀瓨鍦?active 浼氳瘽銆?
+    杩欎釜鎺ュ彛鐨勪綔鐢細
+    1. 椤甸潰鎵撳紑鏃跺厛鏌ユ槸鍚﹀凡鏈夋鍦ㄨ繘琛屼腑鐨?AI 寤烘。浼氳瘽銆?    2. 濡傛灉鏈夛紝鍓嶇灏辫蛋鎭㈠娴佺▼锛涘鏋滄病鏈夛紝鍐嶅喅瀹氭槸鍚﹀紑濮嬫柊浼氳瘽銆?    """
 
     student_id = _get_current_student_id(authorization)
     session = get_active_session_by_student_and_domain(
@@ -268,12 +260,9 @@ def get_ai_chat_session_detail(
     db=Depends(get_db),
 ):
     """
-    查询单个会话详情。
-
-    这个接口的作用：
-    1. 前端恢复指定 session 时读取当前阶段、轮次、缺失维度等核心状态。
-    2. 所有查询都带 student_id 归属校验，避免越权读取别人的会话。
-    """
+    鏌ヨ鍗曚釜浼氳瘽璇︽儏銆?
+    杩欎釜鎺ュ彛鐨勪綔鐢細
+    1. 鍓嶇鎭㈠鎸囧畾 session 鏃惰鍙栧綋鍓嶉樁娈点€佽疆娆°€佺己澶辩淮搴︾瓑鏍稿績鐘舵€併€?    2. 鎵€鏈夋煡璇㈤兘甯?student_id 褰掑睘鏍￠獙锛岄伩鍏嶈秺鏉冭鍙栧埆浜虹殑浼氳瘽銆?    """
 
     student_id = _get_current_student_id(authorization)
     try:
@@ -299,24 +288,21 @@ def get_ai_chat_session_detail(
         "last_message_at": session.last_message_at.isoformat() if session.last_message_at else None,
         "completed_at": session.completed_at.isoformat() if session.completed_at else None,
         "final_profile_id": session.final_profile_id,
+        "remark": session.remark,
     }
 
 
 @router.get("/api/v1/ai-chat/sessions/{session_id}/messages")
 def get_ai_chat_session_messages(
     session_id: str,
-    limit: int = Query(default=20, ge=1, le=100, description="单次返回消息数量"),
-    before_id: int | None = Query(default=None, description="分页游标；返回 id 小于该值的更早消息"),
+    limit: int = Query(default=20, ge=1, le=100, description="鍗曟杩斿洖娑堟伅鏁伴噺"),
+    before_id: int | None = Query(default=None, description="鍒嗛〉娓告爣锛涜繑鍥?id 灏忎簬璇ュ€肩殑鏇存棭娑堟伅"),
     authorization: str | None = Header(default=None, alias="Authorization"),
     db=Depends(get_db),
 ):
     """
-    分页查询会话消息。
-
-    这个接口只返回前端可见消息，不返回 internal_state 内部状态消息。
-    主要用于：
-    1. 页面刷新后恢复聊天记录
-    2. 聊天窗口向上翻页加载更早历史
+    鍒嗛〉鏌ヨ浼氳瘽娑堟伅銆?
+    杩欎釜鎺ュ彛鍙繑鍥炲墠绔彲瑙佹秷鎭紝涓嶈繑鍥?internal_state 鍐呴儴鐘舵€佹秷鎭€?    涓昏鐢ㄤ簬锛?    1. 椤甸潰鍒锋柊鍚庢仮澶嶈亰澶╄褰?    2. 鑱婂ぉ绐楀彛鍚戜笂缈婚〉鍔犺浇鏇存棭鍘嗗彶
     """
 
     student_id = _get_current_student_id(authorization)
@@ -415,66 +401,92 @@ def get_ai_chat_session_radar(
     }
 
 
-@router.post("/api/v1/ai-chat/sessions/{session_id}/build-profile")
+@router.post("/api/v1/ai-chat/sessions/{session_id}/build-profile", status_code=202)
 def build_ai_chat_profile_result(
     session_id: str,
+    background_tasks: BackgroundTasks,
     authorization: str | None = Header(default=None, alias="Authorization"),
     db=Depends(get_db),
 ):
     """
     显式触发某个会话的最终建档与六维图生成。
 
-    这个接口的作用：
-    1. 把“信息采集完成”与“真正生成六维图”拆开
-    2. 只有学生主动点击按钮时，才执行 extraction / scoring / 正式业务表入库
-    3. 生成完成后仍然保留会话，学生后续可继续补充信息并再次生成
+    新口径：
+    1. 接口只负责受理后台任务，不同步等待完整结果。
+    2. extraction、scoring、正式业务表入库都放到后台任务里执行。
+    3. 前端通过轮询会话阶段来展示 loading，并在任务结束后再读取最终结果。
     """
 
     student_id = _get_current_student_id(authorization)
-    try:
-        session = get_session_detail(
+    with log_timed_step(
+        logger,
+        flow_name="AI建档",
+        step_name="受理生成六维图请求",
+        student_id=student_id,
+        session_id=session_id,
+    ):
+        try:
+            session = get_session_detail(
+                db,
+                student_id=student_id,
+                session_id=session_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+        if session is None:
+            raise HTTPException(status_code=404, detail="会话不存在")
+
+        if session.current_stage in {"progress_updating", "extraction", "scoring", "profile_saving"}:
+            raise HTTPException(
+                status_code=409,
+                detail="当前上一轮对话仍在处理中，请等待处理完成后再生成六维图。",
+            )
+
+        latest_progress_result = get_latest_progress_state(
+            db,
+            session_id=session_id,
+        )
+        if not isinstance(latest_progress_result, dict):
+            raise HTTPException(status_code=409, detail="当前还没有可用的建档进度，请先继续对话补充信息。")
+        if latest_progress_result.get("stop_ready") is not True:
+            raise HTTPException(status_code=409, detail="当前信息还不足以生成六维图，请先继续补充关键信息。")
+
+        update_session_stage(
             db,
             student_id=student_id,
             session_id=session_id,
+            current_stage="extraction",
+            remark=None,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-
-    if session is None:
-        raise HTTPException(status_code=404, detail="会话不存在")
-
-    try:
-        result = run_manual_profile_generation(
-            db,
+        background_tasks.add_task(
+            run_manual_profile_generation_background,
             student_id=student_id,
             session_id=session_id,
             biz_domain=session.biz_domain,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        log_flow_info(
+            logger,
+            flow_name="AI建档",
+            step_name="受理生成六维图请求",
+            student_id=student_id,
+            session_id=session_id,
+            message="后台任务已创建，进入结构化提取阶段。",
+        )
 
-    return {
-        "session_id": session_id,
-        "profile_result_id": result.profile_result_id,
-        "result_status": result.result_status,
-        "summary_text": result.summary_text,
-        "radar_scores_json": result.radar_scores_json or {},
-        "save_error_message": result.save_error_message,
-    }
-
+        return {
+            "session_id": session_id,
+            "task_status": "accepted",
+            "current_stage": "extraction",
+            "message": "六维图正在后台生成中",
+        }
 
 @router.websocket("/ws/ai-chat")
 async def ai_chat_websocket(websocket: WebSocket) -> None:
     """
-    AI 对话 WebSocket 入口。
-
-    当前支持的消息类型：
-    1. `connect_init`：建连初始化，负责鉴权和会话绑定。
-    2. `ping`：心跳。
-    3. `user_message`：保存用户发言，并启动本轮 AI 生成任务。
-    4. `cancel_generation`：真正打断当前正在进行中的流式生成。
-    5. `continue_generation`：当前先明确返回不支持，因为被取消的上游流无法原地续流。
-    """
+    AI 瀵硅瘽 WebSocket 鍏ュ彛銆?
+    褰撳墠鏀寔鐨勬秷鎭被鍨嬶細
+    1. `connect_init`锛氬缓杩炲垵濮嬪寲锛岃礋璐ｉ壌鏉冨拰浼氳瘽缁戝畾銆?    2. `ping`锛氬績璺炽€?    3. `user_message`锛氫繚瀛樼敤鎴峰彂瑷€锛屽苟鍚姩鏈疆 AI 鐢熸垚浠诲姟銆?    4. `cancel_generation`锛氱湡姝ｆ墦鏂綋鍓嶆鍦ㄨ繘琛屼腑鐨勬祦寮忕敓鎴愩€?    5. `continue_generation`锛氬綋鍓嶅厛鏄庣‘杩斿洖涓嶆敮鎸侊紝鍥犱负琚彇娑堢殑涓婃父娴佹棤娉曞師鍦扮画娴併€?    """
 
     await manager.accept(websocket)
 
@@ -526,7 +538,7 @@ async def ai_chat_websocket(websocket: WebSocket) -> None:
                 await _send_error(
                     websocket,
                     code="CONTINUE_NOT_SUPPORTED",
-                    message="当前版本不支持在取消后继续同一轮生成，请重新发送消息发起新一轮对话",
+                    message="当前版本暂不支持在取消后继续同一轮生成，请重新发送消息发起新一轮对话。",
                     request_id=envelope.request_id,
                     session_id=context.session_id,
                 )
@@ -554,14 +566,8 @@ def _parse_envelope(raw_message: Any) -> AiChatWsEnvelope | None:
 
 async def _handle_connect_init(websocket: WebSocket, envelope: AiChatWsEnvelope) -> None:
     """
-    处理 connect_init 首包。
-
-    这一步做 4 件事：
-    1. 校验 access_token。
-    2. 校验 token.sub 与 student_id 一致。
-    3. 查找或创建 ai_chat_sessions。
-    4. 把当前 websocket 和 student_id / session_id 绑定。
-    """
+    澶勭悊 connect_init 棣栧寘銆?
+    杩欎竴姝ュ仛 4 浠朵簨锛?    1. 鏍￠獙 access_token銆?    2. 鏍￠獙 token.sub 涓?student_id 涓€鑷淬€?    3. 鏌ユ壘鎴栧垱寤?ai_chat_sessions銆?    4. 鎶婂綋鍓?websocket 鍜?student_id / session_id 缁戝畾銆?    """
 
     try:
         payload = ConnectInitPayload.model_validate(
@@ -573,7 +579,7 @@ async def _handle_connect_init(websocket: WebSocket, envelope: AiChatWsEnvelope)
             }
         )
     except ValidationError:
-        await _send_error(
+        await _send_connect_error_and_close(
             websocket,
             code="INVALID_CONNECT_INIT",
             message="connect_init 缺少必要字段",
@@ -584,7 +590,7 @@ async def _handle_connect_init(websocket: WebSocket, envelope: AiChatWsEnvelope)
 
     token_payload = decode_token_safe(payload.access_token)
     if not token_payload:
-        await _send_error(
+        await _send_connect_error_and_close(
             websocket,
             code="INVALID_ACCESS_TOKEN",
             message="access_token 无效或已过期",
@@ -594,7 +600,7 @@ async def _handle_connect_init(websocket: WebSocket, envelope: AiChatWsEnvelope)
         return
 
     if token_payload.get("token_use") != "access":
-        await _send_error(
+        await _send_connect_error_and_close(
             websocket,
             code="INVALID_TOKEN_TYPE",
             message="当前 token 不是 access token",
@@ -604,7 +610,7 @@ async def _handle_connect_init(websocket: WebSocket, envelope: AiChatWsEnvelope)
         return
 
     if str(token_payload.get("sub")) != payload.student_id:
-        await _send_error(
+        await _send_connect_error_and_close(
             websocket,
             code="STUDENT_ID_MISMATCH",
             message="student_id 与 access_token 不匹配",
@@ -622,7 +628,7 @@ async def _handle_connect_init(websocket: WebSocket, envelope: AiChatWsEnvelope)
             biz_domain=payload.biz_domain,
         )
     except ValueError as exc:
-        await _send_error(
+        await _send_connect_error_and_close(
             websocket,
             code="SESSION_INIT_FAILED",
             message=str(exc),
@@ -664,12 +670,8 @@ async def _handle_user_message(
     context: AiChatConnectionContext,
 ) -> None:
     """
-    启动一轮新的 user_message 处理任务。
-
-    这里特意不直接 `await` 执行完整链路，而是启动后台任务，原因是：
-    1. 只有这样主接收循环才能继续收 `cancel_generation`。
-    2. 如果仍然串行阻塞在一次 user_message 内部，用户在生成过程中发取消包也收不到。
-    """
+    鍚姩涓€杞柊鐨?user_message 澶勭悊浠诲姟銆?
+    杩欓噷鐗规剰涓嶇洿鎺?`await` 鎵ц瀹屾暣閾捐矾锛岃€屾槸鍚姩鍚庡彴浠诲姟锛屽師鍥犳槸锛?    1. 鍙湁杩欐牱涓绘帴鏀跺惊鐜墠鑳界户缁敹 `cancel_generation`銆?    2. 濡傛灉浠嶇劧涓茶闃诲鍦ㄤ竴娆?user_message 鍐呴儴锛岀敤鎴峰湪鐢熸垚杩囩▼涓彂鍙栨秷鍖呬篃鏀朵笉鍒般€?    """
 
     try:
         payload = UserMessagePayload.model_validate(envelope.payload)
@@ -722,12 +724,9 @@ async def _handle_cancel_generation(
     context: AiChatConnectionContext,
 ) -> None:
     """
-    处理 cancel_generation。
-
-    取消策略分两层：
-    1. 先设置 cancel_event，让当前生成任务知道“用户已经要求停止”。
-    2. 再尝试调用上游流的 close 回调，主动关闭 HTTP 流。
-    """
+    澶勭悊 cancel_generation銆?
+    鍙栨秷绛栫暐鍒嗕袱灞傦細
+    1. 鍏堣缃?cancel_event锛岃褰撳墠鐢熸垚浠诲姟鐭ラ亾鈥滅敤鎴峰凡缁忚姹傚仠姝⑩€濄€?    2. 鍐嶅皾璇曡皟鐢ㄤ笂娓告祦鐨?close 鍥炶皟锛屼富鍔ㄥ叧闂?HTTP 娴併€?    """
 
     cancelled = manager.request_cancel(websocket)
     if not cancelled:
@@ -759,35 +758,113 @@ async def _run_user_message_pipeline(
     payload: UserMessagePayload,
 ) -> None:
     """
-    真正执行一轮 user_message 的完整链路。
+    鐪熸鎵ц涓€杞?user_message 鐨勫畬鏁撮摼璺€?
+    褰撳墠閾捐矾椤哄簭锛?    1. 鐢ㄦ埛娑堟伅钀藉簱
+    2. 绔嬪埢鍏堟洿鏂?progress 蹇収
+    3. conversation_prompt 鍩轰簬鈥滄渶鏂?progress鈥濇祦寮忕敓鎴?assistant
+    4. assistant 缁撴潫鍚庯紝鎶婂垰鎵嶅凡缁忚绠楀ソ鐨?progress 鍥炵粰鍓嶇
 
-    本轮链路分三段：
-    1. 用户消息落库
-    2. conversation_prompt 流式生成 assistant，并支持途中取消
-    3. 如果未取消，则继续跑 progress / extraction / scoring / 入库
-    """
+    杩欐牱璁捐鐨勬牳蹇冪洰鐨勶紝鏄伩鍏?assistant 鍦ㄥ綋鍓嶈疆閲屼粛鐒剁湅鍒颁笂涓€杞棫杩涘害锛?    浠庤€岄噸澶嶈拷闂敤鎴峰垰鍒氬凡缁忓洖绛旇繃鐨勬Ы浣嶃€?    """
 
     try:
-        user_message_result = await asyncio.to_thread(
-            _persist_user_message_sync,
-            context.student_id,
-            context.session_id,
-            payload.content,
-        )
-
-        await _send_event(
-            websocket,
-            event_type="user_message_saved",
-            request_id=envelope.request_id,
+        with log_timed_step(
+            logger,
+            flow_name="AI对话",
+            step_name="整轮用户消息处理",
+            student_id=context.student_id,
             session_id=context.session_id,
-            payload={
-                "message_id": user_message_result.message_id,
-                "sequence_no": user_message_result.sequence_no,
-                "current_round": user_message_result.current_round,
-                "last_message_at": user_message_result.last_message_at.isoformat(),
-            },
-        )
+        ):
+            with log_timed_step(
+                logger,
+                flow_name="AI对话",
+                step_name="保存用户消息",
+                student_id=context.student_id,
+                session_id=context.session_id,
+            ):
+                user_message_result = await asyncio.to_thread(
+                    _persist_user_message_sync,
+                    context.student_id,
+                    context.session_id,
+                    payload.content,
+                )
 
+            await _send_event(
+                websocket,
+                event_type="user_message_saved",
+                request_id=envelope.request_id,
+                session_id=context.session_id,
+                payload={
+                    "message_id": user_message_result.message_id,
+                    "sequence_no": user_message_result.sequence_no,
+                    "current_round": user_message_result.current_round,
+                    "last_message_at": user_message_result.last_message_at.isoformat(),
+                },
+            )
+
+            await _send_event(
+                websocket,
+                event_type="stage_changed",
+                request_id=envelope.request_id,
+                session_id=context.session_id,
+                payload={
+                    "current_stage": "progress_updating",
+                },
+            )
+
+            with log_timed_step(
+                logger,
+                flow_name="AI对话",
+                step_name="执行进度提取",
+                student_id=context.student_id,
+                session_id=context.session_id,
+            ):
+                progress_result = await asyncio.to_thread(
+                    _run_progress_update_pipeline_sync,
+                    context.student_id,
+                    context.session_id,
+                    context.biz_domain,
+                )
+
+        if manager.is_cancel_requested(websocket):
+            await _send_event(
+                websocket,
+                event_type="progress_updated",
+                request_id=envelope.request_id,
+                session_id=context.session_id,
+                payload={
+                    "missing_dimensions": progress_result.get("missing_dimensions", []),
+                    "next_question_focus": progress_result.get("next_question_focus"),
+                    "stop_ready": progress_result.get("stop_ready", False),
+                    "dimension_progress": progress_result.get("dimension_progress", {}),
+                },
+            )
+            manager.clear_generation_runtime(websocket)
+            await _send_event(
+                websocket,
+                event_type="generation_cancelled",
+                request_id=envelope.request_id,
+                session_id=context.session_id,
+                payload={
+                    "discarded_partial_reply": False,
+                },
+            )
+            await _send_event(
+                websocket,
+                event_type="stage_changed",
+                request_id=envelope.request_id,
+                session_id=context.session_id,
+                payload={
+                    "current_stage": "build_ready" if progress_result.get("stop_ready") else "conversation",
+                    "conversation_phase": None if progress_result.get("stop_ready") else "ready_for_input",
+                },
+            )
+            return
+
+        # 中文注释：
+        # `conversation` 这个阶段在当前系统里有两种语义：
+        # 1. `generating_assistant`：本轮正在调用 conversation_prompt 生成助手回复
+        # 2. `ready_for_input`：本轮已经结束，可以继续输入下一条消息
+        # 如果只发一个裸的 `conversation`，前端无法区分这两种状态，就会误把“已可继续输入”当成“仍在生成中”。
         await _send_event(
             websocket,
             event_type="stage_changed",
@@ -795,29 +872,65 @@ async def _run_user_message_pipeline(
             session_id=context.session_id,
             payload={
                 "current_stage": "conversation",
+                "conversation_phase": "generating_assistant",
             },
         )
 
-        conversation_context = await asyncio.to_thread(
-            _load_conversation_context_sync,
-            context.student_id,
-            context.session_id,
-        )
-        stream_session = await asyncio.to_thread(
-            _open_conversation_stream_session_sync,
-            conversation_context,
-        )
+        with log_timed_step(
+            logger,
+            flow_name="AI对话",
+            step_name="构建回复上下文",
+            student_id=context.student_id,
+            session_id=context.session_id,
+        ):
+            conversation_context = await asyncio.to_thread(
+                _load_conversation_context_sync,
+                context.student_id,
+                context.session_id,
+                progress_result,
+            )
+        with log_timed_step(
+            logger,
+            flow_name="AI对话",
+            step_name="打开流式回复连接",
+            student_id=context.student_id,
+            session_id=context.session_id,
+        ):
+            stream_session = await asyncio.to_thread(
+                _open_conversation_stream_session_sync,
+                conversation_context,
+            )
         manager.set_stream_close_callback(websocket, stream_session.close)
 
-        cancelled, assistant_content = await _stream_assistant_tokens(
-            websocket=websocket,
-            envelope=envelope,
-            context=context,
-            stream_session=stream_session,
-        )
+        with log_timed_step(
+            logger,
+            flow_name="AI对话",
+            step_name="流式生成助手回复",
+            student_id=context.student_id,
+            session_id=context.session_id,
+        ):
+            cancelled, assistant_content = await _stream_assistant_tokens(
+                websocket=websocket,
+                envelope=envelope,
+                context=context,
+                stream_session=stream_session,
+            )
         manager.set_stream_close_callback(websocket, None)
 
         if cancelled:
+            await _send_event(
+                websocket,
+                event_type="progress_updated",
+                request_id=envelope.request_id,
+                session_id=context.session_id,
+                payload={
+                    "missing_dimensions": progress_result.get("missing_dimensions", []),
+                    "next_question_focus": progress_result.get("next_question_focus"),
+                    "stop_ready": progress_result.get("stop_ready", False),
+                    "dimension_progress": progress_result.get("dimension_progress", {}),
+                },
+            )
+            manager.clear_generation_runtime(websocket)
             await _send_event(
                 websocket,
                 event_type="generation_cancelled",
@@ -833,18 +946,26 @@ async def _run_user_message_pipeline(
                 request_id=envelope.request_id,
                 session_id=context.session_id,
                 payload={
-                    "current_stage": "conversation",
+                    "current_stage": "build_ready" if progress_result.get("stop_ready") else "conversation",
+                    "conversation_phase": None if progress_result.get("stop_ready") else "ready_for_input",
                 },
             )
             return
 
-        assistant_message_result = await asyncio.to_thread(
-            _persist_assistant_message_sync,
-            context.student_id,
-            context.session_id,
-            assistant_content,
-            user_message_result.message_id,
-        )
+        with log_timed_step(
+            logger,
+            flow_name="AI对话",
+            step_name="保存助手回复",
+            student_id=context.student_id,
+            session_id=context.session_id,
+        ):
+            assistant_message_result = await asyncio.to_thread(
+                _persist_assistant_message_sync,
+                context.student_id,
+                context.session_id,
+                assistant_content,
+                user_message_result.message_id,
+            )
 
         await _send_event(
             websocket,
@@ -862,6 +983,19 @@ async def _run_user_message_pipeline(
         if manager.is_cancel_requested(websocket):
             await _send_event(
                 websocket,
+                event_type="progress_updated",
+                request_id=envelope.request_id,
+                session_id=context.session_id,
+                payload={
+                    "missing_dimensions": progress_result.get("missing_dimensions", []),
+                    "next_question_focus": progress_result.get("next_question_focus"),
+                    "stop_ready": progress_result.get("stop_ready", False),
+                    "dimension_progress": progress_result.get("dimension_progress", {}),
+                },
+            )
+            manager.clear_generation_runtime(websocket)
+            await _send_event(
+                websocket,
                 event_type="generation_cancelled",
                 request_id=envelope.request_id,
                 session_id=context.session_id,
@@ -875,27 +1009,11 @@ async def _run_user_message_pipeline(
                 request_id=envelope.request_id,
                 session_id=context.session_id,
                 payload={
-                    "current_stage": "conversation",
+                    "current_stage": "build_ready" if progress_result.get("stop_ready") else "conversation",
+                    "conversation_phase": None if progress_result.get("stop_ready") else "ready_for_input",
                 },
             )
             return
-
-        await _send_event(
-            websocket,
-            event_type="stage_changed",
-            request_id=envelope.request_id,
-            session_id=context.session_id,
-            payload={
-                "current_stage": "progress_updating",
-            },
-        )
-
-        post_result = await asyncio.to_thread(
-            _run_post_assistant_pipeline_sync,
-            context.student_id,
-            context.session_id,
-            context.biz_domain,
-        )
 
         await _send_event(
             websocket,
@@ -903,24 +1021,27 @@ async def _run_user_message_pipeline(
             request_id=envelope.request_id,
             session_id=context.session_id,
             payload={
-                "missing_dimensions": post_result.progress_result.get("missing_dimensions", []),
-                "next_question_focus": post_result.progress_result.get("next_question_focus"),
-                "stop_ready": post_result.progress_result.get("stop_ready", False),
-                "dimension_progress": post_result.progress_result.get("dimension_progress", {}),
+                "missing_dimensions": progress_result.get("missing_dimensions", []),
+                "next_question_focus": progress_result.get("next_question_focus"),
+                "stop_ready": progress_result.get("stop_ready", False),
+                "dimension_progress": progress_result.get("dimension_progress", {}),
             },
         )
 
-        # 中文注释：
-        # 这里有一个非常关键的时序问题：
-        # 1. 前端会把接下来这条 `stage_changed: conversation` 理解成“本轮已经处理完，可以继续发下一条消息”
-        # 2. 但如果仍然等到 task.done_callback 里才清理 generation 运行态，
-        #    那么用户在收到这条事件后立刻发送下一条消息，就会被后端误判成
-        #    “当前已有一轮生成正在进行中”
-        # 3. 因此要在发出“可继续对话”的阶段事件之前，先释放本轮生成锁，
-        #    保证前端看到可发送状态时，后端也已经真正允许下一轮进入
-        manager.clear_generation_runtime(websocket)
+        # 涓枃娉ㄩ噴锛?        # 杩欓噷鏈変竴涓潪甯稿叧閿殑鏃跺簭闂锛?        # 1. 鍓嶇浼氭妸鎺ヤ笅鏉ヨ繖鏉?`stage_changed: conversation` 鐞嗚В鎴愨€滄湰杞凡缁忓鐞嗗畬锛屽彲浠ョ户缁彂涓嬩竴鏉℃秷鎭€?        # 2. 浣嗗鏋滀粛鐒剁瓑鍒?task.done_callback 閲屾墠娓呯悊 generation 杩愯鎬侊紝
+        #    閭ｄ箞鐢ㄦ埛鍦ㄦ敹鍒拌繖鏉′簨浠跺悗绔嬪埢鍙戦€佷笅涓€鏉℃秷鎭紝灏变細琚悗绔鍒ゆ垚
+        #    鈥滃綋鍓嶅凡鏈変竴杞敓鎴愭鍦ㄨ繘琛屼腑鈥?        # 3. 鍥犳瑕佸湪鍙戝嚭鈥滃彲缁х画瀵硅瘽鈥濈殑闃舵浜嬩欢涔嬪墠锛屽厛閲婃斁鏈疆鐢熸垚閿侊紝
+        #    淇濊瘉鍓嶇鐪嬪埌鍙彂閫佺姸鎬佹椂锛屽悗绔篃宸茬粡鐪熸鍏佽涓嬩竴杞繘鍏?        manager.clear_generation_runtime(websocket)
 
-        next_stage = "build_ready" if post_result.progress_result.get("stop_ready") else "conversation"
+        next_stage = "build_ready" if progress_result.get("stop_ready") else "conversation"
+        log_flow_info(
+            logger,
+            flow_name="AI对话",
+            step_name="整轮用户消息处理",
+            student_id=context.student_id,
+            session_id=context.session_id,
+            message=f"本轮处理完成，下一阶段：{next_stage}",
+        )
         await _send_event(
             websocket,
             event_type="stage_changed",
@@ -928,60 +1049,22 @@ async def _run_user_message_pipeline(
             session_id=context.session_id,
             payload={
                 "current_stage": next_stage,
+                "conversation_phase": None if next_stage == "build_ready" else "ready_for_input",
             },
         )
-
-        if post_result.final_profile_generated:
-            # 中文注释：
-            # 进入最终结果阶段后，当前这轮对话生成已经结束，
-            # 上面的 clear_generation_runtime 已经提前释放了运行锁。
-            # 这样前端即使很快恢复到可交互状态，也不会再撞上“仍在生成中”的旧状态。
-            await _send_event(
-                websocket,
-                event_type="radar_scores_ready",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-                payload={
-                    "profile_result_id": post_result.profile_result_id,
-                    "radar_scores_json": post_result.radar_scores_json or {},
-                },
-            )
-
-            await _send_event(
-                websocket,
-                event_type="summary_ready",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-                payload={
-                    "profile_result_id": post_result.profile_result_id,
-                    "summary_text": post_result.summary_text or "",
-                },
-            )
-
-            await _send_event(
-                websocket,
-                event_type="profile_saved",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-                payload={
-                    "profile_result_id": post_result.profile_result_id,
-                    "result_status": post_result.result_status or "generated",
-                    "save_error_message": post_result.save_error_message,
-                },
-            )
-
-            await _send_event(
-                websocket,
-                event_type="stage_changed",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-                payload={
-                    "current_stage": "completed" if post_result.result_status == "saved" else "failed",
-                },
-            )
     except asyncio.CancelledError:
         raise
     except (ValueError, PromptRuntimeError) as exc:
+        logger.exception(
+            "%s 对话链路失败：%s",
+            build_flow_prefix(
+                flow_name="AI对话",
+                step_name="整轮用户消息处理",
+                student_id=context.student_id,
+                session_id=context.session_id,
+            ),
+            exc,
+        )
         await _send_error(
             websocket,
             code="CHAT_PIPELINE_FAILED",
@@ -990,6 +1073,16 @@ async def _run_user_message_pipeline(
             session_id=context.session_id,
         )
     except Exception as exc:
+        logger.exception(
+            "%s 对话链路出现未预期异常：%s",
+            build_flow_prefix(
+                flow_name="AI对话",
+                step_name="整轮用户消息处理",
+                student_id=context.student_id,
+                session_id=context.session_id,
+            ),
+            exc,
+        )
         await _send_error(
             websocket,
             code="CHAT_PIPELINE_UNEXPECTED_ERROR",
@@ -1007,14 +1100,14 @@ async def _stream_assistant_tokens(
     stream_session: PromptStreamSession,
 ) -> tuple[bool, str]:
     """
-    按上游流式返回，逐段向前端推送 assistant_token。
-
-    返回值：
-    1. 第一个值表示本轮是否被用户主动取消。
-    2. 第二个值是当前已经累计得到的 assistant 全文。
-    """
+    鎸変笂娓告祦寮忚繑鍥烇紝閫愭鍚戝墠绔帹閫?assistant_token銆?
+    杩斿洖鍊硷細
+    1. 绗竴涓€艰〃绀烘湰杞槸鍚﹁鐢ㄦ埛涓诲姩鍙栨秷銆?    2. 绗簩涓€兼槸褰撳墠宸茬粡绱寰楀埌鐨?assistant 鍏ㄦ枃銆?    """
 
     accumulated_text = ""
+    chunk_count = 0
+    first_token_logged = False
+    stream_started_at = perf_counter()
 
     while True:
         if manager.is_cancel_requested(websocket):
@@ -1031,6 +1124,14 @@ async def _stream_assistant_tokens(
                 return True, accumulated_text
             if error is not None:
                 raise PromptRuntimeError(f"流式生成中断：{error}") from error
+            log_flow_info(
+                logger,
+                flow_name="AI对话",
+                step_name="流式生成助手回复",
+                student_id=context.student_id,
+                session_id=context.session_id,
+                message=f"流式回复结束，共返回 {chunk_count} 个分片，总耗时 {(perf_counter() - stream_started_at) * 1000:.2f} ms",
+            )
             return False, accumulated_text
 
         chunk = stream_step["chunk"]
@@ -1042,6 +1143,17 @@ async def _stream_assistant_tokens(
             return True, accumulated_text
 
         accumulated_text = chunk.accumulated_text
+        chunk_count += 1
+        if not first_token_logged:
+            first_token_logged = True
+            log_flow_info(
+                logger,
+                flow_name="AI对话",
+                step_name="流式生成助手回复",
+                student_id=context.student_id,
+                session_id=context.session_id,
+                message=f"已收到首个回复分片，首字耗时 {(perf_counter() - stream_started_at) * 1000:.2f} ms",
+            )
         await _send_event(
             websocket,
             event_type="assistant_token",
@@ -1056,12 +1168,9 @@ async def _stream_assistant_tokens(
 
 def _on_generation_task_done(websocket: WebSocket, task: asyncio.Task[Any]) -> None:
     """
-    后台生成任务结束后的统一清理回调。
-
-    这里要做两件事：
-    1. 主动读取 task.exception()，避免未消费异常导致控制台告警。
-    2. 清理当前连接上的 generation 运行态，允许下一轮继续发消息。
-    """
+    鍚庡彴鐢熸垚浠诲姟缁撴潫鍚庣殑缁熶竴娓呯悊鍥炶皟銆?
+    杩欓噷瑕佸仛涓や欢浜嬶細
+    1. 涓诲姩璇诲彇 task.exception()锛岄伩鍏嶆湭娑堣垂寮傚父瀵艰嚧鎺у埗鍙板憡璀︺€?    2. 娓呯悊褰撳墠杩炴帴涓婄殑 generation 杩愯鎬侊紝鍏佽涓嬩竴杞户缁彂娑堟伅銆?    """
 
     try:
         task.exception()
@@ -1088,7 +1197,11 @@ def _persist_user_message_sync(student_id: str, session_id: str, content: str):
         db.close()
 
 
-def _load_conversation_context_sync(student_id: str, session_id: str) -> dict[str, Any]:
+def _load_conversation_context_sync(
+    student_id: str,
+    session_id: str,
+    current_progress_json: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """在线程中加载 conversation_prompt 所需上下文。"""
 
     db = SessionLocal()
@@ -1097,6 +1210,7 @@ def _load_conversation_context_sync(student_id: str, session_id: str) -> dict[st
             db,
             student_id=student_id,
             session_id=session_id,
+            current_progress_json=current_progress_json,
         )
     finally:
         db.close()
@@ -1118,10 +1232,8 @@ def _open_conversation_stream_session_sync(context: dict[str, Any]) -> PromptStr
 
 def _read_next_stream_chunk_sync(iterator):
     """
-    在线程中读取上游流的下一个 chunk。
-
-    返回结构统一做成 dict，避免 `StopIteration` 和网络异常直接穿透到协程层。
-    """
+    鍦ㄧ嚎绋嬩腑璇诲彇涓婃父娴佺殑涓嬩竴涓?chunk銆?
+    杩斿洖缁撴瀯缁熶竴鍋氭垚 dict锛岄伩鍏?`StopIteration` 鍜岀綉缁滃紓甯哥洿鎺ョ┛閫忓埌鍗忕▼灞傘€?    """
 
     try:
         chunk = next(iterator)
@@ -1165,20 +1277,18 @@ def _persist_assistant_message_sync(
         db.close()
 
 
-def _run_post_assistant_pipeline_sync(
+def _run_progress_update_pipeline_sync(
     student_id: str,
     session_id: str,
     biz_domain: str,
 ):
     """
-    在线程中执行 assistant 结束后的后半段链路。
-
-    这一段仍然是同步服务调用，因此也放进线程执行，避免阻塞事件循环。
-    """
+    鍦ㄧ嚎绋嬩腑鎵ц褰撳墠杞殑 progress_extraction 鏇存柊銆?
+    涓枃娉ㄩ噴锛?    杩欎竴姝ョ幇鍦ㄥ彂鐢熷湪 assistant 鍥炲涔嬪墠锛?    瀹冪殑杈撳嚭浼氱洿鎺ヤ綔涓?conversation_prompt 鐨勬渶鏂颁笂涓嬫枃杈撳叆銆?    """
 
     db = SessionLocal()
     try:
-        return run_post_assistant_pipeline(
+        return run_progress_update_pipeline(
             db,
             student_id=student_id,
             session_id=session_id,
@@ -1228,3 +1338,30 @@ async def _send_error(
             "message": message,
         },
     )
+
+
+async def _send_connect_error_and_close(
+    websocket: WebSocket,
+    *,
+    code: str,
+    message: str,
+    request_id: str | None = None,
+    session_id: str | None = None,
+) -> None:
+    """
+    统一处理 connect_init 阶段的错误。
+
+    说明：
+    1. 握手初始化失败时，前端还没有拿到 connect_ack，此时继续保持连接没有实际意义。
+    2. 因此这里会先发送明确的 error 事件，再主动关闭 WebSocket。
+    3. 这样前端可以在初始化 promise 阶段拿到真正的失败原因，而不是只看到“连接已关闭”。
+    """
+
+    await _send_error(
+        websocket,
+        code=code,
+        message=message,
+        request_id=request_id,
+        session_id=session_id,
+    )
+    await websocket.close(code=1008, reason=message[:120] if message else "connect_init_failed")

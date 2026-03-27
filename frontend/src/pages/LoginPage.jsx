@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import {
+  checkSmsInviteRequired,
+  checkWechatBindInviteRequired,
   getWechatAuthorizeUrl,
   passwordLogin,
   sendSmsCode,
@@ -170,9 +172,13 @@ export default function LoginPage() {
   const [bindCountdown, setBindCountdown] = useState(0);
   const [loading, setLoading] = useState(false);
   const [sendCodeLoading, setSendCodeLoading] = useState(false);
+  const [inviteCheckLoading, setInviteCheckLoading] = useState(false);
+  const [bindInviteCheckLoading, setBindInviteCheckLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [bindToken, setBindToken] = useState("");
+  const [smsNeedInvite, setSmsNeedInvite] = useState(null);
+  const [bindNeedInvite, setBindNeedInvite] = useState(null);
   const [hoveredPanel, setHoveredPanel] = useState(null);
   const [phoneFocused, setPhoneFocused] = useState(false);
   const [passFocused, setPassFocused] = useState(false);
@@ -226,6 +232,78 @@ export default function LoginPage() {
     return /^1\d{10}$/.test(mobile);
   }
 
+  function resetSmsInviteRequirement() {
+    // 中文注释：手机号变化后，之前基于旧手机号得到的邀请码判断结果就不再可靠，需要一并清空。
+    setSmsNeedInvite(null);
+    setInviteCode("");
+  }
+
+  function resetBindInviteRequirement() {
+    // 中文注释：微信绑定手机号场景同样需要在手机号变化时清空旧判断结果，避免误把别的手机号状态带过来。
+    setBindNeedInvite(null);
+    setBindInviteCode("");
+  }
+
+  async function ensureSmsInviteRequirement(targetMobile = smsPhone, options = {}) {
+    const { showError = true } = options;
+
+    // 中文注释：只有在手机号格式合法时才发起预检查，避免前端输入过程频繁请求后端。
+    if (!validateMobile(targetMobile)) {
+      resetSmsInviteRequirement();
+      return null;
+    }
+
+    try {
+      setInviteCheckLoading(true);
+      const response = await checkSmsInviteRequired({ mobile: targetMobile });
+      const needInvite = Boolean(response?.data?.need_invite_code);
+
+      // 中文注释：把结果存进页面状态，后续发送验证码、提交登录、页面显示都复用这一份判断结果。
+      setSmsNeedInvite(needInvite);
+      return needInvite;
+    } catch (error) {
+      // 中文注释：这个预检查接口只负责控制邀请码输入框显示，不应该在所有场景都阻断主流程。
+      // 例如“获取验证码”时，即使预检查暂时失败，也应尽量允许用户先拿到验证码，真正提交登录时再做强校验。
+      if (showError) {
+        setErrorMessage(error?.response?.data?.detail || "邀请码状态检查失败，请稍后重试");
+      }
+      return null;
+    } finally {
+      setInviteCheckLoading(false);
+    }
+  }
+
+  async function ensureBindInviteRequirement(targetMobile = bindPhone, options = {}) {
+    const { showError = true } = options;
+
+    // 中文注释：微信绑定手机号时需要同时依赖 bind_token 和手机号，因此两者缺一不可。
+    if (!bindToken || !validateMobile(targetMobile)) {
+      resetBindInviteRequirement();
+      return null;
+    }
+
+    try {
+      setBindInviteCheckLoading(true);
+      const response = await checkWechatBindInviteRequired({
+        bind_token: bindToken,
+        mobile: targetMobile,
+      });
+      const needInvite = Boolean(response?.data?.need_invite_code);
+
+      // 中文注释：绑定流程里同样把“是否需要邀请码”缓存到状态，避免页面和提交逻辑各算一遍。
+      setBindNeedInvite(needInvite);
+      return needInvite;
+    } catch (error) {
+      // 中文注释：绑定手机号场景与短信登录相同，预检查失败时不一定要直接阻断“获取验证码”按钮。
+      if (showError) {
+        setErrorMessage(error?.response?.data?.detail || "邀请码状态检查失败，请稍后重试");
+      }
+      return null;
+    } finally {
+      setBindInviteCheckLoading(false);
+    }
+  }
+
   function saveAccessToken(token) {
     localStorage.setItem("access_token", token);
     if (!rememberLogin) sessionStorage.setItem("access_token_shadow", token);
@@ -263,6 +341,8 @@ export default function LoginPage() {
     clearMessages();
     if (!validateMobile(smsPhone)) return setErrorMessage("请输入正确的手机号");
     try {
+      // 中文注释：发送验证码前先尝试刷新邀请码显隐状态，但这一步不应阻断验证码发送主流程。
+      await ensureSmsInviteRequirement(smsPhone, { showError: false });
       setSendCodeLoading(true);
       await sendSmsCode({ mobile: smsPhone, biz_type: "login" });
       setSuccessMessage("验证码已发送，请注意查收");
@@ -278,14 +358,22 @@ export default function LoginPage() {
     clearMessages();
     if (!validateMobile(smsPhone)) return setErrorMessage("请输入正确的手机号");
     if (smsCode.length !== 6) return setErrorMessage("请输入 6 位验证码");
-    if (!inviteCode.trim()) return setErrorMessage("请输入邀请码");
+    const needInvite = smsNeedInvite === null ? await ensureSmsInviteRequirement(smsPhone) : smsNeedInvite;
+    if (needInvite === null) return;
+    if (needInvite && !inviteCode.trim()) return setErrorMessage("该手机号尚未注册，请输入邀请码");
     try {
       setLoading(true);
-      const response = await smsLogin({
+      const requestPayload = {
         mobile: smsPhone,
         code: smsCode,
-        invite_code: inviteCode.trim(),
-      });
+      };
+
+      // 中文注释：只有首次注册场景才把邀请码传给后端，已注册用户不再强制携带 invite_code。
+      if (needInvite) {
+        requestPayload.invite_code = inviteCode.trim();
+      }
+
+      const response = await smsLogin(requestPayload);
       saveAccessToken(response.data.access_token);
       navigate("/");
     } catch (error) {
@@ -312,6 +400,8 @@ export default function LoginPage() {
     clearMessages();
     if (!validateMobile(bindPhone)) return setErrorMessage("请输入正确的手机号");
     try {
+      // 中文注释：发送绑定验证码前先尝试刷新邀请码显隐状态，但预检查失败不阻断验证码发送。
+      await ensureBindInviteRequirement(bindPhone, { showError: false });
       setSendCodeLoading(true);
       await sendSmsCode({ mobile: bindPhone, biz_type: "bind_mobile" });
       setSuccessMessage("验证码已发送，请注意查收");
@@ -328,15 +418,23 @@ export default function LoginPage() {
     if (!bindToken) return setErrorMessage("绑定凭证不存在，请重新发起微信登录");
     if (!validateMobile(bindPhone)) return setErrorMessage("请输入正确的手机号");
     if (bindCode.length !== 6) return setErrorMessage("请输入 6 位验证码");
-    if (!bindInviteCode.trim()) return setErrorMessage("请输入邀请码");
+    const needInvite = bindNeedInvite === null ? await ensureBindInviteRequirement(bindPhone) : bindNeedInvite;
+    if (needInvite === null) return;
+    if (needInvite && !bindInviteCode.trim()) return setErrorMessage("该手机号尚未注册，请输入邀请码");
     try {
       setLoading(true);
-      const response = await wechatBindMobile({
+      const requestPayload = {
         bind_token: bindToken,
         mobile: bindPhone,
         code: bindCode,
-        invite_code: bindInviteCode.trim(),
-      });
+      };
+
+      // 中文注释：只有首次绑定新手机号时才需要邀请码，绑定已有手机号时直接走合并/绑定逻辑。
+      if (needInvite) {
+        requestPayload.invite_code = bindInviteCode.trim();
+      }
+
+      const response = await wechatBindMobile(requestPayload);
       saveAccessToken(response.data.access_token);
       navigate("/");
     } catch (error) {
@@ -368,6 +466,8 @@ export default function LoginPage() {
       }
       if (response.data.next_step === "bind_mobile") {
         setBindToken(response.data.bind_token);
+        // 中文注释：切到微信绑定手机号界面前，先清空旧的邀请码判断状态，避免错误复用上一次手机号结果。
+        resetBindInviteRequirement();
         setActiveTab("bind_mobile");
         setSuccessMessage(response.data.message || "请先绑定手机号");
         clearLoginQueryParams();
@@ -472,7 +572,18 @@ export default function LoginPage() {
           {activeTab !== "bind_mobile" ? (
             <div className="login-tabbar flex rounded-lg mb-7 p-1 relative">
               {tabs.map((tab) => (
-                <button key={tab.key} onClick={() => { clearMessages(); setActiveTab(tab.key); }} className="login-tab flex-1 py-2 rounded-md relative z-10" type="button">
+                <button
+                  key={tab.key}
+                  onClick={() => {
+                    // 中文注释：切换登录方式时顺手清理邀请码判断状态，避免某一种登录方式的判断结果污染另一种方式。
+                    clearMessages();
+                    resetSmsInviteRequirement();
+                    resetBindInviteRequirement();
+                    setActiveTab(tab.key);
+                  }}
+                  className="login-tab flex-1 py-2 rounded-md relative z-10"
+                  type="button"
+                >
                   {activeTab === tab.key ? <motion.div layoutId="tab-indicator" className="absolute inset-0 rounded-md login-tab-active-bg" transition={{ type: "spring", stiffness: 380, damping: 32 }} /> : null}
                   <span className="relative z-10">{tab.label}</span>
                 </button>
@@ -524,7 +635,24 @@ export default function LoginPage() {
                   <label className="login-field-label">手机号</label>
                   <AnimatedInput focused={smsPhoneFocused}>
                     <MobilePrefix />
-                    <input type="tel" placeholder="请输入手机号" maxLength={11} value={smsPhone} onChange={(event) => setSmsPhone(event.target.value.replace(/\D/g, ""))} onFocus={() => setSmsPhoneFocused(true)} onBlur={() => setSmsPhoneFocused(false)} className="login-plain-input flex-1 outline-none bg-transparent" />
+                    <input
+                      type="tel"
+                      placeholder="请输入手机号"
+                      maxLength={11}
+                      value={smsPhone}
+                      onChange={(event) => {
+                        const nextMobile = event.target.value.replace(/\D/g, "");
+                        setSmsPhone(nextMobile);
+                        resetSmsInviteRequirement();
+                      }}
+                      onFocus={() => setSmsPhoneFocused(true)}
+                      onBlur={async () => {
+                        setSmsPhoneFocused(false);
+                        // 中文注释：失焦预检查只用于更新界面，不主动弹错误，避免用户还在输入阶段就看到干扰性报错。
+                        await ensureSmsInviteRequirement(smsPhone, { showError: false });
+                      }}
+                      className="login-plain-input flex-1 outline-none bg-transparent"
+                    />
                   </AnimatedInput>
                 </div>
 
@@ -541,22 +669,32 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-1.5">
-                  <label className="login-field-label">邀请码</label>
-                  <AnimatedInput focused={inviteFocused}>
-                    <input
-                      type="text"
-                      placeholder="请输入邀请码"
-                      value={inviteCode}
-                      onChange={(event) => setInviteCode(event.target.value)}
-                      onFocus={() => setInviteFocused(true)}
-                      onBlur={() => setInviteFocused(false)}
-                      className="login-plain-input flex-1 outline-none bg-transparent"
-                    />
-                  </AnimatedInput>
-                </div>
+                {smsNeedInvite ? (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="login-field-label">邀请码</label>
+                    <AnimatedInput focused={inviteFocused}>
+                      <input
+                        type="text"
+                        placeholder="请输入邀请码"
+                        value={inviteCode}
+                        onChange={(event) => setInviteCode(event.target.value)}
+                        onFocus={() => setInviteFocused(true)}
+                        onBlur={() => setInviteFocused(false)}
+                        className="login-plain-input flex-1 outline-none bg-transparent"
+                      />
+                    </AnimatedInput>
+                  </div>
+                ) : null}
 
-                <p className="login-helper-text">未注册的手机号验证后将自动创建账号，首次注册需填写邀请码。</p>
+                <p className="login-helper-text">
+                  {inviteCheckLoading
+                    ? "正在检查该手机号是否需要邀请码..."
+                    : smsNeedInvite === true
+                      ? "该手机号尚未注册，首次注册需填写邀请码。"
+                      : smsNeedInvite === false
+                        ? "该手机号已注册，可直接使用验证码登录。"
+                        : "输入手机号后会自动判断是否需要邀请码。"}
+                </p>
 
                 <motion.button type="button" onClick={handleSmsLogin} className="login-submit-button w-full py-3 rounded-2xl mt-2" style={{ cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>
                   {loading ? "提交中..." : "登录 / 注册"}
@@ -604,7 +742,24 @@ export default function LoginPage() {
                   <label className="login-field-label">手机号</label>
                   <AnimatedInput focused={bindPhoneFocused}>
                     <MobilePrefix />
-                    <input type="tel" placeholder="请输入手机号" maxLength={11} value={bindPhone} onChange={(event) => setBindPhone(event.target.value.replace(/\D/g, ""))} onFocus={() => setBindPhoneFocused(true)} onBlur={() => setBindPhoneFocused(false)} className="login-plain-input flex-1 outline-none bg-transparent" />
+                    <input
+                      type="tel"
+                      placeholder="请输入手机号"
+                      maxLength={11}
+                      value={bindPhone}
+                      onChange={(event) => {
+                        const nextMobile = event.target.value.replace(/\D/g, "");
+                        setBindPhone(nextMobile);
+                        resetBindInviteRequirement();
+                      }}
+                      onFocus={() => setBindPhoneFocused(true)}
+                      onBlur={async () => {
+                        setBindPhoneFocused(false);
+                        // 中文注释：绑定手机号输入框失焦时同样只做静默预检查，不用错误提示打断操作。
+                        await ensureBindInviteRequirement(bindPhone, { showError: false });
+                      }}
+                      className="login-plain-input flex-1 outline-none bg-transparent"
+                    />
                   </AnimatedInput>
                 </div>
 
@@ -621,12 +776,32 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-1.5">
-                  <label className="login-field-label">邀请码</label>
-                  <AnimatedInput focused={bindInviteFocused}>
-                    <input type="text" placeholder="请输入邀请码" value={bindInviteCode} onChange={(event) => setBindInviteCode(event.target.value)} onFocus={() => setBindInviteFocused(true)} onBlur={() => setBindInviteFocused(false)} className="login-plain-input flex-1 outline-none bg-transparent" />
-                  </AnimatedInput>
-                </div>
+                {bindNeedInvite ? (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="login-field-label">邀请码</label>
+                    <AnimatedInput focused={bindInviteFocused}>
+                      <input
+                        type="text"
+                        placeholder="请输入邀请码"
+                        value={bindInviteCode}
+                        onChange={(event) => setBindInviteCode(event.target.value)}
+                        onFocus={() => setBindInviteFocused(true)}
+                        onBlur={() => setBindInviteFocused(false)}
+                        className="login-plain-input flex-1 outline-none bg-transparent"
+                      />
+                    </AnimatedInput>
+                  </div>
+                ) : null}
+
+                <p className="login-helper-text">
+                  {bindInviteCheckLoading
+                    ? "正在检查该手机号是否需要邀请码..."
+                    : bindNeedInvite === true
+                      ? "该手机号尚未注册，首次绑定需填写邀请码。"
+                      : bindNeedInvite === false
+                        ? "该手机号已注册，可直接绑定，无需邀请码。"
+                        : "输入手机号后会自动判断是否需要邀请码。"}
+                </p>
 
                 <motion.button type="button" onClick={handleBindMobile} className="login-submit-button w-full py-3 rounded-2xl mt-1" style={{ cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>
                   {loading ? "绑定中..." : "完成绑定"}
