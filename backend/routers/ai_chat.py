@@ -6,7 +6,9 @@ AI 瀵硅瘽 WebSocket 涓?REST 璺敱銆?
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 from dataclasses import dataclass
 from dataclasses import field
 from time import perf_counter
@@ -28,9 +30,12 @@ from backend.config.db_conf import SessionLocal
 from backend.config.db_conf import get_db
 from backend.schemas.ai_chat import AiChatWsEnvelope
 from backend.schemas.ai_chat import ConnectInitPayload
+from backend.schemas.ai_chat import ArchiveFormSavePayload
 from backend.schemas.ai_chat import UserMessagePayload
 from backend.services.ai_chat_pipeline_service import CONVERSATION_PROMPT_KEY
+from backend.services.ai_chat_pipeline_service import CONVERSATION_WITH_PROGRESS_PROMPT_KEY
 from backend.services.ai_chat_pipeline_service import build_conversation_context
+from backend.services.ai_chat_pipeline_service import persist_progress_result
 from backend.services.ai_chat_pipeline_service import run_manual_profile_generation_background
 from backend.services.ai_chat_pipeline_service import run_progress_update_pipeline
 from backend.services.ai_chat_service import append_assistant_message
@@ -46,6 +51,9 @@ from backend.services.ai_prompt_runtime_service import PromptRuntimeError
 from backend.services.ai_prompt_runtime_service import PromptStreamChunk
 from backend.services.ai_prompt_runtime_service import PromptStreamSession
 from backend.services.ai_prompt_runtime_service import stream_prompt_with_context
+from backend.services.business_profile_form_service import load_business_profile_form_bundle
+from backend.services.business_profile_manual_save_service import regenerate_profile_result_from_business_profile_snapshot
+from backend.services.business_profile_manual_save_service import save_business_profile_form_only
 from backend.utils.flow_logging import build_flow_prefix
 from backend.utils.flow_logging import log_flow_info
 from backend.utils.flow_logging import log_timed_step
@@ -54,6 +62,10 @@ from backend.utils.security import decode_token_safe
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+ASSISTANT_REPLY_START_MARKER = "<assistant_reply>"
+ASSISTANT_REPLY_END_MARKER = "</assistant_reply>"
+PROGRESS_RESULT_START_MARKER = "<progress_result>"
+PROGRESS_RESULT_END_MARKER = "</progress_result>"
 
 
 def _extract_bearer_token(authorization: str | None) -> str | None:
@@ -217,6 +229,398 @@ class AiChatConnectionManager:
 manager = AiChatConnectionManager()
 
 
+@dataclass(slots=True)
+class CombinedConversationParseResult:
+    """
+    conversation_with_progress 合并输出的解析结果。
+
+    中文注释：
+    1. assistant_text 是最终给学生展示、也会落库的自然语言回复。
+    2. progress_result 是隐藏在尾部标签里的结构化进度 JSON。
+    3. parse_error 不为空时，表示本轮需要回退到旧的 progress_extraction 链路。
+    """
+
+    assistant_text: str
+    progress_result: dict[str, Any] | None
+    raw_progress_text: str | None
+    parse_error: str | None = None
+
+
+class CombinedConversationStreamParser:
+    """
+    增量解析 conversation_with_progress 的流式输出。
+
+    输出协议固定为：
+    1. <assistant_reply> ... </assistant_reply>
+    2. <progress_result> {...} </progress_result>
+
+    中文注释：
+    这里的目标不是在流式阶段把 JSON 解析完，而是只把 assistant_reply 里的自然语言增量推给前端，
+    避免把标签和隐藏 JSON 泄露到聊天窗口。
+    """
+
+    def __init__(self) -> None:
+        self._state = "before_reply"
+        self._buffer = ""
+
+    def feed(self, delta_text: str) -> str:
+        if not delta_text:
+            return ""
+
+        self._buffer += delta_text
+        visible_parts: list[str] = []
+        while True:
+            if self._state == "before_reply":
+                marker_index = self._buffer.find(ASSISTANT_REPLY_START_MARKER)
+                if marker_index < 0:
+                    self._buffer = self._buffer[-(len(ASSISTANT_REPLY_START_MARKER) - 1):]
+                    break
+                self._buffer = self._buffer[marker_index + len(ASSISTANT_REPLY_START_MARKER):]
+                self._state = "in_reply"
+                continue
+
+            if self._state == "in_reply":
+                marker_index = self._buffer.find(ASSISTANT_REPLY_END_MARKER)
+                if marker_index < 0:
+                    safe_length = max(0, len(self._buffer) - len(ASSISTANT_REPLY_END_MARKER) + 1)
+                    if safe_length <= 0:
+                        break
+                    visible_parts.append(self._buffer[:safe_length])
+                    self._buffer = self._buffer[safe_length:]
+                    break
+
+                visible_parts.append(self._buffer[:marker_index])
+                self._buffer = self._buffer[marker_index + len(ASSISTANT_REPLY_END_MARKER):]
+                self._state = "after_reply"
+                continue
+
+            if self._state == "after_reply":
+                marker_index = self._buffer.find(PROGRESS_RESULT_START_MARKER)
+                if marker_index < 0:
+                    self._buffer = self._buffer[-(len(PROGRESS_RESULT_START_MARKER) - 1):]
+                    break
+                self._buffer = self._buffer[marker_index + len(PROGRESS_RESULT_START_MARKER):]
+                self._state = "in_progress"
+                continue
+
+            if self._state == "in_progress":
+                marker_index = self._buffer.find(PROGRESS_RESULT_END_MARKER)
+                if marker_index < 0:
+                    self._buffer = self._buffer[-(len(PROGRESS_RESULT_END_MARKER) - 1):]
+                    break
+                self._buffer = self._buffer[marker_index + len(PROGRESS_RESULT_END_MARKER):]
+                self._state = "done"
+                continue
+
+            self._buffer = ""
+            break
+
+        return "".join(visible_parts)
+
+
+def _strip_optional_code_fence(text: str) -> str:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.removeprefix("```json").removeprefix("```JSON")
+        cleaned = cleaned.removeprefix("```").removesuffix("```").strip()
+    return cleaned
+
+
+def _extract_assistant_text_for_fallback(raw_text: str) -> str:
+    """
+    在合并输出解析失败时，尽量从原始文本里提取可落库的 assistant 内容。
+    """
+
+    assistant_start = raw_text.find(ASSISTANT_REPLY_START_MARKER)
+    assistant_end = raw_text.find(ASSISTANT_REPLY_END_MARKER)
+    progress_start = raw_text.find(PROGRESS_RESULT_START_MARKER)
+
+    if assistant_start >= 0:
+        start_index = assistant_start + len(ASSISTANT_REPLY_START_MARKER)
+        if assistant_end > assistant_start:
+            return raw_text[start_index:assistant_end].strip()
+        if progress_start > start_index:
+            return raw_text[start_index:progress_start].strip()
+        return raw_text[start_index:].strip()
+
+    if progress_start >= 0:
+        return raw_text[:progress_start].strip()
+
+    cleaned_text = raw_text
+    for marker in (
+        ASSISTANT_REPLY_START_MARKER,
+        ASSISTANT_REPLY_END_MARKER,
+        PROGRESS_RESULT_START_MARKER,
+        PROGRESS_RESULT_END_MARKER,
+    ):
+        cleaned_text = cleaned_text.replace(marker, "")
+    return cleaned_text.strip()
+
+
+def _parse_conversation_with_progress_output(raw_text: str) -> CombinedConversationParseResult:
+    """
+    解析单次模型调用返回的“回复 + 进度 JSON”。
+    """
+
+    assistant_start = raw_text.find(ASSISTANT_REPLY_START_MARKER)
+    if assistant_start < 0:
+        assistant_text = _extract_assistant_text_for_fallback(raw_text)
+        return CombinedConversationParseResult(
+            assistant_text=assistant_text,
+            progress_result=None,
+            raw_progress_text=None,
+            parse_error="未找到 assistant_reply 起始标记",
+        )
+
+    assistant_end = raw_text.find(
+        ASSISTANT_REPLY_END_MARKER,
+        assistant_start + len(ASSISTANT_REPLY_START_MARKER),
+    )
+    if assistant_end < 0:
+        assistant_text = _extract_assistant_text_for_fallback(raw_text)
+        return CombinedConversationParseResult(
+            assistant_text=assistant_text,
+            progress_result=None,
+            raw_progress_text=None,
+            parse_error="未找到 assistant_reply 结束标记",
+        )
+
+    assistant_text = raw_text[
+        assistant_start + len(ASSISTANT_REPLY_START_MARKER):assistant_end
+    ].strip()
+    progress_start = raw_text.find(
+        PROGRESS_RESULT_START_MARKER,
+        assistant_end + len(ASSISTANT_REPLY_END_MARKER),
+    )
+    if progress_start < 0:
+        return CombinedConversationParseResult(
+            assistant_text=assistant_text,
+            progress_result=None,
+            raw_progress_text=None,
+            parse_error="未找到 progress_result 起始标记",
+        )
+
+    progress_end = raw_text.find(
+        PROGRESS_RESULT_END_MARKER,
+        progress_start + len(PROGRESS_RESULT_START_MARKER),
+    )
+    if progress_end < 0:
+        return CombinedConversationParseResult(
+            assistant_text=assistant_text,
+            progress_result=None,
+            raw_progress_text=None,
+            parse_error="未找到 progress_result 结束标记",
+        )
+
+    raw_progress_text = raw_text[
+        progress_start + len(PROGRESS_RESULT_START_MARKER):progress_end
+    ].strip()
+    cleaned_progress_text = _strip_optional_code_fence(raw_progress_text)
+    try:
+        progress_result = json.loads(cleaned_progress_text)
+    except json.JSONDecodeError as exc:
+        return CombinedConversationParseResult(
+            assistant_text=assistant_text,
+            progress_result=None,
+            raw_progress_text=raw_progress_text,
+            parse_error=f"progress_result 不是合法 JSON：{exc}",
+        )
+
+    if not isinstance(progress_result, dict):
+        return CombinedConversationParseResult(
+            assistant_text=assistant_text,
+            progress_result=None,
+            raw_progress_text=raw_progress_text,
+            parse_error="progress_result 必须是 JSON 对象",
+        )
+
+    return CombinedConversationParseResult(
+        assistant_text=assistant_text,
+        progress_result=progress_result,
+        raw_progress_text=raw_progress_text,
+        parse_error=None,
+    )
+
+
+def _get_latest_user_text_from_conversation_context(
+    conversation_context: dict[str, Any] | None,
+) -> str:
+    """
+    从当前对话上下文里提取最后一条用户可见消息。
+
+    中文注释：
+    1. 合并 prompt 的语义兜底只看“当前这一轮用户刚说了什么”。
+    2. 这样规则足够保守，不会因为老历史误触发回退。
+    """
+
+    if not isinstance(conversation_context, dict):
+        return ""
+
+    conversation_history = conversation_context.get("conversation_history")
+    if not isinstance(conversation_history, list):
+        return ""
+
+    for item in reversed(conversation_history):
+        if not isinstance(item, dict):
+            continue
+        if item.get("message_role") != "user":
+            continue
+        content = item.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+    return ""
+
+
+def _contains_any_keyword(text: str, keywords: tuple[str, ...]) -> bool:
+    return any(keyword in text for keyword in keywords)
+
+
+def _has_explicit_grade_info(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(高[一二三]|初[一二三]|(?:9|10|11|12)年级|G(?:9|10|11|12)|IB(?:11|12|1|2)|AS|A2|gap[\s-]*year)",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _has_explicit_target_country_info(text: str) -> bool:
+    return _contains_any_keyword(
+        text,
+        (
+            "英国",
+            "美国",
+            "加拿大",
+            "澳大利亚",
+            "新加坡",
+            "香港",
+            "中国香港",
+            "日本",
+        ),
+    )
+
+
+def _has_explicit_major_info(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(目标专业|申请专业|专业方向|专业是|专业为|专业可能是|想申|方向是|方向为|方向想走|方向考虑|PPE|计算机科学|数据科学|机械工程|商科|经济)",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _has_explicit_curriculum_info(text: str) -> bool:
+    positive_patterns = (
+        r"普高体系",
+        r"中国普高",
+        r"国内普高",
+        r"我是普高",
+        r"普高转国际部",
+        r"ib体系",
+        r"读ib",
+        r"我是ib",
+        r"ib学生",
+        r"a-level体系",
+        r"a level体系",
+        r"读a-level",
+        r"学a-level",
+        r"转去a-level",
+        r"alevel体系",
+        r"美高\s*\+\s*ap",
+        r"ap体系",
+        r"上过ap",
+        r"修ap",
+        r"ap课程",
+    )
+    return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in positive_patterns)
+
+
+def _get_dimension_status(progress_result: dict[str, Any], dimension_name: str) -> str:
+    dimension_progress = progress_result.get("dimension_progress")
+    if not isinstance(dimension_progress, dict):
+        return ""
+    dimension_item = dimension_progress.get(dimension_name)
+    if not isinstance(dimension_item, dict):
+        return ""
+    status = dimension_item.get("status")
+    return str(status or "").strip()
+
+
+def _detect_combined_progress_fallback_reason(
+    *,
+    assistant_content: str,
+    progress_result: dict[str, Any],
+    conversation_context: dict[str, Any] | None,
+) -> str | None:
+    """
+    判断合并 prompt 返回的 progress_result 是否明显不可信。
+
+    中文注释：
+    1. 这里只拦截“非常明显的错判”，避免把错误进度直接写库。
+    2. 一旦命中，就回退到旧版 progress_extraction，让结构化进度判断重新跑一次。
+    """
+
+    if not isinstance(progress_result, dict):
+        return "progress_result 不是合法对象"
+
+    stop_ready = progress_result.get("stop_ready") is True
+    missing_dimensions = progress_result.get("missing_dimensions") or []
+    next_question_focus = progress_result.get("next_question_focus")
+
+    if stop_ready and missing_dimensions:
+        return "stop_ready=true 但 missing_dimensions 仍不为空"
+    if stop_ready and next_question_focus is not None:
+        return "stop_ready=true 但 next_question_focus 仍不为空"
+
+    if _contains_any_keyword(
+        assistant_content,
+        (
+            "现在可以建档",
+            "已经可以建档",
+            "可以生成六维图",
+            "信息已经足够",
+        ),
+    ) and not stop_ready:
+        return "assistant 文案表示可以建档，但 progress_result.stop_ready=false"
+
+    latest_user_text = _get_latest_user_text_from_conversation_context(conversation_context)
+    if not latest_user_text:
+        return None
+
+    basic_info_progress = progress_result.get("basic_info_progress")
+    if not isinstance(basic_info_progress, dict):
+        return "basic_info_progress 不是合法对象"
+
+    def _is_collected(field_name: str) -> bool:
+        field_item = basic_info_progress.get(field_name)
+        return isinstance(field_item, dict) and field_item.get("collected") is True
+
+    if _has_explicit_grade_info(latest_user_text) and not _is_collected("current_grade"):
+        return "当前轮用户已明确提供年级，但 progress_result 未收集 current_grade"
+    if _has_explicit_target_country_info(latest_user_text) and not _is_collected("target_country"):
+        return "当前轮用户已明确提供目标国家，但 progress_result 未收集 target_country"
+    if _has_explicit_major_info(latest_user_text) and not _is_collected("major_interest"):
+        return "当前轮用户已明确提供目标专业，但 progress_result 未收集 major_interest"
+    if _has_explicit_curriculum_info(latest_user_text) and not _is_collected("curriculum_system"):
+        return "当前轮用户已明确提供课程体系，但 progress_result 未收集 curriculum_system"
+
+    dimension_keyword_mappings = {
+        "academic": ("成绩", "排名", "GPA", "预估", "预测总分", "科目", "年级前"),
+        "language": ("雅思", "托福", "DET", "多邻国", "PTE", "LanguageCert", "剑桥英语"),
+        "standardized": ("SAT", "ACT"),
+        "competition": ("竞赛", "比赛", "USACO", "AMC", "论文比赛"),
+        "activity": ("学生会", "社团", "队长", "部长", "志愿", "活动", "club"),
+        "project": ("项目", "科研", "实习", "小程序", "summer program", "program", "开发", "课题"),
+    }
+    for dimension_name, keywords in dimension_keyword_mappings.items():
+        if _contains_any_keyword(latest_user_text, keywords) and _get_dimension_status(progress_result, dimension_name) == "missing":
+            return f"当前轮用户已明确提供 {dimension_name} 维信息，但 progress_result 仍标记为 missing"
+
+    return None
+
+
 @router.get("/api/v1/ai-chat/sessions/current")
 def get_current_active_session(
     biz_domain: str = Query(..., description="涓氬姟鍩燂紱褰撳墠浼?student_profile_build"),
@@ -365,10 +769,13 @@ def get_ai_chat_session_result(
         "session_id": result.session_id,
         "profile_result_id": result.profile_result_id,
         "result_status": result.result_status,
+        "profile_json": result.profile_json,
         "summary_text": result.summary_text,
         "radar_scores_json": result.radar_scores_json or {},
+        "db_payload_json": result.db_payload_json,
         "save_error_message": result.save_error_message,
         "create_time": result.create_time.isoformat(),
+        "update_time": result.update_time.isoformat(),
     }
 
 
@@ -398,6 +805,191 @@ def get_ai_chat_session_radar(
         "profile_result_id": result.profile_result_id,
         "result_status": result.result_status,
         "radar_scores_json": result.radar_scores_json or {},
+    }
+
+
+@router.get("/api/v1/ai-chat/sessions/{session_id}/archive-form")
+def get_ai_chat_session_archive_form(
+    session_id: str,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db=Depends(get_db),
+):
+    """
+    读取正式档案表单。
+
+    中文注释：
+    这里返回的数据来自正式业务表，而不是 ai_chat_profile_results.profile_json。
+    前端拿到这份快照后，按表单渲染给学生修改。
+    """
+
+    student_id = _get_current_student_id(authorization)
+    try:
+        session = get_session_detail(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    form_bundle = load_business_profile_form_bundle(
+        db,
+        student_id=student_id,
+    )
+    refreshed_result = get_profile_result_detail(
+        db,
+        student_id=student_id,
+        session_id=session_id,
+    )
+
+    return {
+        "session_id": session_id,
+        "archive_form": form_bundle["archive_form"],
+        "form_meta": form_bundle["form_meta"],
+        "result_status": refreshed_result.result_status if refreshed_result else None,
+        "summary_text": refreshed_result.summary_text if refreshed_result else None,
+        "radar_scores_json": refreshed_result.radar_scores_json if refreshed_result else {},
+        "save_error_message": refreshed_result.save_error_message if refreshed_result else None,
+        "create_time": refreshed_result.create_time.isoformat() if refreshed_result else None,
+        "update_time": refreshed_result.update_time.isoformat() if refreshed_result else None,
+    }
+
+
+@router.post("/api/v1/ai-chat/sessions/{session_id}/archive-form")
+def save_ai_chat_session_archive_form(
+    session_id: str,
+    payload: ArchiveFormSavePayload,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db=Depends(get_db),
+):
+    """
+    保存正式档案表单。
+
+    中文注释：
+    这条链路只更新正式业务表，不触发 AI 重算六维图。
+    """
+
+    student_id = _get_current_student_id(authorization)
+    try:
+        session = get_session_detail(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    if session.current_stage in {"progress_updating", "extraction", "scoring", "profile_saving"}:
+        raise HTTPException(
+            status_code=409,
+            detail="当前档案还在后台处理中，请等待当前流程完成后再手动保存。",
+        )
+
+    try:
+        save_business_profile_form_only(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+            archive_form=payload.archive_form,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    form_bundle = load_business_profile_form_bundle(
+        db,
+        student_id=student_id,
+    )
+    refreshed_result = get_profile_result_detail(
+        db,
+        student_id=student_id,
+        session_id=session_id,
+    )
+    return {
+        "session_id": session_id,
+        "archive_form": form_bundle["archive_form"],
+        "form_meta": form_bundle["form_meta"],
+        "profile_result_id": refreshed_result.profile_result_id if refreshed_result else None,
+        "result_status": refreshed_result.result_status if refreshed_result else None,
+        "profile_json": refreshed_result.profile_json if refreshed_result else None,
+        "summary_text": refreshed_result.summary_text if refreshed_result else None,
+        "radar_scores_json": refreshed_result.radar_scores_json if refreshed_result else {},
+        "db_payload_json": refreshed_result.db_payload_json if refreshed_result else None,
+        "save_error_message": refreshed_result.save_error_message if refreshed_result else None,
+        "create_time": refreshed_result.create_time.isoformat() if refreshed_result else None,
+        "update_time": refreshed_result.update_time.isoformat() if refreshed_result else None,
+    }
+
+
+@router.post("/api/v1/ai-chat/sessions/{session_id}/archive-form/regenerate-radar")
+def regenerate_ai_chat_session_archive_radar(
+    session_id: str,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db=Depends(get_db),
+):
+    """
+    基于数据库最新正式档案快照重新生成六维图。
+    """
+
+    student_id = _get_current_student_id(authorization)
+    try:
+        session = get_session_detail(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    if session.current_stage in {"progress_updating", "extraction", "scoring", "profile_saving"}:
+        raise HTTPException(
+            status_code=409,
+            detail="当前档案还在后台处理中，请等待当前流程完成后再重新生成六维图。",
+        )
+
+    try:
+        regenerate_profile_result_from_business_profile_snapshot(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+            biz_domain=session.biz_domain,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    form_bundle = load_business_profile_form_bundle(
+        db,
+        student_id=student_id,
+    )
+    refreshed_result = get_profile_result_detail(
+        db,
+        student_id=student_id,
+        session_id=session_id,
+    )
+    if refreshed_result is None:
+        raise HTTPException(status_code=404, detail="更新后的建档结果不存在")
+
+    return {
+        "session_id": refreshed_result.session_id,
+        "archive_form": form_bundle["archive_form"],
+        "form_meta": form_bundle["form_meta"],
+        "profile_result_id": refreshed_result.profile_result_id,
+        "result_status": refreshed_result.result_status,
+        "profile_json": refreshed_result.profile_json,
+        "summary_text": refreshed_result.summary_text,
+        "radar_scores_json": refreshed_result.radar_scores_json or {},
+        "db_payload_json": refreshed_result.db_payload_json,
+        "save_error_message": refreshed_result.save_error_message,
+        "create_time": refreshed_result.create_time.isoformat(),
+        "update_time": refreshed_result.update_time.isoformat(),
     }
 
 
@@ -758,15 +1350,22 @@ async def _run_user_message_pipeline(
     payload: UserMessagePayload,
 ) -> None:
     """
-    鐪熸鎵ц涓€杞?user_message 鐨勫畬鏁撮摼璺€?
-    褰撳墠閾捐矾椤哄簭锛?    1. 鐢ㄦ埛娑堟伅钀藉簱
-    2. 绔嬪埢鍏堟洿鏂?progress 蹇収
-    3. conversation_prompt 鍩轰簬鈥滄渶鏂?progress鈥濇祦寮忕敓鎴?assistant
-    4. assistant 缁撴潫鍚庯紝鎶婂垰鎵嶅凡缁忚绠楀ソ鐨?progress 鍥炵粰鍓嶇
+    真正执行一轮 user_message 的完整链路。
 
-    杩欐牱璁捐鐨勬牳蹇冪洰鐨勶紝鏄伩鍏?assistant 鍦ㄥ綋鍓嶈疆閲屼粛鐒剁湅鍒颁笂涓€杞棫杩涘害锛?    浠庤€岄噸澶嶈拷闂敤鎴峰垰鍒氬凡缁忓洖绛旇繃鐨勬Ы浣嶃€?    """
+    当前链路顺序：
+    1. 用户消息落库
+    2. 先执行 progress_extraction，更新本轮最新进度
+    3. 再基于最新 progress 调用 conversation，流式生成 assistant 回复
+    4. assistant 结束后保存回复并回写当前阶段
+
+    中文注释：
+    这里显式停用 conversation_with_progress 的合并链路，恢复为两个独立 prompt：
+    - student_profile_build.progress_extraction
+    - student_profile_build.conversation
+    """
 
     try:
+        progress_result: dict[str, Any] = {}
         with log_timed_step(
             logger,
             flow_name="AI对话",
@@ -801,70 +1400,43 @@ async def _run_user_message_pipeline(
                 },
             )
 
-            await _send_event(
-                websocket,
-                event_type="stage_changed",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-                payload={
-                    "current_stage": "progress_updating",
-                },
+        await _send_event(
+            websocket,
+            event_type="stage_changed",
+            request_id=envelope.request_id,
+            session_id=context.session_id,
+            payload={
+                "current_stage": "progress_updating",
+            },
+        )
+
+        with log_timed_step(
+            logger,
+            flow_name="AI对话",
+            step_name="执行进度提取",
+            student_id=context.student_id,
+            session_id=context.session_id,
+        ):
+            progress_result = await asyncio.to_thread(
+                _run_progress_update_pipeline_sync,
+                context.student_id,
+                context.session_id,
+                context.biz_domain,
             )
 
-            with log_timed_step(
-                logger,
-                flow_name="AI对话",
-                step_name="执行进度提取",
-                student_id=context.student_id,
-                session_id=context.session_id,
-            ):
-                progress_result = await asyncio.to_thread(
-                    _run_progress_update_pipeline_sync,
-                    context.student_id,
-                    context.session_id,
-                    context.biz_domain,
-                )
+        await _send_event(
+            websocket,
+            event_type="progress_updated",
+            request_id=envelope.request_id,
+            session_id=context.session_id,
+            payload={
+                "missing_dimensions": progress_result.get("missing_dimensions", []),
+                "next_question_focus": progress_result.get("next_question_focus"),
+                "stop_ready": progress_result.get("stop_ready", False),
+                "dimension_progress": progress_result.get("dimension_progress", {}),
+            },
+        )
 
-        if manager.is_cancel_requested(websocket):
-            await _send_event(
-                websocket,
-                event_type="progress_updated",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-                payload={
-                    "missing_dimensions": progress_result.get("missing_dimensions", []),
-                    "next_question_focus": progress_result.get("next_question_focus"),
-                    "stop_ready": progress_result.get("stop_ready", False),
-                    "dimension_progress": progress_result.get("dimension_progress", {}),
-                },
-            )
-            manager.clear_generation_runtime(websocket)
-            await _send_event(
-                websocket,
-                event_type="generation_cancelled",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-                payload={
-                    "discarded_partial_reply": False,
-                },
-            )
-            await _send_event(
-                websocket,
-                event_type="stage_changed",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-                payload={
-                    "current_stage": "build_ready" if progress_result.get("stop_ready") else "conversation",
-                    "conversation_phase": None if progress_result.get("stop_ready") else "ready_for_input",
-                },
-            )
-            return
-
-        # 中文注释：
-        # `conversation` 这个阶段在当前系统里有两种语义：
-        # 1. `generating_assistant`：本轮正在调用 conversation_prompt 生成助手回复
-        # 2. `ready_for_input`：本轮已经结束，可以继续输入下一条消息
-        # 如果只发一个裸的 `conversation`，前端无法区分这两种状态，就会误把“已可继续输入”当成“仍在生成中”。
         await _send_event(
             websocket,
             event_type="stage_changed",
@@ -889,10 +1461,11 @@ async def _run_user_message_pipeline(
                 context.session_id,
                 progress_result,
             )
+
         with log_timed_step(
             logger,
             flow_name="AI对话",
-            step_name="打开流式回复连接",
+            step_name="打开回复流式连接",
             student_id=context.student_id,
             session_id=context.session_id,
         ):
@@ -918,18 +1491,6 @@ async def _run_user_message_pipeline(
         manager.set_stream_close_callback(websocket, None)
 
         if cancelled:
-            await _send_event(
-                websocket,
-                event_type="progress_updated",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-                payload={
-                    "missing_dimensions": progress_result.get("missing_dimensions", []),
-                    "next_question_focus": progress_result.get("next_question_focus"),
-                    "stop_ready": progress_result.get("stop_ready", False),
-                    "dimension_progress": progress_result.get("dimension_progress", {}),
-                },
-            )
             manager.clear_generation_runtime(websocket)
             await _send_event(
                 websocket,
@@ -951,6 +1512,9 @@ async def _run_user_message_pipeline(
                 },
             )
             return
+
+        if not assistant_content:
+            raise ValueError("conversation 未能产出可保存的助手回复。")
 
         with log_timed_step(
             logger,
@@ -980,58 +1544,10 @@ async def _run_user_message_pipeline(
             },
         )
 
-        if manager.is_cancel_requested(websocket):
-            await _send_event(
-                websocket,
-                event_type="progress_updated",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-                payload={
-                    "missing_dimensions": progress_result.get("missing_dimensions", []),
-                    "next_question_focus": progress_result.get("next_question_focus"),
-                    "stop_ready": progress_result.get("stop_ready", False),
-                    "dimension_progress": progress_result.get("dimension_progress", {}),
-                },
-            )
-            manager.clear_generation_runtime(websocket)
-            await _send_event(
-                websocket,
-                event_type="generation_cancelled",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-                payload={
-                    "discarded_partial_reply": False,
-                },
-            )
-            await _send_event(
-                websocket,
-                event_type="stage_changed",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-                payload={
-                    "current_stage": "build_ready" if progress_result.get("stop_ready") else "conversation",
-                    "conversation_phase": None if progress_result.get("stop_ready") else "ready_for_input",
-                },
-            )
-            return
-
-        await _send_event(
-            websocket,
-            event_type="progress_updated",
-            request_id=envelope.request_id,
-            session_id=context.session_id,
-            payload={
-                "missing_dimensions": progress_result.get("missing_dimensions", []),
-                "next_question_focus": progress_result.get("next_question_focus"),
-                "stop_ready": progress_result.get("stop_ready", False),
-                "dimension_progress": progress_result.get("dimension_progress", {}),
-            },
-        )
-
-        # 涓枃娉ㄩ噴锛?        # 杩欓噷鏈変竴涓潪甯稿叧閿殑鏃跺簭闂锛?        # 1. 鍓嶇浼氭妸鎺ヤ笅鏉ヨ繖鏉?`stage_changed: conversation` 鐞嗚В鎴愨€滄湰杞凡缁忓鐞嗗畬锛屽彲浠ョ户缁彂涓嬩竴鏉℃秷鎭€?        # 2. 浣嗗鏋滀粛鐒剁瓑鍒?task.done_callback 閲屾墠娓呯悊 generation 杩愯鎬侊紝
-        #    閭ｄ箞鐢ㄦ埛鍦ㄦ敹鍒拌繖鏉′簨浠跺悗绔嬪埢鍙戦€佷笅涓€鏉℃秷鎭紝灏变細琚悗绔鍒ゆ垚
-        #    鈥滃綋鍓嶅凡鏈変竴杞敓鎴愭鍦ㄨ繘琛屼腑鈥?        # 3. 鍥犳瑕佸湪鍙戝嚭鈥滃彲缁х画瀵硅瘽鈥濈殑闃舵浜嬩欢涔嬪墠锛屽厛閲婃斁鏈疆鐢熸垚閿侊紝
-        #    淇濊瘉鍓嶇鐪嬪埌鍙彂閫佺姸鎬佹椂锛屽悗绔篃宸茬粡鐪熸鍏佽涓嬩竴杞繘鍏?        manager.clear_generation_runtime(websocket)
+        # 中文注释：
+        # 这里仍然要在发出“可继续输入”的阶段事件前，先释放本轮 generation 运行态，
+        # 否则前端刚收到 ready_for_input 就立刻发下一条消息时，会被后端误判成“当前仍有生成在进行中”。
+        manager.clear_generation_runtime(websocket)
 
         next_stage = "build_ready" if progress_result.get("stop_ready") else "conversation"
         log_flow_info(
@@ -1166,6 +1682,91 @@ async def _stream_assistant_tokens(
         )
 
 
+async def _stream_conversation_with_progress_tokens(
+    *,
+    websocket: WebSocket,
+    envelope: AiChatWsEnvelope,
+    context: AiChatConnectionContext,
+    stream_session: PromptStreamSession,
+) -> tuple[bool, str, str]:
+    """
+    流式读取 conversation_with_progress 的输出。
+
+    返回值：
+    1. 是否被用户主动取消
+    2. 模型完整原始输出
+    3. 已经成功抽取并推送给前端的 assistant 文本
+    """
+
+    raw_output_text = ""
+    assistant_text = ""
+    chunk_count = 0
+    first_token_logged = False
+    stream_started_at = perf_counter()
+    parser = CombinedConversationStreamParser()
+
+    while True:
+        if manager.is_cancel_requested(websocket):
+            stream_session.close()
+            return True, raw_output_text, assistant_text
+
+        stream_step = await asyncio.to_thread(
+            _read_next_stream_chunk_sync,
+            stream_session.iterator,
+        )
+        if stream_step["done"]:
+            error = stream_step["error"]
+            if manager.is_cancel_requested(websocket):
+                return True, raw_output_text, assistant_text
+            if error is not None:
+                raise PromptRuntimeError(f"流式生成中断：{error}") from error
+            log_flow_info(
+                logger,
+                flow_name="AI对话",
+                step_name="流式生成回复与进度",
+                student_id=context.student_id,
+                session_id=context.session_id,
+                message=f"流式回复结束，共返回 {chunk_count} 个分片，总耗时 {(perf_counter() - stream_started_at) * 1000:.2f} ms",
+            )
+            return False, raw_output_text, assistant_text
+
+        chunk = stream_step["chunk"]
+        if not isinstance(chunk, PromptStreamChunk):
+            continue
+
+        if manager.is_cancel_requested(websocket):
+            stream_session.close()
+            return True, raw_output_text, assistant_text
+
+        raw_output_text = chunk.accumulated_text
+        chunk_count += 1
+        visible_delta = parser.feed(chunk.delta_text)
+        if not visible_delta:
+            continue
+
+        assistant_text += visible_delta
+        if not first_token_logged:
+            first_token_logged = True
+            log_flow_info(
+                logger,
+                flow_name="AI对话",
+                step_name="流式生成回复与进度",
+                student_id=context.student_id,
+                session_id=context.session_id,
+                message=f"已收到首个可展示回复分片，首字耗时 {(perf_counter() - stream_started_at) * 1000:.2f} ms",
+            )
+        await _send_event(
+            websocket,
+            event_type="assistant_token",
+            request_id=envelope.request_id,
+            session_id=context.session_id,
+            payload={
+                "delta_text": visible_delta,
+                "accumulated_text": assistant_text,
+            },
+        )
+
+
 def _on_generation_task_done(websocket: WebSocket, task: asyncio.Task[Any]) -> None:
     """
     鍚庡彴鐢熸垚浠诲姟缁撴潫鍚庣殑缁熶竴娓呯悊鍥炶皟銆?
@@ -1216,18 +1817,38 @@ def _load_conversation_context_sync(
         db.close()
 
 
-def _open_conversation_stream_session_sync(context: dict[str, Any]) -> PromptStreamSession:
-    """在线程中打开 conversation_prompt 的上游流式会话。"""
+def _open_stream_session_sync(prompt_key: str, context: dict[str, Any]) -> PromptStreamSession:
+    """在线程中按指定 prompt_key 打开上游流式会话。"""
 
     db = SessionLocal()
     try:
         return stream_prompt_with_context(
             db,
-            prompt_key=CONVERSATION_PROMPT_KEY,
+            prompt_key=prompt_key,
             context=context,
         )
     finally:
         db.close()
+
+
+def _open_conversation_stream_session_sync(context: dict[str, Any]) -> PromptStreamSession:
+    """在线程中打开 conversation_prompt 的上游流式会话。"""
+
+    return _open_stream_session_sync(
+        CONVERSATION_PROMPT_KEY,
+        context,
+    )
+
+
+def _open_conversation_with_progress_stream_session_sync(
+    context: dict[str, Any],
+) -> PromptStreamSession:
+    """在线程中打开 conversation_with_progress 的上游流式会话。"""
+
+    return _open_stream_session_sync(
+        CONVERSATION_WITH_PROGRESS_PROMPT_KEY,
+        context,
+    )
 
 
 def _read_next_stream_chunk_sync(iterator):
@@ -1277,14 +1898,40 @@ def _persist_assistant_message_sync(
         db.close()
 
 
+def _persist_progress_result_sync(
+    student_id: str,
+    session_id: str,
+    progress_result: dict[str, Any],
+    progress_context: dict[str, Any] | None = None,
+):
+    """在线程中保存一份已由合并 prompt 返回的 progress 结果。"""
+
+    db = SessionLocal()
+    try:
+        return persist_progress_result(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+            progress_result=progress_result,
+            progress_context=progress_context,
+        )
+    finally:
+        db.close()
+
+
 def _run_progress_update_pipeline_sync(
     student_id: str,
     session_id: str,
     biz_domain: str,
 ):
     """
-    鍦ㄧ嚎绋嬩腑鎵ц褰撳墠杞殑 progress_extraction 鏇存柊銆?
-    涓枃娉ㄩ噴锛?    杩欎竴姝ョ幇鍦ㄥ彂鐢熷湪 assistant 鍥炲涔嬪墠锛?    瀹冪殑杈撳嚭浼氱洿鎺ヤ綔涓?conversation_prompt 鐨勬渶鏂颁笂涓嬫枃杈撳叆銆?    """
+    在线程中执行旧版 progress_extraction 链路。
+
+    中文注释：
+    1. 正常情况下，conversation_with_progress 会在单次调用里直接返回 progress JSON。
+    2. 如果合并输出解析失败，或语义校验发现 progress_result 明显不可信，
+       都会回退到这里单独跑旧版 progress_extraction。
+    """
 
     db = SessionLocal()
     try:

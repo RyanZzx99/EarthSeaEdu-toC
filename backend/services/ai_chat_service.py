@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import json
 import logging
 from typing import Any
 from uuid import uuid4
@@ -463,6 +464,48 @@ def get_latest_progress_state(
     return None
 
 
+def get_session_summary_json(
+    db: Session,
+    *,
+    session_id: str,
+) -> dict[str, Any] | None:
+    """
+    读取当前会话已保存的 session_summary。
+
+    中文注释：
+    1. session_summary 当前落在 ai_chat_sessions.session_summary 文本字段里。
+    2. 这里统一负责把 JSON 字符串解析成 dict，供 progress / extraction 复用。
+    3. 若字段为空或历史脏数据解析失败，则返回 None，不向上抛异常。
+    """
+
+    stmt = (
+        select(AiChatSession.session_summary)
+        .where(AiChatSession.session_id == session_id)
+        .where(AiChatSession.delete_flag == "1")
+        .limit(1)
+    )
+    row = db.execute(stmt).first()
+    if row is None:
+        return None
+
+    raw_summary = row[0]
+    if not raw_summary:
+        return None
+    if isinstance(raw_summary, dict):
+        return raw_summary
+    if not isinstance(raw_summary, str):
+        return None
+
+    try:
+        parsed_summary = json.loads(raw_summary)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+    if isinstance(parsed_summary, dict):
+        return parsed_summary
+    return None
+
+
 def update_session_progress(
     db: Session,
     *,
@@ -477,10 +520,10 @@ def update_session_progress(
     1. collected_slots_json
     2. missing_dimensions_json
     3. current_stage
-
     说明：
     1. 这里不把完整 progress JSON 平铺到 session 表，是为了避免 session 表字段膨胀。
     2. 完整的 progress 结果仍保存在 internal_state 消息中。
+    3. 这次调整后不再由 progress_extraction 维护 session_summary。
     """
 
     session = _get_required_active_session(

@@ -1,5 +1,13 @@
-import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+} from "recharts";
 import {
   checkMyNickname,
   checkMyPassword,
@@ -8,13 +16,370 @@ import {
   setPassword,
   updateMyNickname,
 } from "../api/auth";
+import {
+  getAiChatArchiveForm,
+  getCurrentAiChatSession,
+  regenerateAiChatArchiveRadar,
+  saveAiChatArchiveForm,
+} from "../api/aiChat";
 
 const PASSWORD_MIN_LENGTH = 8;
 const PASSWORD_MAX_LENGTH = 24;
 const BCRYPT_PASSWORD_MAX_BYTES = 72;
+const AI_CHAT_BIZ_DOMAIN = "student_profile_build";
+const AI_CHAT_SESSION_CACHE_KEY = "latest_ai_chat_session_id";
+const RADAR_LABELS = {
+  academic: "学术成绩",
+  language: "语言能力",
+  standardized: "标化考试",
+  competition: "学术竞赛",
+  activity: "活动领导力",
+  project: "项目实践",
+};
+
+const RADAR_COLORS = {
+  academic: { from: "#2c4a8a", to: "#4f7ad6", bg: "rgba(44,74,138,0.10)" },
+  language: { from: "#0f9f7c", to: "#34d399", bg: "rgba(15,159,124,0.10)" },
+  standardized: { from: "#c77b18", to: "#f59e0b", bg: "rgba(245,158,11,0.12)" },
+  competition: { from: "#9c4ddb", to: "#c084fc", bg: "rgba(156,77,219,0.12)" },
+  activity: { from: "#cc4e74", to: "#f472b6", bg: "rgba(244,114,182,0.12)" },
+  project: { from: "#0891b2", to: "#22d3ee", bg: "rgba(34,211,238,0.12)" },
+};
+
+const CURRICULUM_MODULES = {
+  CHINESE_HIGH_SCHOOL: {
+    label: "中国普高",
+    tables: ["student_academic_chinese_high_school_subject"],
+  },
+  A_LEVEL: {
+    label: "A-Level",
+    tables: ["student_academic_a_level_subject"],
+  },
+  AP: {
+    label: "AP",
+    tables: ["student_academic_ap_profile", "student_academic_ap_course"],
+  },
+  IB: {
+    label: "IB",
+    tables: ["student_academic_ib_profile", "student_academic_ib_subject"],
+  },
+};
+
+const CURRICULUM_TABLE_NAMES = new Set(
+  Object.values(CURRICULUM_MODULES).flatMap((item) => item.tables)
+);
+
+const LANGUAGE_DETAIL_TABLES = [
+  "student_language_ielts",
+  "student_language_toefl_ibt",
+  "student_language_toefl_essentials",
+  "student_language_det",
+  "student_language_pte",
+  "student_language_languagecert",
+  "student_language_cambridge",
+  "student_language_other",
+];
+
+const LANGUAGE_DETAIL_TABLE_NAME_SET = new Set(LANGUAGE_DETAIL_TABLES);
+
+const NON_CONTENT_FIELD_NAMES = new Set([
+  "student_id",
+  "student_academic_id",
+  "student_language_id",
+  "student_standardized_test_id",
+  "schema_version",
+  "profile_type",
+  "notes",
+]);
+
+const STANDARDIZED_ACT_FIELDS = new Set([
+  "act_english",
+  "act_math",
+  "act_reading",
+  "act_science",
+]);
+
+const STANDARDIZED_SAT_FIELDS = new Set(["sat_erw", "sat_math"]);
+
+function normalizeArchiveBundle(data) {
+  const radarScores = data?.radar_scores_json || {};
+
+  return {
+    session_id: data?.session_id || "",
+    archive_form: data?.archive_form || {},
+    form_meta: data?.form_meta || { table_order: [], tables: {} },
+    result_status: data?.result_status || null,
+    summary_text: data?.summary_text || "当前档案已保存，但还没有生成完整总结。",
+    radar_scores_json: {
+      academic: radarScores.academic || { score: 0, reason: "暂无有效学术评分说明" },
+      language: radarScores.language || { score: 0, reason: "暂无有效语言评分说明" },
+      standardized: radarScores.standardized || { score: 0, reason: "暂无有效标化评分说明" },
+      competition: radarScores.competition || { score: 0, reason: "暂无有效竞赛评分说明" },
+      activity: radarScores.activity || { score: 0, reason: "暂无有效活动评分说明" },
+      project: radarScores.project || { score: 0, reason: "暂无有效项目评分说明" },
+    },
+    save_error_message: data?.save_error_message || "",
+    create_time: data?.create_time || "",
+    update_time: data?.update_time || "",
+  };
+}
+
+function deepClone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function getArchiveStatusText(resultStatus) {
+  if (resultStatus === "saved") {
+    return "档案创建完成";
+  }
+  if (resultStatus === "generated") {
+    return "六维图已生成，档案待保存";
+  }
+  if (resultStatus === "failed") {
+    return "档案保存失败";
+  }
+  return "暂无状态";
+}
+
+function buildFieldOptionLabelMap(formMeta) {
+  const labelMap = {};
+  Object.entries(formMeta?.tables || {}).forEach(([tableName, tableMeta]) => {
+    labelMap[tableName] = {};
+    (tableMeta?.fields || []).forEach((field) => {
+      if (!Array.isArray(field.options) || field.options.length === 0) {
+        return;
+      }
+      labelMap[tableName][field.name] = Object.fromEntries(
+        field.options.map((option) => [String(option.value), option.label])
+      );
+    });
+  });
+  return labelMap;
+}
+
+function formatOptionValue(optionMap, value) {
+  if (value === null || value === undefined || value === "") {
+    return "";
+  }
+  return optionMap?.[String(value)] || String(value);
+}
+
+function buildArchiveOverview(archiveForm, optionLabelMap) {
+  const basicInfo = archiveForm?.student_basic_info || {};
+  const academic = archiveForm?.student_academic || {};
+  const language = archiveForm?.student_language || {};
+  const standardized = archiveForm?.student_standardized_tests || {};
+  const curriculumCodeLabels = optionLabelMap?.student_basic_info_curriculum_system?.curriculum_system_code || {};
+  const languageTypeLabels = optionLabelMap?.student_language?.best_test_type_code || {};
+  const curriculumSystems = Array.isArray(archiveForm?.student_basic_info_curriculum_system)
+    ? archiveForm.student_basic_info_curriculum_system
+        .map((item) => item?.curriculum_system_code)
+        .filter(Boolean)
+        .map((item) => formatOptionValue(curriculumCodeLabels, item))
+    : [];
+
+  return [
+    { label: "当前年级", value: basicInfo.current_grade || "未填写" },
+    { label: "目标入学季", value: basicInfo.target_entry_term || "未填写" },
+    { label: "课程体系", value: curriculumSystems.join("、") || "未填写" },
+    { label: "学校名称", value: academic.school_name || "未填写" },
+    { label: "所在城市", value: academic.school_city || "未填写" },
+    { label: "最佳语言考试", value: formatOptionValue(languageTypeLabels, language.best_test_type_code) || "未填写" },
+    { label: "最佳标化考试", value: standardized.best_test_type || "未填写" },
+    { label: "竞赛条数", value: String((archiveForm?.student_competition_entries || []).length) },
+    { label: "活动条数", value: String((archiveForm?.student_activity_entries || []).length) },
+    { label: "项目条数", value: String((archiveForm?.student_project_entries || []).length) },
+  ];
+}
+
+function hasMeaningfulValue(value) {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (typeof value === "string") {
+    return value.trim() !== "";
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => hasMeaningfulValue(item));
+  }
+  if (typeof value === "object") {
+    return Object.entries(value).some(
+      ([key, item]) => !NON_CONTENT_FIELD_NAMES.has(key) && hasMeaningfulValue(item)
+    );
+  }
+  return true;
+}
+
+function getActiveCurriculumCodes(archiveForm) {
+  // 中文注释：
+  // 课程体系模块既要响应用户在“课程体系”里新选的值，
+  // 也要自动兜住数据库里已经存在成绩数据的课程体系，避免用户必须先手动再选一次才能看到旧数据。
+  const selectedCodes = new Set(
+    (archiveForm?.student_basic_info_curriculum_system || [])
+      .map((item) => item?.curriculum_system_code)
+      .filter(Boolean)
+  );
+
+  Object.entries(CURRICULUM_MODULES).forEach(([curriculumCode, module]) => {
+    const hasModuleData = module.tables.some((tableName) =>
+      hasMeaningfulValue(archiveForm?.[tableName])
+    );
+    if (hasModuleData) {
+      selectedCodes.add(curriculumCode);
+    }
+  });
+
+  return Array.from(selectedCodes);
+}
+
+function buildEmptyRow(fields) {
+  const row = {};
+  fields.forEach((field) => {
+    if (field.input_type === "checkbox") {
+      row[field.name] = false;
+      return;
+    }
+    row[field.name] = null;
+  });
+  return row;
+}
+
+function buildArchiveSectionKeys(detailTableNames, hasLanguageDetailTables) {
+  const sectionKeys = [
+    "student_basic_info",
+    "curriculum_module",
+    "student_academic",
+  ];
+
+  if (hasLanguageDetailTables) {
+    sectionKeys.push("language_detail_module");
+  }
+
+  return [...sectionKeys, ...detailTableNames];
+}
+
+function shouldRenderRowField(tableName, row, field) {
+  if (field.hidden) {
+    return false;
+  }
+
+  if (tableName !== "student_standardized_test_records") {
+    return true;
+  }
+
+  const testType = String(row?.test_type || "").toUpperCase();
+  const status = String(row?.status || "").toUpperCase();
+
+  if (STANDARDIZED_ACT_FIELDS.has(field.name)) {
+    return testType === "ACT";
+  }
+  if (STANDARDIZED_SAT_FIELDS.has(field.name)) {
+    return testType === "SAT";
+  }
+  if (field.name === "total_score") {
+    return status === "SCORED";
+  }
+  if (field.name === "estimated_total_score") {
+    return status === "PLANNED" || status === "ESTIMATED";
+  }
+
+  return true;
+}
+
+function toInputValue(value, inputType) {
+  if (inputType === "checkbox") {
+    return Boolean(value);
+  }
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value, null, 2);
+  }
+  return String(value);
+}
+
+function normalizeChangedValue(rawValue, inputType) {
+  if (inputType === "checkbox") {
+    return rawValue ? 1 : 0;
+  }
+  if (rawValue === "") {
+    return null;
+  }
+  if (inputType === "number") {
+    const numericValue = Number(rawValue);
+    return Number.isNaN(numericValue) ? null : numericValue;
+  }
+  return rawValue;
+}
+
+function renderFieldControl({ field, value, onChange }) {
+  if (field.hidden) {
+    return null;
+  }
+
+  if (field.input_type === "checkbox") {
+    return (
+      <label className="profile-form-checkbox">
+        <input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} />
+        <span>{field.label}</span>
+      </label>
+    );
+  }
+
+  if (field.input_type === "select") {
+    const options = Array.isArray(field.options) ? field.options : [];
+    const hasCurrentValue = value !== null && value !== undefined && value !== "";
+    const hasMatchedCurrentValue = hasCurrentValue
+      ? options.some((option) => String(option.value) === String(value))
+      : true;
+    // 中文注释：
+    // 如果数据库里的旧值不在当前下拉选项中，前端仍然要把它显示出来，
+    // 否则学生一打开档案页就会看到“空值”，容易误以为原始数据丢失了。
+    const normalizedOptions = hasMatchedCurrentValue
+      ? options
+      : [{ value, label: `当前值：${value}` }, ...options];
+
+    return (
+      <select className="profile-form-control" value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
+        <option value="">请选择</option>
+        {normalizedOptions.map((option) => (
+          <option key={`${field.name}-${option.value}`} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  if (field.input_type === "textarea") {
+    return (
+      <textarea
+        className="profile-form-control profile-form-textarea"
+        value={toInputValue(value, field.input_type)}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    );
+  }
+
+  return (
+    <input
+      className="profile-form-control"
+      type={field.input_type === "date" ? "date" : field.input_type === "number" ? "number" : "text"}
+      step={field.input_type === "number" ? "any" : undefined}
+      value={toInputValue(value, field.input_type)}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
 
 export default function ProfilePage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const archiveCollapseSeedSessionRef = useRef("");
+  const activeTab = searchParams.get("tab") === "archive" ? "archive" : "account";
+  const requestedArchiveSessionId = (searchParams.get("session_id") || "").trim();
+
   const [loading, setLoading] = useState(false);
   const [setPasswordLoading, setSetPasswordLoading] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
@@ -32,12 +397,115 @@ export default function ProfilePage() {
   const [passwordForm, setPasswordForm] = useState({ new_password: "", confirm_password: "" });
   const [nicknameForm, setNicknameForm] = useState({ nickname: "" });
 
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [archiveSaving, setArchiveSaving] = useState(false);
+  const [archiveRegenerating, setArchiveRegenerating] = useState(false);
+  const [archiveSessionId, setArchiveSessionId] = useState("");
+  const [archiveBundle, setArchiveBundle] = useState(null);
+  const [archiveFormState, setArchiveFormState] = useState({});
+  const [archiveMessage, setArchiveMessage] = useState("");
+  const [archiveErrorMessage, setArchiveErrorMessage] = useState("");
+  const [activeLanguageDetailTable, setActiveLanguageDetailTable] = useState("");
+  const [collapsedArchiveSections, setCollapsedArchiveSections] = useState({});
+
+  const savedArchiveSnapshot = useMemo(() => JSON.stringify(archiveBundle?.archive_form || {}), [archiveBundle]);
+  const currentArchiveSnapshot = useMemo(() => JSON.stringify(archiveFormState || {}), [archiveFormState]);
+  const isArchiveDirty = Boolean(archiveBundle) && savedArchiveSnapshot !== currentArchiveSnapshot;
+  const fieldOptionLabelMap = useMemo(
+    () => buildFieldOptionLabelMap(archiveBundle?.form_meta),
+    [archiveBundle?.form_meta]
+  );
+  const radarChartData = useMemo(
+    () =>
+      Object.entries(archiveBundle?.radar_scores_json || {}).map(([key, value]) => ({
+        subject: RADAR_LABELS[key] || key,
+        score: value.score || 0,
+      })),
+    [archiveBundle?.radar_scores_json]
+  );
+  const activeCurriculumCodes = useMemo(
+    () => getActiveCurriculumCodes(archiveFormState),
+    [archiveFormState]
+  );
+  const availableLanguageDetailTables = useMemo(
+    () =>
+      LANGUAGE_DETAIL_TABLES.filter((tableName) => archiveBundle?.form_meta?.tables?.[tableName]),
+    [archiveBundle?.form_meta?.tables]
+  );
+  const preferredLanguageDetailTable = useMemo(
+    () =>
+      availableLanguageDetailTables.find((tableName) => hasMeaningfulValue(archiveBundle?.archive_form?.[tableName])) ||
+      availableLanguageDetailTables[0] ||
+      "",
+    [availableLanguageDetailTables, archiveBundle?.archive_form]
+  );
+  const detailTableNames = useMemo(
+    () =>
+      (archiveBundle?.form_meta?.table_order || []).filter(
+        (tableName) =>
+          tableName !== "student_basic_info" &&
+          tableName !== "student_basic_info_curriculum_system" &&
+          tableName !== "student_academic" &&
+          tableName !== "student_language" &&
+          !LANGUAGE_DETAIL_TABLE_NAME_SET.has(tableName) &&
+          !CURRICULUM_TABLE_NAMES.has(tableName)
+      ),
+    [archiveBundle?.form_meta?.table_order]
+  );
+  const archiveSectionKeys = useMemo(
+    () => buildArchiveSectionKeys(detailTableNames, availableLanguageDetailTables.length > 0),
+    [detailTableNames, availableLanguageDetailTables.length]
+  );
+
   useEffect(() => {
-    fetchProfile();
+    void fetchProfile();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "archive") {
+      void fetchArchive();
+    }
+  }, [activeTab, requestedArchiveSessionId]);
+
+  useEffect(() => {
+    setActiveLanguageDetailTable((previous) => {
+      if (previous && availableLanguageDetailTables.includes(previous)) {
+        return previous;
+      }
+      return preferredLanguageDetailTable;
+    });
+  }, [availableLanguageDetailTables, preferredLanguageDetailTable]);
+
+  useEffect(() => {
+    if (!archiveBundle || archiveSectionKeys.length === 0) {
+      return;
+    }
+
+    setCollapsedArchiveSections((previous) => {
+      const isNewSession =
+        Boolean(archiveSessionId) && archiveCollapseSeedSessionRef.current !== archiveSessionId;
+      const nextState = {};
+
+      archiveSectionKeys.forEach((sectionKey) => {
+        nextState[sectionKey] = isNewSession ? true : previous[sectionKey] ?? true;
+      });
+
+      archiveCollapseSeedSessionRef.current = archiveSessionId;
+      return nextState;
+    });
+  }, [archiveBundle, archiveSessionId, archiveSectionKeys]);
 
   function notify(message) {
     window.alert(message);
+  }
+
+  function switchTab(nextTab) {
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.set("tab", nextTab);
+    if (nextTab === "archive" && archiveSessionId) {
+      nextSearchParams.set("session_id", archiveSessionId);
+    }
+    setSearchParams(nextSearchParams);
   }
 
   function getUtf8ByteLength(value) {
@@ -63,30 +531,24 @@ export default function ProfilePage() {
     if (value.length < PASSWORD_MIN_LENGTH || value.length > PASSWORD_MAX_LENGTH) {
       return "密码长度需为 8-24 位";
     }
-
     if (/\s/.test(value)) {
       return "密码不能包含空格";
     }
-
     const hasLetter = /[A-Za-z]/.test(value);
     const hasDigit = /\d/.test(value);
     const hasSpecial = /[^A-Za-z0-9]/.test(value);
     const categoryCount = [hasLetter, hasDigit, hasSpecial].filter(Boolean).length;
-
     if (categoryCount < 2) {
-      return "密码至少需包含字母、数字、特殊字符中的 2 种";
+      return "密码至少需要包含字母、数字、特殊字符中的 2 种";
     }
-
     if (getUtf8ByteLength(value) > BCRYPT_PASSWORD_MAX_BYTES) {
       return "密码字节长度不能超过 72 bytes";
     }
-
     return "";
   }
 
   async function fetchProfile() {
     setErrorMessage("");
-
     try {
       setLoading(true);
       const response = await getMe();
@@ -95,7 +557,6 @@ export default function ProfilePage() {
     } catch (error) {
       const detail = error?.response?.data?.detail || "获取用户信息失败";
       setErrorMessage(detail);
-
       if (error?.response?.status === 401) {
         localStorage.removeItem("access_token");
         navigate("/login", { replace: true });
@@ -105,33 +566,185 @@ export default function ProfilePage() {
     }
   }
 
-  function handleOpenPasswordEditor() {
-    setShowPasswordEditor(true);
-    setPasswordForm({ new_password: "", confirm_password: "" });
-    resetPasswordCheckResult();
+  async function fetchArchive() {
+    setArchiveMessage("");
+    setArchiveErrorMessage("");
+
+    try {
+      setArchiveLoading(true);
+      let targetSessionId = requestedArchiveSessionId;
+
+      if (!targetSessionId) {
+        try {
+          const currentResponse = await getCurrentAiChatSession(AI_CHAT_BIZ_DOMAIN);
+          targetSessionId = currentResponse.data?.session?.session_id || "";
+        } catch (error) {
+          console.info("当前没有可恢复的 AI 建档会话", error);
+        }
+      }
+
+      if (!targetSessionId) {
+        targetSessionId = localStorage.getItem(AI_CHAT_SESSION_CACHE_KEY) || "";
+      }
+
+      if (!targetSessionId) {
+        setArchiveSessionId("");
+        setArchiveBundle(null);
+        setArchiveFormState({});
+        return;
+      }
+
+      const response = await getAiChatArchiveForm(targetSessionId);
+      const normalizedBundle = normalizeArchiveBundle(response.data);
+
+      setArchiveSessionId(targetSessionId);
+      setArchiveBundle(normalizedBundle);
+      setArchiveFormState(deepClone(normalizedBundle.archive_form));
+      localStorage.setItem(AI_CHAT_SESSION_CACHE_KEY, targetSessionId);
+
+      if (requestedArchiveSessionId !== targetSessionId) {
+        const nextSearchParams = new URLSearchParams(searchParams);
+        nextSearchParams.set("tab", "archive");
+        nextSearchParams.set("session_id", targetSessionId);
+        setSearchParams(nextSearchParams, { replace: true });
+      }
+    } catch (error) {
+      if (error?.response?.status === 404) {
+        setArchiveBundle(null);
+        setArchiveSessionId("");
+        setArchiveFormState({});
+        setArchiveErrorMessage("当前还没有可查看的档案结果，请先回首页生成六维图并完成建档。");
+      } else {
+        setArchiveErrorMessage(error?.response?.data?.detail || "档案加载失败，请稍后重试。");
+      }
+    } finally {
+      setArchiveLoading(false);
+    }
   }
 
-  function handleCancelPasswordEdit() {
-    setShowPasswordEditor(false);
-    setPasswordForm({ new_password: "", confirm_password: "" });
-    resetPasswordCheckResult();
+  function updateSingleField(tableName, fieldName, nextValue) {
+    setArchiveFormState((previous) => ({
+      ...previous,
+      [tableName]: {
+        ...(previous[tableName] || {}),
+        [fieldName]: nextValue,
+      },
+    }));
   }
 
-  function handleCancelNicknameEdit() {
-    setShowNicknameEditor(false);
-    setNicknameForm({ nickname: profile?.nickname || "" });
-    resetNicknameCheckResult();
+  function updateRowField(tableName, rowIndex, fieldName, nextValue) {
+    setArchiveFormState((previous) => {
+      const nextRows = Array.isArray(previous[tableName]) ? [...previous[tableName]] : [];
+      nextRows[rowIndex] = {
+        ...(nextRows[rowIndex] || {}),
+        [fieldName]: nextValue,
+      };
+      return {
+        ...previous,
+        [tableName]: nextRows,
+      };
+    });
+  }
+
+  function handleAddRow(tableName) {
+    const fields = archiveBundle?.form_meta?.tables?.[tableName]?.fields || [];
+    setArchiveFormState((previous) => ({
+      ...previous,
+      [tableName]: [...(Array.isArray(previous[tableName]) ? previous[tableName] : []), buildEmptyRow(fields)],
+    }));
+  }
+
+  function handleRemoveRow(tableName, rowIndex) {
+    setArchiveFormState((previous) => ({
+      ...previous,
+      [tableName]: (Array.isArray(previous[tableName]) ? previous[tableName] : []).filter((_, index) => index !== rowIndex),
+    }));
+  }
+
+  function handleResetArchiveForm() {
+    if (!archiveBundle) {
+      return;
+    }
+    setArchiveFormState(deepClone(archiveBundle.archive_form));
+    setArchiveMessage("已恢复为数据库中当前保存的档案内容。");
+    setArchiveErrorMessage("");
+  }
+
+  async function handleSaveArchiveForm() {
+    if (!archiveSessionId) {
+      setArchiveErrorMessage("当前缺少会话信息，暂时无法保存档案。");
+      return;
+    }
+
+    try {
+      setArchiveSaving(true);
+      setArchiveMessage("");
+      setArchiveErrorMessage("");
+
+      const response = await saveAiChatArchiveForm(archiveSessionId, archiveFormState);
+      const normalizedBundle = normalizeArchiveBundle(response.data);
+
+      setArchiveBundle(normalizedBundle);
+      setArchiveFormState(deepClone(normalizedBundle.archive_form));
+      setArchiveMessage("档案已保存到数据库。");
+      localStorage.setItem(AI_CHAT_SESSION_CACHE_KEY, archiveSessionId);
+    } catch (error) {
+      setArchiveErrorMessage(error?.response?.data?.detail || "档案保存失败，请稍后重试。");
+    } finally {
+      setArchiveSaving(false);
+    }
+  }
+
+  function toggleArchiveSection(sectionKey) {
+    setCollapsedArchiveSections((previous) => ({
+      ...previous,
+      [sectionKey]: !(previous[sectionKey] ?? true),
+    }));
+  }
+
+  function isArchiveSectionCollapsed(sectionKey) {
+    return collapsedArchiveSections[sectionKey] ?? true;
+  }
+
+
+  async function handleRegenerateArchiveRadar() {
+    if (!archiveSessionId) {
+      setArchiveErrorMessage("当前缺少会话信息，暂时无法重新生成六维图。");
+      return;
+    }
+
+    if (isArchiveDirty) {
+      setArchiveErrorMessage("请先保存修改，再重新生成六维图。");
+      setArchiveMessage("");
+      return;
+    }
+
+    try {
+      setArchiveRegenerating(true);
+      setArchiveMessage("");
+      setArchiveErrorMessage("");
+
+      const response = await regenerateAiChatArchiveRadar(archiveSessionId);
+      const normalizedBundle = normalizeArchiveBundle(response.data);
+
+      setArchiveBundle(normalizedBundle);
+      setArchiveFormState(deepClone(normalizedBundle.archive_form));
+      setArchiveMessage("六维图已按当前数据库档案重新生成。");
+    } catch (error) {
+      setArchiveErrorMessage(
+        error?.response?.data?.detail || error?.message || "六维图重新生成失败，请稍后重试。"
+      );
+    } finally {
+      setArchiveRegenerating(false);
+    }
   }
 
   async function handleCheckNickname() {
     resetNicknameCheckResult();
-
     if (!nicknameForm.nickname.trim()) {
       setNicknameCheckMessage("请输入昵称");
-      setNicknameCheckAvailable(false);
       return;
     }
-
     try {
       setCheckNicknameLoading(true);
       const response = await checkMyNickname({ nickname: nicknameForm.nickname.trim() });
@@ -147,12 +760,10 @@ export default function ProfilePage() {
 
   async function handleUpdateNickname() {
     setErrorMessage("");
-
     if (!nicknameForm.nickname.trim()) {
       setErrorMessage("请输入昵称");
       return;
     }
-
     try {
       setUpdateNicknameLoading(true);
       await updateMyNickname({ nickname: nicknameForm.nickname.trim() });
@@ -169,27 +780,19 @@ export default function ProfilePage() {
 
   async function handleCheckPassword() {
     resetPasswordCheckResult();
-
     if (!passwordForm.new_password) {
       setPasswordCheckMessage("请输入新密码");
-      setPasswordCheckAvailable(false);
       return;
     }
-
     if (passwordForm.new_password !== passwordForm.confirm_password) {
       setPasswordCheckMessage("两次输入的密码不一致");
-      setPasswordCheckAvailable(false);
       return;
     }
-
     const localValidationMessage = validatePassword(passwordForm.new_password);
-
     if (localValidationMessage) {
       setPasswordCheckMessage(localValidationMessage);
-      setPasswordCheckAvailable(false);
       return;
     }
-
     try {
       setCheckPasswordLoading(true);
       const response = await checkMyPassword({ new_password: passwordForm.new_password });
@@ -205,24 +808,19 @@ export default function ProfilePage() {
 
   async function handleSetPassword() {
     setErrorMessage("");
-
     if (!passwordForm.new_password) {
       setErrorMessage("请输入新密码");
       return;
     }
-
     if (passwordForm.new_password !== passwordForm.confirm_password) {
       setErrorMessage("两次输入的密码不一致");
       return;
     }
-
     const localValidationMessage = validatePassword(passwordForm.new_password);
-
     if (localValidationMessage) {
       setErrorMessage(localValidationMessage);
       return;
     }
-
     try {
       setSetPasswordLoading(true);
       await setPassword({ new_password: passwordForm.new_password });
@@ -240,7 +838,6 @@ export default function ProfilePage() {
 
   async function handleLogout() {
     setErrorMessage("");
-
     try {
       setLogoutLoading(true);
       await logout();
@@ -253,155 +850,709 @@ export default function ProfilePage() {
     }
   }
 
-  return (
-    <div className="profile-page">
-      <div className="page-head">
-        <h1 className="title">用户信息</h1>
-        <button type="button" className="back-btn" onClick={() => navigate("/")}>
-          返回首页
-        </button>
-      </div>
-
-      {loading ? <div className="loading-box">正在加载用户信息...</div> : null}
-
-      {!loading && profile ? (
-        <div className="card">
-          <h2 className="card-title">当前登录用户信息</h2>
-
-          <div className="profile-hero">
-            {profile.avatar_url ? (
-              <img src={profile.avatar_url} alt="用户头像" className="avatar-image" />
-            ) : (
-              <div className="avatar-fallback">{getDisplayInitial(profile.nickname, profile.mobile)}</div>
-            )}
-            <div className="hero-meta">
-              <div className="hero-name">{profile.nickname || "未设置昵称"}</div>
-              <div className="hero-sub">{profile.mobile || "未绑定手机号"}</div>
-            </div>
+  function renderAccountPanel() {
+    return (
+      <div className="profile-content-stack">
+        <div className="profile-page-head">
+          <div>
+            <h1 className="profile-page-title">用户信息</h1>
+            <p className="profile-page-subtitle">管理昵称、密码和基础账号资料。</p>
           </div>
+          <button type="button" className="secondary-btn" onClick={() => navigate("/")}>
+            返回首页
+          </button>
+        </div>
 
-          <div className="info-item"><span className="label">用户ID：</span><span className="value">{profile.user_id}</span></div>
-          <div className="info-item"><span className="label">手机号：</span><span className="value">{profile.mobile || "未绑定"}</span></div>
+        {loading ? <div className="loading-box">正在加载用户信息...</div> : null}
+        {errorMessage ? <div className="error-box">{errorMessage}</div> : null}
 
-          <div className="info-item nickname-row">
-            <span className="label">昵称：</span>
-            <div className="value value-block">
-              <div className="nickname-actions">
-                <span>{profile.nickname || "未设置"}</span>
-                {!showNicknameEditor ? (
-                  <button type="button" className="secondary-btn inline-btn" onClick={() => setShowNicknameEditor(true)}>
-                    修改昵称
-                  </button>
-                ) : null}
+        {!loading && profile ? (
+          <div className="card">
+            <h2 className="card-title">当前登录用户信息</h2>
+            <div className="profile-hero">
+              {profile.avatar_url ? (
+                <img src={profile.avatar_url} alt="用户头像" className="avatar-image" />
+              ) : (
+                <div className="avatar-fallback">{getDisplayInitial(profile.nickname, profile.mobile)}</div>
+              )}
+              <div className="hero-meta">
+                <div className="hero-name">{profile.nickname || "未设置昵称"}</div>
+                <div className="hero-sub">{profile.mobile || "未绑定手机号"}</div>
               </div>
+            </div>
 
-              {showNicknameEditor ? (
-                <div className="editor-box">
-                  <input
-                    value={nicknameForm.nickname}
-                    onChange={(event) => {
-                      setNicknameForm({ nickname: event.target.value });
-                      resetNicknameCheckResult();
-                    }}
-                    className="input"
-                    type="text"
-                    maxLength={100}
-                    placeholder="请输入新昵称"
-                  />
+            <div className="info-item"><span className="label">用户 ID：</span><span className="value">{profile.user_id}</span></div>
+            <div className="info-item"><span className="label">手机号：</span><span className="value">{profile.mobile || "未绑定"}</span></div>
 
-                  <div className="inline-actions">
-                    <button type="button" className="secondary-btn inline-btn" disabled={checkNicknameLoading} onClick={handleCheckNickname}>
-                      {checkNicknameLoading ? "检查中..." : "查看昵称是否可用"}
+            <div className="info-item nickname-row">
+              <span className="label">昵称：</span>
+              <div className="value value-block">
+                <div className="nickname-actions">
+                  <span>{profile.nickname || "未设置"}</span>
+                  {!showNicknameEditor ? (
+                    <button type="button" className="secondary-btn inline-btn" onClick={() => setShowNicknameEditor(true)}>
+                      修改昵称
                     </button>
-                    <button type="button" className="primary-btn inline-btn" disabled={updateNicknameLoading} onClick={handleUpdateNickname}>
-                      {updateNicknameLoading ? "保存中..." : "保存昵称"}
-                    </button>
-                    <button type="button" className="secondary-btn inline-btn" disabled={updateNicknameLoading || checkNicknameLoading} onClick={handleCancelNicknameEdit}>
-                      取消
-                    </button>
-                  </div>
-
-                  {nicknameCheckMessage ? (
-                    <p className={`check-message ${nicknameCheckAvailable ? "check-success" : "check-error"}`}>
-                      {nicknameCheckMessage}
-                    </p>
                   ) : null}
                 </div>
-              ) : null}
+
+                {showNicknameEditor ? (
+                  <div className="editor-box">
+                    <input
+                      value={nicknameForm.nickname}
+                      onChange={(event) => {
+                        setNicknameForm({ nickname: event.target.value });
+                        resetNicknameCheckResult();
+                      }}
+                      className="input"
+                      type="text"
+                      maxLength={100}
+                      placeholder="请输入新昵称"
+                    />
+
+                    <div className="inline-actions">
+                      <button type="button" className="secondary-btn inline-btn" disabled={checkNicknameLoading} onClick={handleCheckNickname}>
+                        {checkNicknameLoading ? "检查中..." : "检查昵称是否可用"}
+                      </button>
+                      <button type="button" className="primary-btn inline-btn" disabled={updateNicknameLoading} onClick={handleUpdateNickname}>
+                        {updateNicknameLoading ? "保存中..." : "保存昵称"}
+                      </button>
+                      <button type="button" className="secondary-btn inline-btn" disabled={updateNicknameLoading || checkNicknameLoading} onClick={() => setShowNicknameEditor(false)}>
+                        取消
+                      </button>
+                    </div>
+
+                    {nicknameCheckMessage ? (
+                      <p className={`check-message ${nicknameCheckAvailable ? "check-success" : "check-error"}`}>{nicknameCheckMessage}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
+
+            <div className="info-item"><span className="label">状态：</span><span className="value">{profile.status}</span></div>
+          </div>
+        ) : null}
+
+        {profile ? (
+          <div className="card">
+            <h2 className="card-title">设置密码</h2>
+            <p className="desc">密码需为 8-24 位，且至少包含字母、数字、特殊字符中的 2 种，不能包含空格。</p>
+
+            {!showPasswordEditor ? (
+              <button type="button" className="primary-btn" onClick={() => setShowPasswordEditor(true)}>
+                {profile.has_password ? "修改密码" : "设置密码"}
+              </button>
+            ) : (
+              <div className="editor-box">
+                <input
+                  value={passwordForm.new_password}
+                  onChange={(event) => {
+                    setPasswordForm((previous) => ({ ...previous, new_password: event.target.value }));
+                    resetPasswordCheckResult();
+                  }}
+                  className="input"
+                  type="password"
+                  placeholder="请输入新密码"
+                />
+                <input
+                  value={passwordForm.confirm_password}
+                  onChange={(event) => {
+                    setPasswordForm((previous) => ({ ...previous, confirm_password: event.target.value }));
+                    resetPasswordCheckResult();
+                  }}
+                  className="input"
+                  type="password"
+                  placeholder="请再次输入新密码"
+                />
+
+                <div className="inline-actions">
+                  <button type="button" className="secondary-btn" disabled={checkPasswordLoading} onClick={handleCheckPassword}>
+                    {checkPasswordLoading ? "检查中..." : "检查密码是否可用"}
+                  </button>
+                  <button type="button" className="primary-btn" disabled={setPasswordLoading} onClick={handleSetPassword}>
+                    {setPasswordLoading ? "提交中..." : "保存密码"}
+                  </button>
+                  <button type="button" className="secondary-btn" disabled={setPasswordLoading || checkPasswordLoading} onClick={() => setShowPasswordEditor(false)}>
+                    取消
+                  </button>
+                </div>
+
+                {passwordCheckMessage ? (
+                  <p className={`check-message ${passwordCheckAvailable ? "check-success" : "check-error"}`}>{passwordCheckMessage}</p>
+                ) : null}
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        <div className="actions">
+          <button type="button" className="secondary-btn" disabled={loading} onClick={fetchProfile}>
+            刷新用户信息
+          </button>
+          <button type="button" className="danger-btn" disabled={logoutLoading} onClick={handleLogout}>
+            {logoutLoading ? "退出中..." : "退出登录"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderSectionHeader({ title, description, collapsed, onToggleCollapse, action = null, headingLevel = 3 }) {
+    const HeadingTag = headingLevel === 2 ? "h2" : "h3";
+
+    return (
+      <div className="profile-section-head">
+        <div className="profile-section-head-copy">
+          <HeadingTag className="card-title">{title}</HeadingTag>
+        </div>
+        <div className="profile-section-head-actions">
+          {!collapsed ? action : null}
+          <button
+            type="button"
+            className="profile-section-toggle"
+            onClick={onToggleCollapse}
+            aria-label={collapsed ? `展开${title}` : `收起${title}`}
+            title={collapsed ? `展开${title}` : `收起${title}`}
+          >
+            <svg
+              className={`profile-section-toggle-arrow ${collapsed ? "is-collapsed" : ""}`}
+              viewBox="0 0 20 20"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M5 7.5L10 12.5L15 7.5"
+                stroke="currentColor"
+                strokeWidth="1.9"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderArchiveSection(tableName, options = {}) {
+    const tableMeta = archiveBundle?.form_meta?.tables?.[tableName];
+    if (!tableMeta) {
+      return null;
+    }
+
+    const {
+      embedded = false,
+      title = tableMeta.label,
+      description = null,
+      showDescription = true,
+      addButtonLabel = "\u65b0\u589e\u4e00\u6761",
+      collapsible = false,
+      sectionKey = tableName,
+    } = options;
+
+    const collapsed = collapsible && isArchiveSectionCollapsed(sectionKey);
+    const visibleFields = (tableMeta.fields || []).filter(
+      (field) => !field.hidden || (tableName === "student_project_outputs" && field.name === "project_id")
+    );
+    if (visibleFields.length === 0) {
+      return null;
+    }
+
+    const wrapperClassName = embedded
+      ? "profile-embedded-section"
+      : `card profile-form-card ${collapsed ? "profile-form-card-collapsed" : ""}`;
+    const singleDescription = description || "\u8fd9\u91cc\u5c55\u793a\u7684\u662f\u6b63\u5f0f\u6863\u6848\u4e3b\u8868\u4fe1\u606f\uff0c\u53ef\u76f4\u63a5\u4fee\u6539\u540e\u4fdd\u5b58\u3002";
+    const arrayDescription = description || "\u53ef\u65b0\u589e\u3001\u5220\u9664\u548c\u4fee\u6539\u8fd9\u4e00\u7c7b\u660e\u7ec6\u6570\u636e\u3002";
+
+      if (tableMeta.kind === "single") {
+        const sectionValue = archiveFormState?.[tableName] || {};
+
+        return (
+          <div key={tableName} className={wrapperClassName}>
+          {collapsible ? (
+            renderSectionHeader({
+              title,
+              description: showDescription ? singleDescription : null,
+              collapsed,
+              onToggleCollapse: () => toggleArchiveSection(sectionKey),
+            })
+            ) : (
+              <div className="profile-form-array-head">
+                <div>
+                  <h3 className="card-title">{title}</h3>
+                </div>
+              </div>
+            )}
+
+          {!collapsed ? (
+            <div className="profile-form-grid">
+              {visibleFields.map((field) => (
+                <div key={`${tableName}-${field.name}`} className="profile-form-field">
+                  {field.input_type !== "checkbox" ? <label>{field.label}</label> : null}
+                  {renderFieldControl({
+                    field,
+                    value: sectionValue[field.name],
+                    onChange: (rawValue) =>
+                      updateSingleField(tableName, field.name, normalizeChangedValue(rawValue, field.input_type)),
+                  })}
+                  {field.helper_text ? <p className="profile-form-help">{field.helper_text}</p> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+
+    const rows = Array.isArray(archiveFormState?.[tableName]) ? archiveFormState[tableName] : [];
+    return (
+      <div key={tableName} className={wrapperClassName}>
+        {collapsible ? (
+          renderSectionHeader({
+            title,
+            description: showDescription ? arrayDescription : null,
+            collapsed,
+            onToggleCollapse: () => toggleArchiveSection(sectionKey),
+            action: (
+              <button type="button" className="secondary-btn" onClick={() => handleAddRow(tableName)}>
+                {addButtonLabel}
+              </button>
+            ),
+          })
+          ) : (
+            <div className="profile-form-array-head">
+              <div>
+                <h3 className="card-title">{title}</h3>
+              </div>
+              <button type="button" className="secondary-btn" onClick={() => handleAddRow(tableName)}>
+                {addButtonLabel}
+            </button>
+          </div>
+        )}
+
+        {!collapsed ? (
+          <>
+            {rows.length === 0 ? <div className="profile-form-empty">{"\u5f53\u524d\u6ca1\u6709\u6570\u636e\uff0c\u53ef\u4ee5\u70b9\u51fb\u201c\u65b0\u589e\u4e00\u6761\u201d\u3002"}</div> : null}
+
+            <div className="profile-form-stack">
+              {rows.map((row, rowIndex) => {
+                const rowVisibleFields = visibleFields.filter((field) => shouldRenderRowField(tableName, row, field));
+
+                return (
+                  <div key={`${tableName}-${rowIndex}`} className="profile-form-array-row">
+                    <div className="profile-form-row-inline">
+                      <div className="profile-form-grid">
+                        {rowVisibleFields.map((field) => {
+                          const normalizedField =
+                            tableName === "student_project_outputs" && field.name === "project_id"
+                              ? {
+                                  ...field,
+                                  hidden: false,
+                                  input_type: "select",
+                                  options: (archiveFormState.student_project_entries || [])
+                                    .filter((item) => item?.project_id !== null && item?.project_id !== undefined)
+                                    .map((item) => ({
+                                      value: String(item.project_id),
+                                      label: item.project_name || `\u9879\u76ee ${item.project_id}`,
+                                    })),
+                                }
+                              : field;
+                          const normalizedInputType =
+                            tableName === "student_project_outputs" && field.name === "project_id"
+                              ? "number"
+                              : normalizedField.input_type;
+
+                          return (
+                            <div key={`${tableName}-${rowIndex}-${field.name}`} className="profile-form-field">
+                              {normalizedField.input_type !== "checkbox" ? <label>{normalizedField.label}</label> : null}
+                              {renderFieldControl({
+                                field: normalizedField,
+                                value: row?.[field.name],
+                                onChange: (rawValue) =>
+                                  updateRowField(
+                                    tableName,
+                                    rowIndex,
+                                    field.name,
+                                    normalizeChangedValue(rawValue, normalizedInputType)
+                                  ),
+                              })}
+                              {normalizedField.helper_text ? <p className="profile-form-help">{field.helper_text}</p> : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="profile-form-row-side">
+                        <button type="button" className="secondary-btn" onClick={() => handleRemoveRow(tableName, rowIndex)}>
+                          {"\u5220\u9664"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderCurriculumModule() {
+    const tableName = "student_basic_info_curriculum_system";
+    const tableMeta = archiveBundle?.form_meta?.tables?.[tableName];
+    const visibleFields = (tableMeta?.fields || []).filter((field) => !field.hidden);
+    const actualRows = Array.isArray(archiveFormState?.[tableName]) ? archiveFormState[tableName] : [];
+    const displayRows = actualRows.length > 0 ? actualRows : [buildEmptyRow(tableMeta?.fields || [])];
+    const collapsed = isArchiveSectionCollapsed("curriculum_module");
+
+    return (
+      <div className={`card profile-curriculum-card ${collapsed ? "profile-form-card-collapsed" : ""}`}>
+        {renderSectionHeader({
+          title: "\u8bfe\u7a0b\u4f53\u7cfb",
+          collapsed,
+          onToggleCollapse: () => toggleArchiveSection("curriculum_module"),
+          action: (
+            <button type="button" className="secondary-btn" onClick={() => handleAddRow(tableName)}>
+              {"\u65b0\u589e\u8bfe\u7a0b\u4f53\u7cfb"}
+            </button>
+          ),
+          headingLevel: 2,
+        })}
+
+        {!collapsed ? (
+          <>
+            <div className="profile-form-stack">
+              {displayRows.map((row, rowIndex) => {
+                const isVirtualRow = actualRows.length === 0;
+                const curriculumCode = row?.curriculum_system_code;
+                const curriculumMeta = curriculumCode ? CURRICULUM_MODULES[curriculumCode] : null;
+
+                return (
+                  <div key={`curriculum-selector-${rowIndex}`} className="profile-form-array-row">
+                    <div className="profile-form-row-inline">
+                      <div className="profile-form-grid">
+                        {visibleFields.map((field) => (
+                          <div key={`${tableName}-${rowIndex}-${field.name}`} className="profile-form-field">
+                            {field.input_type !== "checkbox" ? <label>{field.label}</label> : null}
+                            {renderFieldControl({
+                              field,
+                              value: row?.[field.name],
+                              onChange: (rawValue) =>
+                                updateRowField(
+                                  tableName,
+                                  rowIndex,
+                                  field.name,
+                                  normalizeChangedValue(rawValue, field.input_type)
+                                ),
+                            })}
+                            {field.helper_text ? <p className="profile-form-help">{field.helper_text}</p> : null}
+                          </div>
+                        ))}
+                      </div>
+
+                      {!isVirtualRow ? (
+                        <div className="profile-form-row-side">
+                          <button type="button" className="secondary-btn" onClick={() => handleRemoveRow(tableName, rowIndex)}>
+                            {"\u5220\u9664"}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {curriculumMeta ? (
+                      <div className="profile-curriculum-section-stack">
+                        {curriculumMeta.tables.map((curriculumTableName) =>
+                          renderArchiveSection(curriculumTableName, {
+                            embedded: true,
+                            showDescription: false,
+                          })
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : null}
+        </div>
+      );
+  }
+
+  function renderLanguageDetailModule() {
+    if (availableLanguageDetailTables.length === 0 || !activeLanguageDetailTable) {
+      return null;
+    }
+
+    const collapsed = isArchiveSectionCollapsed("language_detail_module");
+
+      return (
+        <div className={`card profile-language-card ${collapsed ? "profile-form-card-collapsed" : ""}`}>
+          {renderSectionHeader({
+            title: "\u8bed\u8a00\u8003\u8bd5",
+            collapsed,
+            onToggleCollapse: () => toggleArchiveSection("language_detail_module"),
+            headingLevel: 2,
+          })}
+
+        {!collapsed ? (
+          <>
+            <div className="profile-language-switcher">
+              {availableLanguageDetailTables.map((tableName) => (
+                <button
+                  key={tableName}
+                  type="button"
+                  className={`profile-language-switcher-button ${
+                    activeLanguageDetailTable === tableName ? "profile-language-switcher-button-active" : ""
+                  }`}
+                  onClick={() => setActiveLanguageDetailTable(tableName)}
+                >
+                  {archiveBundle?.form_meta?.tables?.[tableName]?.label || tableName}
+                </button>
+              ))}
+            </div>
+
+            <div className="profile-language-panel">
+              {renderArchiveSection(activeLanguageDetailTable, {
+                embedded: true,
+                showDescription: false,
+              })}
+            </div>
+          </>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderArchivePanel() {
+    const saveDisabled = !isArchiveDirty || archiveSaving || archiveRegenerating;
+    const regenerateDisabled = archiveSaving || archiveRegenerating;
+
+    return (
+      <div className="profile-content-stack profile-archive-panel">
+        <div className="profile-page-head">
+          <div>
+            <h1 className="profile-page-title">{"\u6211\u7684\u6863\u6848"}</h1>
           </div>
 
-          <div className="info-item"><span className="label">头像：</span><span className="value">{profile.avatar_url || "未设置"}</span></div>
-          <div className="info-item"><span className="label">状态：</span><span className="value">{profile.status}</span></div>
-        </div>
-      ) : null}
-
-      {errorMessage ? <div className="error-box">{errorMessage}</div> : null}
-
-      {profile ? (
-        <div className="card">
-          <h2 className="card-title">设置密码</h2>
-          <p className="desc">
-            如果你是通过短信登录或微信绑定手机号后首次进入系统，可以在这里设置密码。密码需为 8-24 位，且至少包含字母、数字、特殊字符中的 2 种，不能包含空格。
-          </p>
-
-          {!showPasswordEditor ? (
-            <button type="button" className="primary-btn" onClick={handleOpenPasswordEditor}>
-              {profile.has_password ? "修改密码" : "设置密码"}
+          <div className="profile-page-head-actions">
+            <button type="button" className="secondary-btn" onClick={() => navigate("/")}>
+              {"\u8fd4\u56de\u9996\u9875"}
             </button>
-          ) : (
-            <div className="editor-box">
-              <input
-                value={passwordForm.new_password}
-                onChange={(event) => {
-                  setPasswordForm((previous) => ({ ...previous, new_password: event.target.value }));
-                  resetPasswordCheckResult();
-                }}
-                className="input"
-                type="password"
-                placeholder="请输入新密码（8-24位，至少包含2种字符类型）"
-              />
-              <input
-                value={passwordForm.confirm_password}
-                onChange={(event) => {
-                  setPasswordForm((previous) => ({ ...previous, confirm_password: event.target.value }));
-                  resetPasswordCheckResult();
-                }}
-                className="input"
-                type="password"
-                placeholder="请再次输入新密码"
-              />
+            <button type="button" className="primary-btn" onClick={() => navigate("/")}>
+              {"\u53bb\u7ee7\u7eed\u8865\u5145\u5bf9\u8bdd"}
+            </button>
+          </div>
+        </div>
 
-              <div className="inline-actions">
-                <button type="button" className="secondary-btn" disabled={checkPasswordLoading} onClick={handleCheckPassword}>
-                  {checkPasswordLoading ? "检查中..." : "检查密码是否可用"}
-                </button>
-                <button type="button" className="primary-btn" disabled={setPasswordLoading} onClick={handleSetPassword}>
-                  {setPasswordLoading ? "提交中..." : "保存密码"}
-                </button>
-                <button type="button" className="secondary-btn" disabled={setPasswordLoading || checkPasswordLoading} onClick={handleCancelPasswordEdit}>
-                  取消
-                </button>
+        {archiveLoading ? (
+          <div className="profile-archive-loading">
+            <div className="profile-archive-loading-spinner" />
+            <span>{"\u6b63\u5728\u52a0\u8f7d\u6b63\u5f0f\u6863\u6848..."}</span>
+          </div>
+        ) : null}
+        {archiveMessage ? <div className="success-box">{archiveMessage}</div> : null}
+        {archiveErrorMessage ? <div className="error-box">{archiveErrorMessage}</div> : null}
+
+        {!archiveLoading && !archiveBundle ? (
+          <div className="card profile-archive-empty">
+            <h2 className="card-title">{"\u8fd8\u6ca1\u6709\u53ef\u67e5\u770b\u7684\u6863\u6848"}</h2>
+            <p className="desc">{"\u8bf7\u5148\u56de\u9996\u9875\u901a\u8fc7 AI \u5efa\u6863\u52a9\u624b\u751f\u6210\u516d\u7ef4\u56fe\u5e76\u5b8c\u6210\u5efa\u6863\u3002"}</p>
+            <div className="profile-empty-actions">
+              <button type="button" className="primary-btn" onClick={() => navigate("/")}>
+                {"\u53bb\u9996\u9875\u5efa\u6863"}
+              </button>
+              <button type="button" className="secondary-btn" onClick={fetchArchive}>
+                {"\u91cd\u65b0\u68c0\u67e5"}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {archiveBundle ? (
+          <>
+            <div className="card">
+              <div className="profile-archive-top">
+                <div>
+                  <h2 className="card-title">{"\u5f53\u524d\u6863\u6848\u72b6\u6001"}</h2>
+                </div>
+                <div className="profile-archive-status">
+                  <span className="profile-status-badge">{getArchiveStatusText(archiveBundle.result_status)}</span>
+                </div>
               </div>
 
-              {passwordCheckMessage ? (
-                <p className={`check-message ${passwordCheckAvailable ? "check-success" : "check-error"}`}>
-                  {passwordCheckMessage}
-                </p>
+              {archiveBundle.save_error_message ? (
+                <div className="profile-archive-warning">{"\u6b63\u5f0f\u6863\u6848\u4fdd\u5b58\u5f02\u5e38\uff1a"}{archiveBundle.save_error_message}</div>
               ) : null}
-            </div>
-          )}
-        </div>
-      ) : null}
 
-      <div className="actions">
-        <button type="button" className="secondary-btn" disabled={loading} onClick={fetchProfile}>
-          刷新用户信息
-        </button>
-        <button type="button" className="danger-btn" disabled={logoutLoading} onClick={handleLogout}>
-          {logoutLoading ? "退出中..." : "退出登录"}
-        </button>
+              <div className="profile-radar-top">
+                <div className="profile-radar-visual-card">
+                  <div className="profile-radar-visual-head">
+                    <div>
+                      <h3>{"\u5df2\u751f\u6210\u7684\u516d\u7ef4\u56fe"}</h3>
+                    </div>
+                  </div>
+
+                  <div className="profile-radar-chart-wrap">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadarChart data={radarChartData} outerRadius="68%">
+                        <PolarGrid stroke="rgba(148,163,184,0.30)" />
+                        <PolarAngleAxis dataKey="subject" tick={{ fill: "#1e3a8a", fontSize: 13 }} />
+                        <PolarRadiusAxis
+                          angle={30}
+                          domain={[0, 100]}
+                          tick={{ fill: "rgba(30,58,138,0.70)", fontSize: 11 }}
+                          axisLine={false}
+                        />
+                        <Radar
+                          dataKey="score"
+                          stroke="#2c7be5"
+                          fill="rgba(44,123,229,0.28)"
+                          strokeWidth={2.5}
+                          dot={{
+                            r: 4,
+                            fill: "#ffffff",
+                            stroke: "#2c7be5",
+                            strokeWidth: 2,
+                          }}
+                        />
+                      </RadarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="profile-summary-box">
+                  <h3>{"\u7efc\u5408\u603b\u7ed3"}</h3>
+                  <p>{archiveBundle.summary_text}</p>
+                </div>
+              </div>
+
+              <div className="profile-radar-score-grid">
+                {Object.entries(archiveBundle.radar_scores_json).map(([key, value]) => (
+                  <div
+                    key={key}
+                    className="profile-radar-score-card"
+                    style={{
+                      "--score-from": (RADAR_COLORS[key] || RADAR_COLORS.academic).from,
+                      "--score-to": (RADAR_COLORS[key] || RADAR_COLORS.academic).to,
+                      "--score-bg": (RADAR_COLORS[key] || RADAR_COLORS.academic).bg,
+                    }}
+                  >
+                    <div className="profile-radar-score-head">
+                      <span>{RADAR_LABELS[key] || key}</span>
+                      <strong>{value.score}</strong>
+                    </div>
+                    <div className="profile-radar-score-bar">
+                      <div className="profile-radar-score-bar-fill" style={{ width: `${value.score}%` }} />
+                    </div>
+                    <p>{value.reason}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {renderArchiveSection("student_basic_info", {
+              title: "\u5b66\u751f\u57fa\u672c\u4fe1\u606f",
+              collapsible: true,
+              sectionKey: "student_basic_info",
+            })}
+
+            {renderCurriculumModule()}
+
+            {renderArchiveSection("student_academic", {
+              title: "\u5b66\u672f\u4fe1\u606f",
+              collapsible: true,
+              sectionKey: "student_academic",
+            })}
+
+            {renderLanguageDetailModule()}
+
+            {detailTableNames.map((tableName) =>
+              renderArchiveSection(tableName, {
+                collapsible: true,
+                sectionKey: tableName,
+              })
+            )}
+
+            <div className="profile-floating-actions-spacer" />
+            <div className="profile-floating-actions">
+              <button
+                type="button"
+                className={`profile-floating-button profile-floating-button-save ${
+                  saveDisabled ? "profile-floating-button-disabled" : "profile-floating-button-save-active"
+                }`}
+                disabled={saveDisabled}
+                onClick={handleSaveArchiveForm}
+              >
+                {archiveSaving ? (
+                  <>
+                    <span className="profile-floating-button-spinner" />
+                    {"\u6b63\u5728\u4fdd\u5b58..."}
+                  </>
+                ) : (
+                  "\u4fdd\u5b58\u4fee\u6539"
+                )}
+              </button>
+
+              <button
+                type="button"
+                className={`profile-floating-button profile-floating-button-radar ${
+                  archiveRegenerating ? "profile-floating-button-loading" : ""
+                }`}
+                disabled={regenerateDisabled}
+                onClick={handleRegenerateArchiveRadar}
+              >
+                {archiveRegenerating ? (
+                  <>
+                    <span className="profile-floating-button-spinner" />
+                    {"\u6b63\u5728\u751f\u6210..."}
+                  </>
+                ) : (
+                  "\u91cd\u65b0\u751f\u6210\u516d\u7ef4\u56fe"
+                )}
+              </button>
+            </div>
+          </>
+        ) : null}
       </div>
+    );
+  }
+
+  return (
+    <div className="profile-shell">
+      <aside className="profile-sidebar">
+        <div className="profile-sidebar-card">
+          <div className="profile-sidebar-avatar">{getDisplayInitial(profile?.nickname, profile?.mobile)}</div>
+          <div className="profile-sidebar-name">{profile?.nickname || "\u672a\u8bbe\u7f6e\u6635\u79f0"}</div>
+          <div className="profile-sidebar-sub">{profile?.mobile || "\u5df2\u767b\u5f55\u7528\u6237"}</div>
+        </div>
+
+        <div className="profile-sidebar-nav">
+          <button
+            type="button"
+            className={`profile-sidebar-link ${activeTab === "account" ? "profile-sidebar-link-active" : ""}`}
+            onClick={() => switchTab("account")}
+          >
+            {"\u7528\u6237\u4fe1\u606f"}
+          </button>
+          <button
+            type="button"
+            className={`profile-sidebar-link ${activeTab === "archive" ? "profile-sidebar-link-active" : ""}`}
+            onClick={() => switchTab("archive")}
+          >
+            {"\u67e5\u770b\u6863\u6848"}
+          </button>
+          <button type="button" className="profile-sidebar-link" onClick={() => navigate("/")}>
+            {"\u8fd4\u56de\u9996\u9875"}
+          </button>
+        </div>
+      </aside>
+
+      <main className="profile-main">
+        {activeTab === "archive" ? renderArchivePanel() : renderAccountPanel()}
+      </main>
     </div>
   );
 }

@@ -234,7 +234,7 @@ def verify_wechat_state(db: Session, state: str) -> bool:
     return consume_wechat_login_state_cache(state)
 
 
-def send_and_save_sms_code(db: Session, mobile: str, biz_type: str) -> None:
+def send_and_save_sms_code(db: Session, mobile: str, biz_type: str) -> str:
     """
     发送并保存短信验证码
 
@@ -263,6 +263,7 @@ def send_and_save_sms_code(db: Session, mobile: str, biz_type: str) -> None:
         biz_type=biz_type,
         code=code,
     )
+    return code
 
 
 def verify_sms_code(db: Session, mobile: str, biz_type: str, code: str) -> bool:

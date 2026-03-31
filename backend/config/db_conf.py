@@ -273,6 +273,18 @@ class Settings(BaseSettings):
     # 1. 当 Prompt 配置里没有单独配置 temperature 时使用。
     ai_model_default_temperature: float = 0.3
 
+    # AI 模型非流式调用重试次数
+    # 说明：
+    # 1. 用于 progress / extraction / scoring 这类非流式请求。
+    # 2. 主要兜底偶发的网络抖动、TLS 握手超时、临时 5xx。
+    ai_model_non_stream_retry_count: int = 1
+
+    # AI 模型非流式重试间隔（秒）
+    # 说明：
+    # 1. 失败后进入下一次重试前等待的基础时长。
+    # 2. 当前先做最小可用实现，默认固定等待 1 秒。
+    ai_model_non_stream_retry_backoff_seconds: float = 1.0
+
     # =========================================================
     # 十一、Redis 配置
     # =========================================================

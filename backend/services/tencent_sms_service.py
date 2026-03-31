@@ -17,6 +17,8 @@
 4. 接口层绝对不能把验证码明文返回给前端
 """
 
+import logging
+
 # 导入腾讯云认证对象
 from tencentcloud.common import credential
 
@@ -34,6 +36,9 @@ from backend.config.db_conf import settings
 
 # 导入生成短信验证码工具
 from backend.utils.common import generate_numeric_code
+
+
+logger = logging.getLogger(__name__)
 
 
 def send_sms_code(mobile: str, biz_type: str) -> str:
@@ -62,8 +67,14 @@ def send_sms_code(mobile: str, biz_type: str) -> str:
 
     # 如果是开发联调模式，则不走真实腾讯云短信接口
     if settings.tencentcloud_sms_mock:
+        logger.info(
+            "[MOCK SMS] mobile=%s, biz_type=%s, code=%s",
+            mobile,
+            biz_type,
+            code,
+        )
         # 在控制台打印，方便你本地联调
-        print(f"[MOCK SMS] mobile={mobile}, biz_type={biz_type}, code={code}")
+        print(f"[MOCK SMS] mobile={mobile}, biz_type={biz_type}, code={code}", flush=True)
 
         # 直接返回验证码明文，供上层做哈希入库
         return code

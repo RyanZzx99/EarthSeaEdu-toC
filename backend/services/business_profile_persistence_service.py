@@ -21,6 +21,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 import logging
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -121,27 +122,35 @@ COLUMN_DEFAULTS: dict[str, dict[str, Any]] = {
         "prefer_scored_over_estimated": 1,
     },
     "student_language_ielts": {
+        "evidence_level_code": "CONFIRMED",
         "is_best_score": 0,
     },
     "student_language_toefl_ibt": {
+        "evidence_level_code": "CONFIRMED",
         "is_best_score": 0,
     },
     "student_language_toefl_essentials": {
+        "evidence_level_code": "CONFIRMED",
         "is_best_score": 0,
     },
     "student_language_det": {
+        "evidence_level_code": "CONFIRMED",
         "is_best_score": 0,
     },
     "student_language_pte": {
+        "evidence_level_code": "CONFIRMED",
         "is_best_score": 0,
     },
     "student_language_languagecert": {
+        "evidence_level_code": "CONFIRMED",
         "is_best_score": 0,
     },
     "student_language_cambridge": {
+        "evidence_level_code": "CONFIRMED",
         "is_best_score": 0,
     },
     "student_language_other": {
+        "evidence_level_code": "CONFIRMED",
         "is_best_score": 0,
     },
     "student_standardized_tests": {
@@ -154,9 +163,11 @@ COLUMN_DEFAULTS: dict[str, dict[str, Any]] = {
         "sort_order": 1,
     },
     "student_activity_entries": {
+        "activity_name": "活动记录",
         "sort_order": 1,
     },
     "student_project_entries": {
+        "project_name": "项目记录",
         "sort_order": 1,
     },
     "student_project_outputs": {
@@ -164,22 +175,90 @@ COLUMN_DEFAULTS: dict[str, dict[str, Any]] = {
     },
 }
 
-ACADEMIC_SUBJECT_DETAIL_CONFIGS: dict[str, dict[str, str]] = {
+ACADEMIC_SUBJECT_DETAIL_CONFIGS: dict[str, dict[str, Any]] = {
     "student_academic_a_level_subject": {
         "id_field": "al_subject_id",
+        "required_fields": ("al_subject_id", "stage_code"),
+        "enum_fields": {
+            "stage_code": {"AS", "A2", "FULL_A_LEVEL", "IN_PROGRESS"},
+            "grade_code": {"A*", "A", "B", "C", "D", "E", "U", "NA"},
+            "board_code": {"CAIE", "EDEXCEL", "AQA", "OCR", "OTHER", "UNKNOWN"},
+            "session_code": {"MAY_JUNE", "OCT_NOV", "JAN", "OTHER", "UNKNOWN"},
+        },
     },
     "student_academic_ap_course": {
         "id_field": "ap_course_id",
+        "required_fields": ("ap_course_id",),
     },
     "student_academic_ib_subject": {
         "id_field": "ib_subject_id",
+        "required_fields": ("ib_subject_id", "level_code"),
+        "enum_fields": {
+            "level_code": {"HL", "SL"},
+        },
     },
     "student_academic_chinese_high_school_subject": {
         "id_field": "chs_subject_id",
+        "required_fields": ("chs_subject_id",),
     },
 }
 
 ACADEMIC_SUBJECT_AUXILIARY_FIELDS = {"subject_name_text"}
+
+IB_PROFILE_GRADE_ALLOWED_VALUES = {"A", "B", "C", "D", "E", "NA"}
+
+A_LEVEL_STAGE_CODE_PATTERN_MAP: dict[str, tuple[str, ...]] = {
+    "AS": (r"\bas\b", r"\bas[\-\s]?level\b", r"as阶段"),
+    "A2": (r"\ba2\b", r"a2阶段"),
+    "FULL_A_LEVEL": (r"full[\-\s]*a[\-\s]*level", r"完整a[\-\s]*level", r"最终成绩"),
+    "IN_PROGRESS": (
+        r"in[\-\s]*progress",
+        r"predicted",
+        r"预估",
+        r"修读中",
+        r"在读",
+        r"未出分",
+        r"待考",
+    ),
+}
+
+A_LEVEL_GRADE_CODE_PATTERN_MAP: dict[str, tuple[str, ...]] = {
+    "A*": (r"a\*",),
+    "A": (r"\ba\b",),
+    "B": (r"\bb\b",),
+    "C": (r"\bc\b",),
+    "D": (r"\bd\b",),
+    "E": (r"\be\b",),
+    "U": (r"\bu\b",),
+    "NA": (r"\bna\b", r"not available"),
+}
+
+A_LEVEL_BOARD_CODE_PATTERN_MAP: dict[str, tuple[str, ...]] = {
+    "CAIE": (r"\bcaie\b", r"\bcambridge\b"),
+    "EDEXCEL": (r"\bedexcel\b", r"\bpearson\b"),
+    "AQA": (r"\baqa\b",),
+    "OCR": (r"\bocr\b",),
+    "OTHER": (r"\bother\b",),
+    "UNKNOWN": (r"\bunknown\b",),
+}
+
+A_LEVEL_SESSION_CODE_PATTERN_MAP: dict[str, tuple[str, ...]] = {
+    "MAY_JUNE": (r"\bmay[\s/\-]*june\b", r"\bmj\b"),
+    "OCT_NOV": (r"\boct[\s/\-]*nov\b", r"\bon\b"),
+    "JAN": (r"\bjan(?:uary)?\b",),
+    "OTHER": (r"\bother\b",),
+    "UNKNOWN": (r"\bunknown\b",),
+}
+
+IB_LEVEL_CODE_PATTERN_MAP: dict[str, tuple[str, ...]] = {
+    "HL": (r"\bhl\b", r"higher[\s\-]*level", r"高阶"),
+    "SL": (r"\bsl\b", r"standard[\s\-]*level", r"标准级"),
+}
+
+IB_SPECIAL_SUBJECT_PATTERN_MAP: dict[str, tuple[str, ...]] = {
+    "IB_TOK": (r"\btok\b", r"theory[\s\-]*of[\s\-]*knowledge", r"知识理论"),
+    "IB_EE": (r"\bee\b", r"extended[\s\-]*essay", r"拓展论文"),
+}
 
 # 中文注释：
 # 语言明细表的结构虽然不同，但“状态推断”逻辑是一致的：
@@ -638,6 +717,25 @@ SINGLE_ROW_CHILD_TABLE_DEPENDENCIES: dict[str, list[str]] = {
     ],
 }
 
+# 中文注释：
+# 这些单行表在表单里可能会被用户“整体清空”。
+# 当前保存口径下：
+# 1. 多行表会先删旧快照再插新快照，因此传 [] 就能真正清空。
+# 2. 单行表如果只传 {}，旧逻辑只会跳过 upsert，不会删除历史行，导致旧快照残留。
+# 所以这里单独维护一组“允许被清空删除”的单行表，在本轮 payload 明确没有有效内容时，
+# 主动按 student_id 删除旧行，保证数据库快照与表单提交结果一致。
+CLEARABLE_SINGLE_ROW_TABLES: set[str] = {
+    "student_academic_a_level_profile",
+    "student_academic_ap_profile",
+    "student_academic_ib_profile",
+    "student_academic_chinese_high_school_profile",
+    "student_language",
+    "student_standardized_tests",
+    "student_competitions",
+    "student_activities",
+    "student_projects_experience",
+}
+
 
 @dataclass(slots=True)
 class BusinessPersistenceResult:
@@ -704,9 +802,18 @@ def persist_business_profile_snapshot(
     """
 
     persisted_tables: list[str] = []
+    project_id_mapping: dict[int, int] = {}
 
     try:
         _normalize_payload_for_persistence(db_payload)
+        # 中文注释：先处理“可被整体清空”的单行表。
+        # 如果本轮表单明确把这些单行对象清成 {}，就需要主动删除数据库旧快照；
+        # 否则旧逻辑只会跳过 upsert，历史数据会残留。
+        _delete_cleared_single_rows(
+            db,
+            student_id=student_id,
+            db_payload=db_payload,
+        )
         # 中文注释：先处理单行主表。
         # 这些表一般是一名学生只保留一条快照，因此直接 upsert 即可。
         for table_name in SINGLE_ROW_TABLES:
@@ -736,6 +843,34 @@ def persist_business_profile_snapshot(
             rows = db_payload.get(table_name) or []
             if not isinstance(rows, list):
                 continue
+
+            if table_name == "student_project_entries":
+                meaningful_rows = [
+                    row for row in rows if _is_meaningful_multi_row(table_name=table_name, row=row)
+                ]
+                if not meaningful_rows:
+                    continue
+
+                # 中文注释：
+                # project_entries 的 project_id 允许在前面用负数作为“临时占位 ID”，
+                # 但这里正式入库时绝不能把负数直接写进数据库主键。
+                # 正确做法是：
+                # 1. 没有正式 project_id 的行让数据库自增生成主键
+                # 2. 记录“临时 ID -> 正式 ID”的映射
+                # 3. 后续给 project_outputs 重写外键
+                project_id_mapping = _insert_project_entries_with_mapping(
+                    db,
+                    rows=meaningful_rows,
+                )
+                persisted_tables.append(table_name)
+                continue
+
+            if table_name == "student_project_outputs":
+                rows = _remap_project_output_rows(
+                    rows=rows,
+                    project_id_mapping=project_id_mapping,
+                )
+
             meaningful_rows = [
                 row for row in rows if _is_meaningful_multi_row(table_name=table_name, row=row)
             ]
@@ -826,9 +961,10 @@ def _normalize_project_id_mapping(payload: dict[str, Any]) -> None:
     3. extraction_prompt 允许 project_id 为 null，因此入库前要补齐。
 
     当前策略：
-    1. 如果项目本身没给 project_id，则用负数临时ID补齐。
+    1. 如果项目本身没给 project_id，则先用负数临时ID补齐，但这个 ID 只在内存里使用。
     2. 如果只有一个项目且 output.project_id 为空，则自动挂到这唯一项目上。
     3. 如果有多个项目且 output.project_id 为空，则该 output 保持为空，后续不会被插入。
+    4. 真正入库时，负数临时 ID 会被数据库自增主键替换，并同步回填给 project_outputs。
     """
 
     project_entries = payload.get("student_project_entries") or []
@@ -865,10 +1001,292 @@ def _normalize_payload_for_persistence(payload: dict[str, Any]) -> None:
     2. 正式业务表存在 NOT NULL 约束，必须在程序层做最后一道兜底
     """
 
+    # 中文注释：
+    # 学术科目这一步分成两层：
+    # 1. 先做本地规则补全，只补高置信字段，例如 A-Level 的 stage_code、IB 的 level_code
+    # 2. 再做 required_fields 校验，补不齐的行直接跳过，避免撞数据库约束
+    _apply_academic_subject_local_fill_rules(payload)
     _normalize_academic_subject_payload(payload)
     _normalize_language_payload(payload)
     _normalize_standardized_payload(payload)
     _normalize_experience_payload(payload)
+
+
+def _apply_academic_subject_local_fill_rules(payload: dict[str, Any]) -> None:
+    """
+    在正式入库前，对学术科目做一层“纯本地、无模型调用”的高置信补全。
+
+    当前只做三类事情：
+    1. A-Level：补 stage_code / grade_code / board_code / session_code
+    2. IB：补 level_code
+    3. IB 的 TOK / EE：从 subject 明细转到 ib_profile
+    """
+
+    _apply_a_level_local_fill_rules(payload)
+    _apply_ib_local_fill_rules(payload)
+
+
+def _apply_a_level_local_fill_rules(payload: dict[str, Any]) -> None:
+    rows = payload.get("student_academic_a_level_subject")
+    if not isinstance(rows, list):
+        return
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+
+        filled_fields: dict[str, Any] = {}
+
+        # 中文注释：
+        # stage_code 是 A-Level 正式表里的关键必填字段。
+        # 这里只在文本里明确出现 AS / A2 / FULL A-Level / in progress 语义时才补。
+        stage_code = _normalize_enum_value(
+            raw_value=row.get("stage_code"),
+            allowed_values=ACADEMIC_SUBJECT_DETAIL_CONFIGS["student_academic_a_level_subject"][
+                "enum_fields"
+            ]["stage_code"],
+        )
+        if stage_code is None:
+            stage_code = _infer_a_level_stage_code(row)
+        if stage_code and row.get("stage_code") != stage_code:
+            row["stage_code"] = stage_code
+            filled_fields["stage_code"] = stage_code
+
+        grade_code = _normalize_enum_value(
+            raw_value=row.get("grade_code"),
+            allowed_values=ACADEMIC_SUBJECT_DETAIL_CONFIGS["student_academic_a_level_subject"][
+                "enum_fields"
+            ]["grade_code"],
+        )
+        if grade_code is None:
+            grade_code = _infer_code_from_text_fragments(
+                text_fragments=_collect_academic_row_text_fragments(row),
+                pattern_map=A_LEVEL_GRADE_CODE_PATTERN_MAP,
+            )
+        if grade_code and row.get("grade_code") != grade_code:
+            row["grade_code"] = grade_code
+            filled_fields["grade_code"] = grade_code
+
+        board_code = _normalize_enum_value(
+            raw_value=row.get("board_code"),
+            allowed_values=ACADEMIC_SUBJECT_DETAIL_CONFIGS["student_academic_a_level_subject"][
+                "enum_fields"
+            ]["board_code"],
+        )
+        if board_code is None:
+            board_code = _infer_code_from_text_fragments(
+                text_fragments=_collect_academic_row_text_fragments(row),
+                pattern_map=A_LEVEL_BOARD_CODE_PATTERN_MAP,
+            )
+        if board_code and row.get("board_code") != board_code:
+            row["board_code"] = board_code
+            filled_fields["board_code"] = board_code
+
+        session_code = _normalize_enum_value(
+            raw_value=row.get("session_code"),
+            allowed_values=ACADEMIC_SUBJECT_DETAIL_CONFIGS["student_academic_a_level_subject"][
+                "enum_fields"
+            ]["session_code"],
+        )
+        if session_code is None:
+            session_code = _infer_code_from_text_fragments(
+                text_fragments=_collect_academic_row_text_fragments(row),
+                pattern_map=A_LEVEL_SESSION_CODE_PATTERN_MAP,
+            )
+        if session_code and row.get("session_code") != session_code:
+            row["session_code"] = session_code
+            filled_fields["session_code"] = session_code
+
+        if filled_fields:
+            logger.info(
+                "[AI建档][步骤:学术科目本地规则补全] student_academic_a_level_subject 已补全字段 %s：科目=%s",
+                ", ".join(f"{field}={value}" for field, value in filled_fields.items()),
+                _extract_academic_subject_display_text(row) or "-",
+            )
+
+
+def _apply_ib_local_fill_rules(payload: dict[str, Any]) -> None:
+    rows = payload.get("student_academic_ib_subject")
+    if not isinstance(rows, list):
+        return
+
+    ib_profile = payload.get("student_academic_ib_profile")
+    if not isinstance(ib_profile, dict):
+        ib_profile = {}
+        payload["student_academic_ib_profile"] = ib_profile
+
+    normalized_rows: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+
+        normalized_row = dict(row)
+        ib_subject_id = _normalize_required_code_value(normalized_row.get("ib_subject_id"))
+        if ib_subject_id is None:
+            ib_subject_id = _infer_code_from_text_fragments(
+                text_fragments=_collect_academic_row_text_fragments(normalized_row),
+                pattern_map=IB_SPECIAL_SUBJECT_PATTERN_MAP,
+            )
+            if ib_subject_id:
+                normalized_row["ib_subject_id"] = ib_subject_id
+
+        # 中文注释：
+        # TOK / EE 不属于 HL / SL 科目，它们应该落在 IB profile 主表里。
+        # 因此这里遇到 TOK / EE 时，不再保留在 subject 明细表，而是尝试转入主表字段。
+        if ib_subject_id in {"IB_TOK", "IB_EE"}:
+            _move_ib_tok_ee_to_profile(
+                ib_profile=ib_profile,
+                row=normalized_row,
+                ib_subject_id=ib_subject_id,
+            )
+            continue
+
+        level_code = _normalize_enum_value(
+            raw_value=normalized_row.get("level_code"),
+            allowed_values=ACADEMIC_SUBJECT_DETAIL_CONFIGS["student_academic_ib_subject"][
+                "enum_fields"
+            ]["level_code"],
+        )
+        if level_code is None:
+            level_code = _infer_code_from_text_fragments(
+                text_fragments=_collect_academic_row_text_fragments(normalized_row),
+                pattern_map=IB_LEVEL_CODE_PATTERN_MAP,
+            )
+        if level_code and normalized_row.get("level_code") != level_code:
+            normalized_row["level_code"] = level_code
+            logger.info(
+                "[AI建档][步骤:学术科目本地规则补全] student_academic_ib_subject 已补全字段 level_code=%s：科目=%s",
+                level_code,
+                _extract_academic_subject_display_text(normalized_row) or "-",
+            )
+
+        normalized_rows.append(normalized_row)
+
+    payload["student_academic_ib_subject"] = normalized_rows
+
+
+def _infer_a_level_stage_code(row: dict[str, Any]) -> str | None:
+    """
+    A-Level 的 stage_code 只做高置信补全。
+
+    规则：
+    1. 如果 is_predicted=1，且没有更明确的 AS / A2 / FULL_A_LEVEL 证据，则补 IN_PROGRESS
+    2. 其余情况只根据文本里的明确关键词判断
+    """
+
+    text_fragments = _collect_academic_row_text_fragments(row)
+    explicit_stage_code = _infer_code_from_text_fragments(
+        text_fragments=text_fragments,
+        pattern_map={
+            "AS": A_LEVEL_STAGE_CODE_PATTERN_MAP["AS"],
+            "A2": A_LEVEL_STAGE_CODE_PATTERN_MAP["A2"],
+            "FULL_A_LEVEL": A_LEVEL_STAGE_CODE_PATTERN_MAP["FULL_A_LEVEL"],
+        },
+    )
+    if explicit_stage_code:
+        return explicit_stage_code
+
+    in_progress_stage_code = _infer_code_from_text_fragments(
+        text_fragments=text_fragments,
+        pattern_map={"IN_PROGRESS": A_LEVEL_STAGE_CODE_PATTERN_MAP["IN_PROGRESS"]},
+    )
+    if in_progress_stage_code:
+        return in_progress_stage_code
+
+    if row.get("is_predicted") == 1:
+        return "IN_PROGRESS"
+    return None
+
+
+def _move_ib_tok_ee_to_profile(
+    *,
+    ib_profile: dict[str, Any],
+    row: dict[str, Any],
+    ib_subject_id: str,
+) -> None:
+    target_field = "tok_grade_code" if ib_subject_id == "IB_TOK" else "ee_grade_code"
+    subject_display_text = _extract_academic_subject_display_text(row) or ib_subject_id
+
+    grade_code = _normalize_enum_value(
+        raw_value=row.get(target_field) or row.get("grade_code"),
+        allowed_values=IB_PROFILE_GRADE_ALLOWED_VALUES,
+    )
+    if grade_code is None:
+        grade_code = _infer_code_from_text_fragments(
+            text_fragments=_collect_academic_row_text_fragments(row),
+            pattern_map={code: (rf"\b{re.escape(code.lower())}\b",) for code in IB_PROFILE_GRADE_ALLOWED_VALUES},
+        )
+
+    if grade_code:
+        if ib_profile.get(target_field) is None:
+            ib_profile[target_field] = grade_code
+        logger.info(
+            "[AI建档][步骤:IB TOK/EE 主表归并] %s 已转入 student_academic_ib_profile.%s=%s",
+            subject_display_text,
+            target_field,
+            grade_code,
+        )
+        return
+
+    logger.warning(
+        "[AI建档][步骤:IB TOK/EE 主表归并] %s 无法安全识别等级，已从 student_academic_ib_subject 移除，请人工确认",
+        subject_display_text,
+    )
+
+
+def _collect_academic_row_text_fragments(row: dict[str, Any]) -> list[str]:
+    """
+    收集一条学术明细里可用于本地规则识别的文本片段。
+
+    这里只读取已有字段，不访问数据库，也不调用模型。
+    """
+
+    fragments: list[str] = []
+    for field_name in (
+        "subject_name_text",
+        "notes",
+        "exam_series",
+        "stage_code",
+        "grade_code",
+        "board_code",
+        "session_code",
+        "level_code",
+    ):
+        value = row.get(field_name)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            value = str(value)
+        normalized_value = value.strip()
+        if normalized_value:
+            fragments.append(normalized_value)
+    return fragments
+
+
+def _infer_code_from_text_fragments(
+    *,
+    text_fragments: list[str],
+    pattern_map: dict[str, tuple[str, ...]],
+) -> str | None:
+    """
+    从多段文本里做一次“单值、无歧义”的码值识别。
+
+    只有命中且唯一时才返回结果；一旦出现多值冲突，就直接返回 None，避免误补。
+    """
+
+    matched_codes: list[str] = []
+    for code, patterns in pattern_map.items():
+        if any(
+            re.search(pattern, fragment, flags=re.IGNORECASE)
+            for fragment in text_fragments
+            for pattern in patterns
+        ):
+            matched_codes.append(code)
+
+    unique_codes = list(dict.fromkeys(matched_codes))
+    if len(unique_codes) == 1:
+        return unique_codes[0]
+    return None
 
 
 def _normalize_academic_subject_payload(payload: dict[str, Any]) -> None:
@@ -888,6 +1306,8 @@ def _normalize_academic_subject_payload(payload: dict[str, Any]) -> None:
 
         normalized_rows: list[dict[str, Any]] = []
         id_field = config["id_field"]
+        required_fields: tuple[str, ...] = tuple(config.get("required_fields", (id_field,)))
+        enum_fields: dict[str, set[str]] = dict(config.get("enum_fields", {}))
         for row in rows:
             if not isinstance(row, dict):
                 continue
@@ -897,17 +1317,39 @@ def _normalize_academic_subject_payload(payload: dict[str, Any]) -> None:
             for field_name in ACADEMIC_SUBJECT_AUXILIARY_FIELDS:
                 normalized_row.pop(field_name, None)
 
+            # 中文注释：
+            # 先统一清洗“课程码值字段”，例如 al_subject_id / ap_course_id。
+            # 这是所有课程体系都必须先满足的最小条件，否则根本无法定位是哪门课。
             normalized_row[id_field] = _normalize_required_code_value(
                 normalized_row.get(id_field)
             )
-            if normalized_row[id_field] is None and _is_meaningful_multi_row(
+
+            # 中文注释：
+            # 再按课程体系校验额外必填字段。
+            # 例如：
+            # - A-Level 除了 al_subject_id，还必须有 stage_code
+            # - IB 除了 ib_subject_id，还必须有 level_code
+            # 这些字段即使 AI 给了值，也要先做一次合法枚举归一化，避免把非法文本写进正式表。
+            for field_name, allowed_values in enum_fields.items():
+                normalized_row[field_name] = _normalize_enum_value(
+                    raw_value=normalized_row.get(field_name),
+                    allowed_values=allowed_values,
+                )
+
+            missing_required_fields = [
+                field_name
+                for field_name in required_fields
+                if _normalize_required_code_value(normalized_row.get(field_name)) is None
+            ]
+
+            if missing_required_fields and _is_meaningful_multi_row(
                 table_name=table_name,
                 row=normalized_row,
             ):
                 logger.warning(
-                    "[AI建档][步骤:学术科目正式入库兜底] %s 缺少 %s，已跳过该明细：科目=%s",
+                    "[AI建档][步骤:学术科目正式入库兜底] %s 缺少必填字段 %s，已跳过该明细：科目=%s",
                     table_name,
-                    id_field,
+                    ",".join(missing_required_fields),
                     subject_display_text or "-",
                 )
                 continue
@@ -1392,6 +1834,120 @@ def _insert_multi_row(
     db.execute(sql, normalized_row)
 
 
+def _insert_project_entries_with_mapping(
+    db: Session,
+    *,
+    rows: list[dict[str, Any]],
+) -> dict[int, int]:
+    """
+    以“临时 project_id -> 正式 project_id”的方式插入项目明细。
+
+    中文注释：
+    1. 提取链路里 project_id 可能是 null，也可能被前置归一化成负数临时 ID。
+    2. 这些负数只是为了让 project_outputs 在内存里能先挂靠到某个项目。
+    3. 真正写库时，若 project_id 为负数或为空，就必须删掉该列，让数据库自增生成正式主键。
+    4. 插入完成后把“临时 ID -> 正式 ID”记录下来，供 project_outputs 重写外键。
+    """
+
+    project_id_mapping: dict[int, int] = {}
+
+    for row in rows:
+        normalized_row = _apply_table_column_defaults(
+            table_name="student_project_entries",
+            row=row,
+        )
+        insert_row = dict(normalized_row)
+
+        original_project_id = _coerce_int_if_possible(normalized_row.get("project_id"))
+        should_autogenerate_project_id = (
+            original_project_id is None or original_project_id < 0
+        )
+
+        if should_autogenerate_project_id:
+            insert_row.pop("project_id", None)
+        else:
+            insert_row["project_id"] = original_project_id
+
+        columns = list(insert_row.keys())
+        escaped_columns = ", ".join(f"`{column}`" for column in columns)
+        value_placeholders = ", ".join(f":{column}" for column in columns)
+        sql = text(
+            f"""
+            INSERT INTO `student_project_entries` ({escaped_columns})
+            VALUES ({value_placeholders})
+            """
+        )
+        result = db.execute(sql, insert_row)
+
+        if should_autogenerate_project_id:
+            actual_project_id = int(result.lastrowid)
+            row["project_id"] = actual_project_id
+            if original_project_id is not None:
+                project_id_mapping[original_project_id] = actual_project_id
+        else:
+            actual_project_id = original_project_id
+            project_id_mapping[actual_project_id] = actual_project_id
+
+    return project_id_mapping
+
+
+def _remap_project_output_rows(
+    *,
+    rows: list[dict[str, Any]],
+    project_id_mapping: dict[int, int],
+) -> list[dict[str, Any]]:
+    """
+    在写入项目产出前，把临时 project_id 重写成正式 project_id。
+
+    中文注释：
+    1. output.project_id 如果是负数，说明它指向的是内存里的临时项目 ID。
+    2. 这里尝试用上一步插入项目时生成的正式 ID 替换它。
+    3. 如果仍然无法确定归属项目，就把 project_id 置空并跳过该条产出，避免撞外键。
+    """
+
+    remapped_rows: list[dict[str, Any]] = []
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+
+        normalized_row = dict(row)
+        raw_project_id = _coerce_int_if_possible(normalized_row.get("project_id"))
+        normalized_row["project_id"] = raw_project_id
+
+        if raw_project_id is not None:
+            mapped_project_id = project_id_mapping.get(raw_project_id)
+            if mapped_project_id is not None:
+                normalized_row["project_id"] = mapped_project_id
+            elif raw_project_id < 0:
+                normalized_row["project_id"] = None
+
+        if not _has_meaningful_scalar(normalized_row.get("project_id")):
+            logger.warning(
+                "[AI建档][步骤:项目产出正式入库兜底] project_output 缺少有效 project_id，已跳过该明细：output_type=%s",
+                normalized_row.get("output_type"),
+            )
+            continue
+
+        remapped_rows.append(normalized_row)
+
+    return remapped_rows
+
+
+def _coerce_int_if_possible(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped == "":
+            return None
+        if re.fullmatch(r"-?\d+", stripped):
+            return int(stripped)
+    return None
+
+
 def _delete_existing_multi_rows(db: Session, *, student_id: str) -> None:
     """
     清理当前 student_id 在明细表中的旧快照数据。
@@ -1436,6 +1992,37 @@ def _delete_existing_multi_rows(db: Session, *, student_id: str) -> None:
     ]
     for sql in delete_sql_by_student_id:
         db.execute(text(sql), {"student_id": student_id})
+
+
+def _delete_cleared_single_rows(
+    db: Session,
+    *,
+    student_id: str,
+    db_payload: dict[str, Any],
+) -> None:
+    """
+    删除本轮 payload 明确已被“整体清空”的单行表旧快照。
+
+    说明：
+    1. 多行表传 [] 时会先删旧快照再插新快照，天然支持“清空”。
+    2. 单行表传 {} 时，旧逻辑只会跳过 upsert，不会删除历史行。
+    3. 这里只针对允许被清空删除的单行子表执行 DELETE，避免误删基础主表。
+    """
+
+    for table_name in CLEARABLE_SINGLE_ROW_TABLES:
+        row = db_payload.get(table_name) or {}
+        if not isinstance(row, dict):
+            continue
+        if _should_persist_single_row(
+            table_name=table_name,
+            row=row,
+            db_payload=db_payload,
+        ):
+            continue
+        db.execute(
+            text(f"DELETE FROM `{table_name}` WHERE student_id = :student_id"),
+            {"student_id": student_id},
+        )
 
 
 def _apply_table_column_defaults(

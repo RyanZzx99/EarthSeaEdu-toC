@@ -195,15 +195,31 @@ function getStageDisplayLabel(stage) {
 
 function getProfileStatusText(resultStatus) {
   if (resultStatus === "generated") {
-    return "档案正在创建";
+    return "六维图已生成";
+  }
+  if (resultStatus === "saved") {
+    return "六维图已生成";
+  }
+  if (resultStatus === "failed") {
+    return "六维图已生成";
+  }
+  return "结果已生成";
+}
+
+function getArchiveStatusText(resultStatus) {
+  // 中文注释：
+  // 六维图结果和正式档案保存不是同一个阶段。
+  // 这里单独展示档案状态，让用户能明确区分“六维图已生成”和“档案还在后台创建”。
+  if (resultStatus === "generated") {
+    return "档案创建中";
   }
   if (resultStatus === "saved") {
     return "档案创建完成";
   }
   if (resultStatus === "failed") {
-    return "六维图已生成，档案创建失败";
+    return "档案创建失败";
   }
-  return "结果已生成";
+  return "等待创建";
 }
 
 export default function HomePage() {
@@ -504,7 +520,7 @@ export default function HomePage() {
           } else if (restoredResultStatus === "saved") {
             setUiHint("已恢复你上一次生成的六维图结果。");
           } else if (normalizedStage === "build_ready") {
-            setUiHint("信息已经足够，点击按钮可立即建档；如果你还想补充，也可以继续对话。");
+            setUiHint("");
           } else {
             setUiHint("已恢复上一次建档结果，但正式保存存在异常。");
           }
@@ -683,7 +699,7 @@ export default function HomePage() {
           setAssistantThinking(false);
           setChatEnded(true);
           chatEndedRef.current = true;
-          setUiHint("信息已经足够，点击按钮可立即建档；如果你还想补充，也可以继续对话。");
+          setUiHint("");
         } else if (nextStage === "profile_saving") {
           setAssistantThinking(false);
           setCreateProfileLoading(true);
@@ -793,7 +809,7 @@ export default function HomePage() {
         chatEndedRef.current = Boolean(payload.stop_ready);
 
         if (payload.stop_ready) {
-          setUiHint("信息已经足够，点击按钮可立即建档；如果你还想补充，也可以继续对话。");
+          setUiHint("");
         } else if (payload.next_question_focus) {
           setUiHint(`当前重点还缺 ${RADAR_LABELS[payload.next_question_focus] || payload.next_question_focus} 相关信息，可以继续补充。`);
         } else {
@@ -919,6 +935,14 @@ export default function HomePage() {
       }
       return [...previous, createChatMessage("assistant", guidanceMessage)];
     });
+  }
+
+  function handleViewArchive() {
+    if (!aiSessionId) {
+      return;
+    }
+
+    navigate(`/profile?tab=archive&session_id=${encodeURIComponent(aiSessionId)}`);
   }
 
   async function waitForProfileGenerationResult(sessionId, hadProfileBefore) {
@@ -1419,54 +1443,47 @@ export default function HomePage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="home-ai-input-row">
-                        <textarea
-                          className="home-ai-input"
-                          value={inputValue}
-                          onChange={(event) => setInputValue(event.target.value)}
-                          onKeyDown={handleInputKeyDown}
-                          placeholder="直接告诉我你的课程体系、成绩、竞赛、活动或项目经历..."
-                          rows={2}
-                          disabled={false}
-                        />
-
-                        <motion.button
-                          type="button"
-                          className="home-ai-send"
-                          onClick={sendUserMessage}
-                          whileHover={{ scale: 1.04 }}
-                          whileTap={{ scale: 0.96 }}
-                          disabled={!inputValue.trim()}
-                        >
-                          <Send size={18} strokeWidth={2.2} />
-                        </motion.button>
-                      </div>
-                    )}
-
-                    {chatEnded && !isRoundProcessing ? (
-                      <div className="home-ai-build-row">
-                        <div className="home-ai-build-copy">
-                          <h4>{hasGeneratedProfile ? "可以更新六维图" : "信息已足够建档"}</h4>
-                          <p>
-                            {hasGeneratedProfile
-                              ? "你可以继续对话补充信息，也可以在合适的时候点击按钮更新六维图。"
-                              : "系统已判断信息足够，点击按钮在这里生成你的六维图；如果还想补充，也可以继续对话。"}
-                          </p>
+                      <div className="home-ai-input-shell">
+                        <div className="home-ai-input-row">
+                          <textarea
+                            className="home-ai-input"
+                            value={inputValue}
+                            onChange={(event) => setInputValue(event.target.value)}
+                            onKeyDown={handleInputKeyDown}
+                            placeholder="直接告诉我你的课程体系、成绩、竞赛、活动或项目经历..."
+                            rows={2}
+                            disabled={false}
+                          />
                         </div>
 
-                        <motion.button
-                          type="button"
-                          className="home-ai-build-button"
-                          onClick={handleCreateProfile}
-                          whileHover={{ scale: 1.04 }}
-                          whileTap={{ scale: 0.96 }}
-                          disabled={isBuildProfileBlocked}
-                        >
-                          {createProfileLoading ? "正在生成..." : hasGeneratedProfile ? "更新六维图" : "立即建档"}
-                          <ArrowRight size={18} strokeWidth={2.2} />
-                        </motion.button>
+                        <div className="home-ai-action-row">
+                          <motion.button
+                            type="button"
+                            className="home-ai-send"
+                            onClick={sendUserMessage}
+                            whileHover={{ scale: 1.04 }}
+                            whileTap={{ scale: 0.96 }}
+                            disabled={!inputValue.trim()}
+                          >
+                            <Send size={18} strokeWidth={2.2} />
+                          </motion.button>
+
+                          {chatEnded ? (
+                            <motion.button
+                              type="button"
+                              className="home-ai-build-button"
+                              onClick={handleCreateProfile}
+                              whileHover={{ scale: 1.04 }}
+                              whileTap={{ scale: 0.96 }}
+                              disabled={isBuildProfileBlocked}
+                            >
+                              {createProfileLoading ? "正在生成..." : hasGeneratedProfile ? "更新六维图" : "生成六维图"}
+                              <ArrowRight size={18} strokeWidth={2.2} />
+                            </motion.button>
+                          ) : null}
+                        </div>
                       </div>
-                    ) : null}
+                    )}
                   </div>
                 </motion.div>
               ) : null}
@@ -1502,17 +1519,34 @@ export default function HomePage() {
                     <div>
                       <h3 className="home-radar-title">你的六维建档结果</h3>
                       <p className="home-radar-subtitle">{getProfileStatusText(profileResultStatus)}</p>
+                      <p className="home-radar-subtitle home-radar-subtitle-secondary">
+                        当前档案状态：{getArchiveStatusText(profileResultStatus)}
+                      </p>
                     </div>
 
-                    <motion.button
-                      type="button"
-                      className="home-radar-back-button"
-                      onClick={handleContinueSupplementInfo}
-                      whileHover={{ scale: 1.03 }}
-                      whileTap={{ scale: 0.97 }}
-                    >
-                      继续补充信息
-                    </motion.button>
+                    <div className="home-radar-actions">
+                      {profileResultStatus === "saved" && aiSessionId ? (
+                        <motion.button
+                          type="button"
+                          className="home-radar-secondary-button"
+                          onClick={handleViewArchive}
+                          whileHover={{ scale: 1.03 }}
+                          whileTap={{ scale: 0.97 }}
+                        >
+                          查看我的档案
+                        </motion.button>
+                      ) : null}
+
+                      <motion.button
+                        type="button"
+                        className="home-radar-back-button"
+                        onClick={handleContinueSupplementInfo}
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                      >
+                        继续补充信息
+                      </motion.button>
+                    </div>
                   </div>
 
                   {isArchiveCreating ? (
@@ -1540,7 +1574,7 @@ export default function HomePage() {
                     </div>
                   ) : null}
 
-                  <div className="home-radar-grid">
+                  <div className="home-radar-top">
                     <div className="home-radar-chart-card">
                       <div className="home-radar-chart-head">
                         <div className="home-radar-chart-icon">
@@ -1580,56 +1614,56 @@ export default function HomePage() {
                       </div>
                     </div>
 
-                    <div className="home-radar-score-list">
-                      {Object.entries(profileData.radar_scores_json).map(([key, value]) => (
-                        <motion.div
-                          key={key}
-                          className="home-radar-score-card"
-                          style={{
-                            "--score-from": (RADAR_COLORS[key] || RADAR_COLORS.academic).from,
-                            "--score-to": (RADAR_COLORS[key] || RADAR_COLORS.academic).to,
-                            "--score-bg": (RADAR_COLORS[key] || RADAR_COLORS.academic).bg,
-                          }}
-                          initial={{ opacity: 0, y: 14 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.08 }}
-                        >
-                          <div className="home-radar-score-top">
-                            <div className="home-radar-score-meta">
-                              <div className="home-radar-score-dot" />
-                              <span>{RADAR_LABELS[key] || key}</span>
-                            </div>
+                    <div className="home-radar-summary-card">
+                      <div className="home-radar-summary-badge">
+                        <Sparkles size={18} strokeWidth={2.2} />
+                      </div>
 
-                            <div className="home-radar-score-value">
-                              <strong>{value.score}</strong>
-                              <span>/ 100</span>
-                            </div>
-                          </div>
-
-                          <div className="home-radar-score-bar">
-                            <motion.div
-                              className="home-radar-score-bar-fill"
-                              initial={{ width: 0 }}
-                              animate={{ width: `${value.score}%` }}
-                              transition={{ duration: 0.8, ease: "easeOut" }}
-                            />
-                          </div>
-
-                          <p className="home-radar-score-reason">{value.reason}</p>
-                        </motion.div>
-                      ))}
+                      <div className="home-radar-summary-copy">
+                        <h4>综合总结</h4>
+                        <p>{profileData.summary_text}</p>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="home-radar-summary-card">
-                    <div className="home-radar-summary-badge">
-                      <Sparkles size={18} strokeWidth={2.2} />
-                    </div>
+                  <div className="home-radar-score-grid">
+                    {Object.entries(profileData.radar_scores_json).map(([key, value]) => (
+                      <motion.div
+                        key={key}
+                        className="home-radar-score-card"
+                        style={{
+                          "--score-from": (RADAR_COLORS[key] || RADAR_COLORS.academic).from,
+                          "--score-to": (RADAR_COLORS[key] || RADAR_COLORS.academic).to,
+                          "--score-bg": (RADAR_COLORS[key] || RADAR_COLORS.academic).bg,
+                        }}
+                        initial={{ opacity: 0, y: 14 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.08 }}
+                      >
+                        <div className="home-radar-score-top">
+                          <div className="home-radar-score-meta">
+                            <div className="home-radar-score-dot" />
+                            <span>{RADAR_LABELS[key] || key}</span>
+                          </div>
 
-                    <div className="home-radar-summary-copy">
-                      <h4>综合总结</h4>
-                      <p>{profileData.summary_text}</p>
-                    </div>
+                          <div className="home-radar-score-value">
+                            <strong>{value.score}</strong>
+                            <span>/ 100</span>
+                          </div>
+                        </div>
+
+                        <div className="home-radar-score-bar">
+                          <motion.div
+                            className="home-radar-score-bar-fill"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${value.score}%` }}
+                            transition={{ duration: 0.8, ease: "easeOut" }}
+                          />
+                        </div>
+
+                        <p className="home-radar-score-reason">{value.reason}</p>
+                      </motion.div>
+                    ))}
                   </div>
                 </motion.div>
               ) : null}

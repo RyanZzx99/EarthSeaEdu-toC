@@ -281,14 +281,19 @@ def send_sms_code_api(
             raise ValueError("biz_type 仅支持 login 或 bind_mobile")
 
         # 调 service 发送并保存验证码
-        send_and_save_sms_code(
+        code = send_and_save_sms_code(
             db=db,
             mobile=payload.mobile,
             biz_type=payload.biz_type,
         )
 
-        # 返回成功
-        return {"message": "验证码已发送"}
+        # 中文注释：
+        # 本地 mock 联调时，PyCharm + uvicorn --reload 的多进程模式下控制台不一定稳定显示验证码。
+        # 因此在 debug + mock 场景下，把验证码明文附在响应里，方便开发时直接从 Network 查看。
+        response_payload = {"message": "验证码已发送"}
+        if settings.app_debug and settings.tencentcloud_sms_mock:
+            response_payload["debug_code"] = code
+        return response_payload
 
     except ValueError as e:
         # 业务异常返回 400
