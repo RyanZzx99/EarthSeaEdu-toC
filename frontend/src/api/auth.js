@@ -185,6 +185,10 @@ export function setPassword(data) {
   return request.post("/api/v1/auth/password/set", data);
 }
 
+export function resetMyPasswordBySms(data) {
+  return request.post("/api/v1/auth/me/password/reset-by-sms", data);
+}
+
 /**
  * 修改当前登录用户昵称
  */
@@ -204,6 +208,10 @@ export function checkMyNickname(data) {
  */
 export function checkMyPassword(data) {
   return request.post("/api/v1/auth/me/password/check", data);
+}
+
+export function checkMyResetPassword(data) {
+  return request.post("/api/v1/auth/me/password/check-for-reset", data);
 }
 
 /**

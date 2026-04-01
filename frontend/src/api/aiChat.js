@@ -33,10 +33,14 @@ aiChatRequest.interceptors.response.use(
   }
 );
 
-export function getCurrentAiChatSession(bizDomain = "student_profile_build") {
+export function getCurrentAiChatSession(
+  bizDomain = "student_profile_build",
+  options = {}
+) {
   return aiChatRequest.get("/api/v1/ai-chat/sessions/current", {
     params: {
       biz_domain: bizDomain,
+      create_if_missing: options.createIfMissing ? 1 : 0,
     },
   });
 }

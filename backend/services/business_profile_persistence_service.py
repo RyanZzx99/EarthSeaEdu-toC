@@ -912,7 +912,7 @@ def _inject_student_id(payload: dict[str, Any], *, student_id: str) -> None:
                 table_value["student_id"] = student_id
         elif isinstance(table_value, list):
             for row in table_value:
-                if isinstance(row, dict) and "student_id" in row:
+                if isinstance(row, dict) and table_name in MULTI_ROW_TABLES:
                     row["student_id"] = student_id
 
 

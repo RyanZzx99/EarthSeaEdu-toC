@@ -41,6 +41,7 @@ from backend.services.ai_chat_service import update_profile_result_status
 from backend.services.ai_chat_service import update_session_stage
 from backend.services.ai_chat_service import update_session_progress
 from backend.services.ai_prompt_runtime_service import execute_prompt_with_context
+from backend.services.business_profile_form_service import load_business_profile_snapshot
 from backend.services.business_profile_persistence_service import build_db_payload_from_profile_json
 from backend.services.business_profile_persistence_service import persist_business_profile_snapshot
 from backend.services.code_resolution_service import apply_code_resolution_to_payload
@@ -56,6 +57,21 @@ EXTRACTION_PROMPT_KEY = "student_profile_build.extraction"
 SCORING_PROMPT_KEY = "student_profile_build.scoring"
 PROFILE_SAVING_STAGE = "profile_saving"
 EXTRACTION_RECENT_MESSAGE_LIMIT = 12
+ARCHIVE_PROGRESS_DIMENSION_ORDER = [
+    "academic",
+    "language",
+    "standardized",
+    "competition",
+    "activity",
+    "project",
+]
+ARCHIVE_PROGRESS_IGNORED_FIELDS = {
+    "student_id",
+    "student_academic_id",
+    "student_language_id",
+    "student_standardized_test_id",
+    "project_id",
+}
 
 NEGATIVE_GUARD_DIMENSION_KEYWORDS: dict[str, tuple[str, ...]] = {
     "language": (
@@ -1879,6 +1895,14 @@ def build_conversation_context(
             db,
             session_id=session_id,
         )
+    archive_snapshot = load_business_profile_snapshot(
+        db,
+        student_id=student_id,
+    )
+    resolved_progress_json = _merge_progress_with_archive_snapshot(
+        resolved_progress_json,
+        archive_snapshot,
+    )
     current_session_summary = get_session_summary_json(
         db,
         session_id=session_id,
@@ -1901,6 +1925,7 @@ def build_conversation_context(
         ],
         "current_progress_json": resolved_progress_json or {},
         "current_session_summary": current_session_summary or {},
+        "current_archive_form_snapshot": archive_snapshot or {},
         "conversation_control": conversation_control,
     }
 
@@ -1929,6 +1954,14 @@ def _build_progress_extraction_context(
         db,
         session_id=session_id,
     )
+    archive_snapshot = load_business_profile_snapshot(
+        db,
+        student_id=student_id,
+    )
+    current_progress_json = _merge_progress_with_archive_snapshot(
+        current_progress_json,
+        archive_snapshot,
+    )
     return {
         "student_id": student_id,
         "session_id": session_id,
@@ -1942,6 +1975,7 @@ def _build_progress_extraction_context(
             for item in visible_messages
         ],
         "current_progress_json": current_progress_json or {},
+        "current_archive_form_snapshot": archive_snapshot or {},
     }
 
 
@@ -3223,3 +3257,247 @@ def _compute_build_ready_state(
         dimension_name in blocking_missing_dimensions
         for dimension_name in filtered_missing_dimensions
     )
+
+
+def _archive_value_has_meaningful_content(value: Any) -> bool:
+    """判断正式档案快照里的某个值是否包含真实业务内容。"""
+
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip() != ""
+    if isinstance(value, list):
+        return any(_archive_value_has_meaningful_content(item) for item in value)
+    if isinstance(value, dict):
+        return any(
+            field_name not in ARCHIVE_PROGRESS_IGNORED_FIELDS
+            and _archive_value_has_meaningful_content(field_value)
+            for field_name, field_value in value.items()
+        )
+    return True
+
+
+def _archive_first_curriculum_code(curriculum_rows: list[dict[str, Any]]) -> str | None:
+    primary_row = next(
+        (
+            row
+            for row in curriculum_rows
+            if isinstance(row, dict) and str(row.get("curriculum_system_code") or "").strip() and row.get("is_primary") == 1
+        ),
+        None,
+    )
+    selected_row = primary_row or next(
+        (
+            row
+            for row in curriculum_rows
+            if isinstance(row, dict) and str(row.get("curriculum_system_code") or "").strip()
+        ),
+        None,
+    )
+    if selected_row is None:
+        return None
+    return str(selected_row.get("curriculum_system_code")).strip()
+
+
+def _build_archive_snapshot_progress_hint(
+    archive_snapshot: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """
+    从正式档案快照构建一份轻量 progress 提示。
+
+    中文注释：
+    1. 这里只做“数据库里已经明确存在什么”的状态映射，不做复杂语义推断。
+    2. 这份提示不会直接落库，只用于让 conversation / progress_extraction 看到学生已经手填的正式档案。
+    """
+
+    if not isinstance(archive_snapshot, dict):
+        archive_snapshot = {}
+
+    basic_info = archive_snapshot.get("student_basic_info") or {}
+    curriculum_rows = archive_snapshot.get("student_basic_info_curriculum_system") or []
+
+    basic_info_progress: dict[str, Any] = {
+        "current_grade": {"collected": False, "value": None},
+        "target_country": {"collected": False, "value": None},
+        "major_interest": {"collected": False, "value": None},
+        "curriculum_system": {"collected": False, "value": None},
+    }
+
+    current_grade = str(basic_info.get("current_grade") or "").strip()
+    if current_grade:
+        basic_info_progress["current_grade"] = {"collected": True, "value": current_grade}
+
+    target_country = str(basic_info.get("CTRY_CODE_VAL") or "").strip()
+    if target_country:
+        basic_info_progress["target_country"] = {"collected": True, "value": target_country}
+
+    major_interest = str(basic_info.get("MAJ_CODE_VAL") or "").strip()
+    if major_interest:
+        basic_info_progress["major_interest"] = {"collected": True, "value": major_interest}
+
+    curriculum_code = _archive_first_curriculum_code(curriculum_rows if isinstance(curriculum_rows, list) else [])
+    if curriculum_code:
+        basic_info_progress["curriculum_system"] = {"collected": True, "value": curriculum_code}
+
+    academic_has_content = any(
+        _archive_value_has_meaningful_content(archive_snapshot.get(table_name))
+        for table_name in [
+            "student_academic",
+            "student_academic_chinese_high_school_subject",
+            "student_academic_a_level_subject",
+            "student_academic_ap_profile",
+            "student_academic_ap_course",
+            "student_academic_ib_profile",
+            "student_academic_ib_subject",
+        ]
+    )
+    language_has_content = any(
+        _archive_value_has_meaningful_content(archive_snapshot.get(table_name))
+        for table_name in [
+            "student_language",
+            "student_language_ielts",
+            "student_language_toefl_ibt",
+            "student_language_toefl_essentials",
+            "student_language_det",
+            "student_language_pte",
+            "student_language_languagecert",
+            "student_language_cambridge",
+            "student_language_other",
+        ]
+    )
+
+    standardized_summary = archive_snapshot.get("student_standardized_tests") or {}
+    standardized_records = archive_snapshot.get("student_standardized_test_records") or []
+    standardized_has_content = _archive_value_has_meaningful_content(standardized_summary) or _archive_value_has_meaningful_content(
+        standardized_records
+    )
+    standardized_is_not_applicable = (
+        isinstance(standardized_summary, dict)
+        and str(standardized_summary.get("is_applicable")).strip() in {"0", "False", "false"}
+    )
+    competition_has_content = any(
+        _archive_value_has_meaningful_content(archive_snapshot.get(table_name))
+        for table_name in ["student_competitions", "student_competition_entries"]
+    )
+    activity_has_content = any(
+        _archive_value_has_meaningful_content(archive_snapshot.get(table_name))
+        for table_name in ["student_activities", "student_activity_entries"]
+    )
+    project_has_content = any(
+        _archive_value_has_meaningful_content(archive_snapshot.get(table_name))
+        for table_name in ["student_projects_experience", "student_project_entries", "student_project_outputs"]
+    )
+
+    dimension_progress: dict[str, Any] = {
+        "academic": {
+            "status": "sufficient" if academic_has_content else "missing",
+            "reason": "正式档案中已存在学术信息" if academic_has_content else "",
+        },
+        "language": {
+            "status": "sufficient" if language_has_content else "missing",
+            "reason": "正式档案中已存在语言信息" if language_has_content else "",
+        },
+        "standardized": {
+            "status": "not_applicable" if standardized_is_not_applicable else ("sufficient" if standardized_has_content else "missing"),
+            "reason": "正式档案标记为不适用" if standardized_is_not_applicable else ("正式档案中已存在标化信息" if standardized_has_content else ""),
+        },
+        "competition": {
+            "status": "sufficient" if competition_has_content else "missing",
+            "reason": "正式档案中已存在竞赛信息" if competition_has_content else "",
+        },
+        "activity": {
+            "status": "sufficient" if activity_has_content else "missing",
+            "reason": "正式档案中已存在活动信息" if activity_has_content else "",
+        },
+        "project": {
+            "status": "sufficient" if project_has_content else "missing",
+            "reason": "正式档案中已存在项目或实践信息" if project_has_content else "",
+        },
+    }
+
+    missing_dimensions = [
+        dimension_name
+        for dimension_name in ARCHIVE_PROGRESS_DIMENSION_ORDER
+        if (dimension_progress.get(dimension_name) or {}).get("status") == "missing"
+    ]
+    stop_ready = _compute_build_ready_state(
+        basic_info_progress=basic_info_progress,
+        filtered_missing_dimensions=missing_dimensions,
+    )
+
+    return {
+        "basic_info_progress": basic_info_progress,
+        "dimension_progress": dimension_progress,
+        "missing_dimensions": missing_dimensions,
+        "next_question_focus": None if stop_ready else _pick_next_question_focus(missing_dimensions),
+        "stop_ready": stop_ready,
+    }
+
+
+def _merge_progress_with_archive_snapshot(
+    current_progress_json: dict[str, Any] | None,
+    archive_snapshot: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """把正式档案快照里已经明确存在的信息并入当前 progress。"""
+
+    merged_progress = copy.deepcopy(current_progress_json or {})
+    archive_hint = _build_archive_snapshot_progress_hint(archive_snapshot)
+
+    basic_info_progress = merged_progress.setdefault("basic_info_progress", {})
+    archive_basic_info_progress = archive_hint.get("basic_info_progress") or {}
+    for field_name, archive_entry in archive_basic_info_progress.items():
+        if _is_basic_progress_field_collected(basic_info_progress, field_name):
+            continue
+        if not isinstance(archive_entry, dict):
+            continue
+        if archive_entry.get("collected") is not True:
+            continue
+        archive_value = str(archive_entry.get("value") or "").strip()
+        if not archive_value:
+            continue
+        basic_info_progress[field_name] = copy.deepcopy(archive_entry)
+
+    _normalize_basic_progress_value_shapes(basic_info_progress)
+    _clear_suspicious_current_grade_value(basic_info_progress=basic_info_progress)
+
+    dimension_progress = merged_progress.setdefault("dimension_progress", {})
+    archive_dimension_progress = archive_hint.get("dimension_progress") or {}
+    for dimension_name in ARCHIVE_PROGRESS_DIMENSION_ORDER:
+        archive_entry = archive_dimension_progress.get(dimension_name)
+        current_entry = dimension_progress.get(dimension_name)
+        current_status = current_entry.get("status") if isinstance(current_entry, dict) else None
+        if current_status in {"partial", "sufficient", "not_applicable"}:
+            continue
+        if isinstance(archive_entry, dict):
+            dimension_progress[dimension_name] = copy.deepcopy(archive_entry)
+        elif not isinstance(current_entry, dict):
+            dimension_progress[dimension_name] = {"status": "missing", "reason": ""}
+
+    negative_answered_dimensions = _normalize_dimension_list(
+        merged_progress.get("negative_answered_dimensions") or []
+    )
+    if negative_answered_dimensions:
+        merged_progress["negative_answered_dimensions"] = negative_answered_dimensions
+    else:
+        merged_progress.pop("negative_answered_dimensions", None)
+
+    missing_dimensions = [
+        dimension_name
+        for dimension_name in ARCHIVE_PROGRESS_DIMENSION_ORDER
+        if (dimension_progress.get(dimension_name) or {}).get("status") == "missing"
+        and dimension_name not in negative_answered_dimensions
+    ]
+    merged_progress["missing_dimensions"] = missing_dimensions
+    merged_progress["stop_ready"] = _compute_build_ready_state(
+        basic_info_progress=basic_info_progress,
+        filtered_missing_dimensions=missing_dimensions,
+    )
+    merged_progress["next_question_focus"] = (
+        None
+        if merged_progress["stop_ready"]
+        else _pick_next_question_focus(
+            missing_dimensions,
+            blocked_dimensions=negative_answered_dimensions,
+        )
+    )
+    return merged_progress

@@ -367,12 +367,50 @@ class SetPasswordRequest(BaseModel):
     2. 或者后续在用户中心修改密码
     """
 
+    current_password: Optional[str] = Field(
+        default=None,
+        min_length=8,
+        max_length=24,
+        description="当前密码；仅当账号已设置过密码时需要提供",
+        examples=["oldPassword123"],
+    )
+
     # 新密码
     new_password: str = Field(
         ...,
         min_length=8,
         max_length=24,
         description="新密码，8-24 位，至少包含字母、数字、特殊字符中的 2 种，且不能包含空格",
+        examples=["abc12345"],
+    )
+
+
+class ResetPasswordBySmsRequest(BaseModel):
+    """
+    已登录用户通过短信验证码重置密码请求体
+    """
+
+    mobile: str = Field(
+        ...,
+        min_length=11,
+        max_length=11,
+        description="当前登录用户绑定的手机号",
+        examples=["13800138000"],
+    )
+
+    code: str = Field(
+        ...,
+        min_length=4,
+        max_length=8,
+        description="短信验证码",
+        examples=["123456"],
+    )
+
+    new_password: str = Field(
+        ...,
+        min_length=8,
+        max_length=24,
+        description="新密码",
         examples=["abc12345"],
     )
 
@@ -412,7 +450,29 @@ class CheckPasswordAvailabilityRequest(BaseModel):
     检查新密码是否可用请求体
     """
 
+    current_password: Optional[str] = Field(
+        default=None,
+        min_length=8,
+        max_length=24,
+        description="当前密码；仅当账号已设置过密码时需要提供",
+        examples=["oldPassword123"],
+    )
+
     # 中文注释：沿用设置密码的长度限制，具体强度规则仍由 service 统一校验
+    new_password: str = Field(
+        ...,
+        min_length=8,
+        max_length=24,
+        description="待检查的新密码",
+        examples=["abc12345"],
+    )
+
+
+class CheckResetPasswordAvailabilityRequest(BaseModel):
+    """
+    已登录用户在短信重置密码场景下检查新密码是否可用
+    """
+
     new_password: str = Field(
         ...,
         min_length=8,

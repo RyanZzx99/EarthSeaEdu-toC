@@ -1067,7 +1067,12 @@ def bind_mobile_for_wechat_user(
     }
 
 
-def set_password_for_user(db: Session, user_id: str, new_password: str) -> None:
+def set_password_for_user(
+    db: Session,
+    user_id: str,
+    new_password: str,
+    current_password: str | None = None,
+) -> None:
     """
     当前登录用户设置密码
 
@@ -1087,6 +1092,15 @@ def set_password_for_user(db: Session, user_id: str, new_password: str) -> None:
     if user.status != "active":
         raise ValueError("用户已被禁用")
 
+    # 中文注释：
+    # 已设置过密码的账号，在修改密码时必须先校验当前密码。
+    if user.password_hash:
+        normalized_current_password = (current_password or "").strip()
+        if not normalized_current_password:
+            raise ValueError("请输入当前密码")
+        if not verify_password(normalized_current_password, user.password_hash):
+            raise ValueError("当前密码错误")
+
     # 中文注释：如果用户已经设置过密码，则新密码不能与当前密码相同
     if user.password_hash and verify_password(new_password, user.password_hash):
         raise ValueError("新密码不能与当前密码相同")
@@ -1098,6 +1112,45 @@ def set_password_for_user(db: Session, user_id: str, new_password: str) -> None:
     user.password_hash = hash_password(new_password)
 
     # 提交
+    db.commit()
+
+
+def reset_password_for_user_by_sms(
+    db: Session,
+    user_id: str,
+    mobile: str,
+    code: str,
+    new_password: str,
+) -> None:
+    """
+    已登录用户通过短信验证码重置密码。
+    """
+    user = get_active_user_by_id(db, user_id)
+    if not user:
+        raise ValueError("用户不存在")
+
+    if user.status != "active":
+        raise ValueError("用户已被禁用")
+
+    normalized_mobile = (mobile or "").strip()
+    if not normalized_mobile:
+        raise ValueError("请输入手机号")
+
+    if not user.mobile:
+        raise ValueError("当前账号未绑定手机号，无法通过短信重置密码")
+
+    if normalized_mobile != user.mobile:
+        raise ValueError("手机号与当前账号不一致")
+
+    ok = verify_sms_code(db, normalized_mobile, "login", code)
+    if not ok:
+        raise ValueError("验证码错误或已过期")
+
+    if user.password_hash and verify_password(new_password, user.password_hash):
+        raise ValueError("新密码不能与当前密码相同")
+
+    validate_password_strength(new_password)
+    user.password_hash = hash_password(new_password)
     db.commit()
 
 
@@ -1318,6 +1371,7 @@ def check_password_availability(
     db: Session,
     user_id: str,
     new_password: str,
+    current_password: str | None = None,
 ) -> tuple[bool, str]:
     """
     检查当前用户准备设置的新密码是否可用
@@ -1329,7 +1383,40 @@ def check_password_availability(
     if user.status != "active":
         raise ValueError("用户已被禁用")
 
-    # 中文注释：如果已存在旧密码，则禁止新密码与当前密码重复
+    # 中文注释：
+    # “检查密码是否可用”只检查新密码本身是否能用，不要求用户在这一步先输入当前密码。
+    # 当前密码校验仍放在真正“保存密码”时执行。
+    if user.password_hash and verify_password(new_password, user.password_hash):
+        return False, "新密码不能与当前密码相同"
+
+    try:
+        validate_password_strength(new_password)
+    except ValueError as e:
+        return False, str(e)
+
+    return True, "该密码可以使用"
+
+
+def check_reset_password_availability(
+    db: Session,
+    user_id: str,
+    new_password: str,
+) -> tuple[bool, str]:
+    """
+    检查短信重置密码场景下的新密码是否可用
+
+    说明：
+    1. 该场景不要求用户输入当前密码
+    2. 但仍需校验新密码不能与当前密码相同
+    3. 同时复用统一密码强度规则
+    """
+    user = get_active_user_by_id(db, user_id)
+    if not user:
+        raise ValueError("用户不存在")
+
+    if user.status != "active":
+        raise ValueError("用户已被禁用")
+
     if user.password_hash and verify_password(new_password, user.password_hash):
         return False, "新密码不能与当前密码相同"
 

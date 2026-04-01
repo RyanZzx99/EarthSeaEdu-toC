@@ -38,6 +38,7 @@ import ScoreConverter from "../components/ScoreConverter";
 
 const AI_CHAT_BIZ_DOMAIN = "student_profile_build";
 const AI_CHAT_SESSION_CACHE_KEY = "latest_ai_chat_session_id";
+const AI_CHAT_OPEN_PANEL_KEY = "open_ai_chat_panel";
 
 const examLinks = [
   { name: "托福报名", url: "https://www.ets.org/toefl", accent: "#2c4a8a", badge: "TOEFL" },
@@ -228,6 +229,7 @@ export default function HomePage() {
   const [profile, setProfile] = useState(null);
   const [activeSection, setActiveSection] = useState("hero");
   const [showChat, setShowChat] = useState(false);
+  const [showProfileResult, setShowProfileResult] = useState(false);
   const [chatEnded, setChatEnded] = useState(false);
   const [profileData, setProfileData] = useState(null);
 
@@ -263,6 +265,7 @@ export default function HomePage() {
   const profileBuildPollingRef = useRef(false);
   const queuedOutgoingMessagesRef = useRef([]);
   const queueFlushingRef = useRef(false);
+  const chatBodyRef = useRef(null);
 
   useEffect(() => {
     sessionIdRef.current = aiSessionId;
@@ -279,6 +282,32 @@ export default function HomePage() {
   useEffect(() => {
     // 涓枃娉ㄩ噴锛?    // chatEnded 琛ㄧず绯荤粺鏄惁宸插垽鏂€滀俊鎭冻澶燂紝鍙互杩涘叆寤烘。缁撴灉闃舵鈥濄€?    // WebSocket 浜嬩欢澶勭悊鍚屾牱浼氳鍙栧畠锛屾墍浠ラ渶瑕佷繚鎸?ref 涓篃鏄渶鏂板€笺€?    chatEndedRef.current = chatEnded;
   }, [chatEnded]);
+
+  useEffect(() => {
+    if (!showChat || !chatBodyRef.current) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      if (!chatBodyRef.current) {
+        return;
+      }
+      chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
+    });
+  }, [messages, showChat, assistantStreaming]);
+
+  useEffect(() => {
+    if (!profile?.user_id) {
+      return;
+    }
+
+    if (localStorage.getItem(AI_CHAT_OPEN_PANEL_KEY) !== "1") {
+      return;
+    }
+
+    localStorage.removeItem(AI_CHAT_OPEN_PANEL_KEY);
+    handleStartChat();
+  }, [profile?.user_id]);
 
   useEffect(() => {
     // 涓枃娉ㄩ噴锛?    // 鑷姩缁彂鎺掗槦娑堟伅鏃讹紝涔熻鎷垮埌鏈€鏂扮殑鈥滄槸鍚︿粛鍦ㄦ祦寮忕敓鎴愨€濈姸鎬併€?    assistantStreamingRef.current = assistantStreaming;
@@ -462,18 +491,37 @@ export default function HomePage() {
       const currentResponse = await getCurrentAiChatSession(AI_CHAT_BIZ_DOMAIN);
       const currentSessionId = currentResponse.data?.session?.session_id || null;
       const rememberedSessionId = localStorage.getItem(AI_CHAT_SESSION_CACHE_KEY);
-      const targetSessionId = currentSessionId || rememberedSessionId;
+      const candidateSessionIds = Array.from(new Set([currentSessionId, rememberedSessionId].filter(Boolean)));
 
-      if (!targetSessionId) {
+      if (candidateSessionIds.length === 0) {
         return;
       }
 
-      const [sessionDetailResponse, messagesResponse] = await Promise.all([
-        getAiChatSessionDetail(targetSessionId),
-        getAiChatMessages(targetSessionId, { limit: 100 }),
-      ]);
+      const sessionDetails = (
+        await Promise.all(
+          candidateSessionIds.map(async (sessionId) => {
+            try {
+              const response = await getAiChatSessionDetail(sessionId);
+              return response.data || null;
+            } catch (error) {
+              console.warn("恢复 AI 会话详情失败", sessionId, error);
+              return null;
+            }
+          })
+        )
+      ).filter(Boolean);
 
-      const sessionDetail = sessionDetailResponse.data || {};
+      const sessionDetail =
+        sessionDetails.find((item) => item?.final_profile_id) ||
+        sessionDetails.find((item) => item?.session_id === currentSessionId) ||
+        sessionDetails[0];
+
+      if (!sessionDetail?.session_id) {
+        return;
+      }
+
+      const targetSessionId = sessionDetail.session_id;
+      const messagesResponse = await getAiChatMessages(targetSessionId, { limit: 100 });
       const restoredMessages = normalizeVisibleMessages(messagesResponse.data?.items || []);
       const normalizedStage =
         sessionDetail.final_profile_id &&
@@ -504,6 +552,7 @@ export default function HomePage() {
           setProfileResultStatus(restoredResultStatus);
           setSaveErrorMessage(resultResponse.data?.save_error_message || "");
           setShowChat(false);
+          setShowProfileResult(false);
           setChatEnded(true);
           chatEndedRef.current = true;
 
@@ -875,6 +924,7 @@ export default function HomePage() {
 
   function handleStartChat() {
     setShowChat(true);
+    setShowProfileResult(false);
     setConnectionError("");
 
     if (hasGeneratedProfile && (currentStageRef.current === "completed" || currentStageRef.current === "failed")) {
@@ -896,6 +946,17 @@ export default function HomePage() {
     setUiHint("");
   }
 
+  function handleViewMyRadar() {
+    if (!profileData) {
+      return;
+    }
+    setShowChat(false);
+    setShowProfileResult(true);
+    setUiHint("");
+    setActiveSection("hero");
+    document.getElementById("home-hero")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function buildSupplementGuidanceMessage() {
     const missingLabels = missingDimensions.map((key) => RADAR_LABELS[key] || key);
     if (missingLabels.length > 0) {
@@ -914,7 +975,7 @@ export default function HomePage() {
   }
 
   function handleContinueSupplementInfo() {
-    setProfileData(null);
+    setShowProfileResult(false);
     setShowChat(true);
     setCurrentStage("build_ready");
     currentStageRef.current = "build_ready";
@@ -1017,6 +1078,7 @@ export default function HomePage() {
 
             setPendingProfileData(normalized);
             setProfileData(normalized);
+            setShowProfileResult(true);
             setProfileResultStatus(resultStatus);
             setSaveErrorMessage(resultErrorMessage);
             setShowChat(false);
@@ -1106,6 +1168,7 @@ export default function HomePage() {
     setSaveErrorMessage("");
     setProfileResultStatus(null);
     setShowChat(false);
+    setShowProfileResult(false);
     setUiHint(hasGeneratedProfile ? "正在后台更新六维图..." : "正在后台生成六维图...");
     logProfileFlow("发起生成请求", {
       sessionId: sessionIdRef.current,
@@ -1282,8 +1345,13 @@ export default function HomePage() {
           <div className="home-hero-orb home-hero-orb-left" />
           <div className="home-hero-orb home-hero-orb-right" />
 
-          <div className="home-hero-content">
+          <motion.div
+            className="home-hero-content"
+            layout
+            transition={{ layout: { type: "spring", stiffness: 110, damping: 20, mass: 0.9 } }}
+          >
             <motion.div
+              layout="position"
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.2 }}
@@ -1297,6 +1365,7 @@ export default function HomePage() {
 
             <motion.p
               className="home-hero-subtitle"
+              layout="position"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.4 }}
@@ -1306,24 +1375,25 @@ export default function HomePage() {
 
             <motion.div
               className="home-hero-actions"
+              layout="position"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.6 }}
             >
-              {!showChat && !profileData ? (
+              {!showChat && !showProfileResult ? (
                 <motion.button
                   type="button"
-                  onClick={handleStartChat}
+                  onClick={profileData ? handleViewMyRadar : handleStartChat}
                   className="home-primary-button"
                   whileHover={{ scale: 1.05, boxShadow: "0 20px 40px rgba(59,130,246,0.35)" }}
                   whileTap={{ scale: 0.98 }}
                 >
-                  Get Started
+                  {profileData ? "查看我的六维图" : "Get Started"}
                   <ArrowRightIcon />
                 </motion.button>
               ) : null}
 
-              {!profileData ? (
+              {!showProfileResult ? (
                 <motion.button
                   type="button"
                   onClick={() => scrollToSection("home-ranking", "ranking")}
@@ -1336,15 +1406,22 @@ export default function HomePage() {
               ) : null}
             </motion.div>
 
-            <AnimatePresence mode="wait">
-              {showChat && !profileData ? (
+            <AnimatePresence initial={false} mode="popLayout">
+              {showChat && !showProfileResult ? (
                 <motion.div
                   key="chat-shell"
                   className="home-ai-shell"
-                  initial={{ opacity: 0, y: 24, scale: 0.96 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 16, scale: 0.96 }}
-                  transition={{ type: "spring", stiffness: 220, damping: 28 }}
+                  layout
+                  initial={{ opacity: 0, y: 24, scale: 0.97, height: 0 }}
+                  animate={{ opacity: 1, y: 0, scale: 1, height: "auto" }}
+                  exit={{ opacity: 0, y: -10, scale: 0.985, height: 0, marginTop: 0 }}
+                  transition={{
+                    opacity: { duration: 0.2, ease: "easeOut" },
+                    scale: { duration: 0.24, ease: "easeOut" },
+                    y: { duration: 0.26, ease: "easeOut" },
+                    height: { type: "spring", stiffness: 140, damping: 22 },
+                    layout: { type: "spring", stiffness: 110, damping: 20, mass: 0.9 },
+                  }}
                 >
                   <div className="home-ai-header">
                     <div className="home-ai-header-brand">
@@ -1362,7 +1439,7 @@ export default function HomePage() {
                     </button>
                   </div>
 
-                  <div className="home-ai-body">
+                  <div className="home-ai-body" ref={chatBodyRef}>
                     {messages.length === 0 ? (
                       <div className="home-ai-empty-state">
                         <div className="home-ai-empty-icon">
@@ -1488,10 +1565,11 @@ export default function HomePage() {
                 </motion.div>
               ) : null}
 
-              {createProfileLoading && !profileData ? (
+              {createProfileLoading && !showProfileResult ? (
                 <motion.div
                   key="profile-loading"
                   className="home-radar-loading-shell"
+                  layout
                   initial={{ opacity: 0, y: 24, scale: 0.96 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 16, scale: 0.96 }}
@@ -1506,10 +1584,11 @@ export default function HomePage() {
                 </motion.div>
               ) : null}
 
-              {profileData ? (
+              {showProfileResult && profileData ? (
                 <motion.div
                   key="profile-result"
                   className="home-radar-shell"
+                  layout
                   initial={{ opacity: 0, y: 24, scale: 0.96 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 16, scale: 0.96 }}
@@ -1669,26 +1748,7 @@ export default function HomePage() {
               ) : null}
             </AnimatePresence>
 
-            <motion.div
-              className="home-hero-stats"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.8 }}
-            >
-              <div className="home-stat">
-                <div className="home-stat-number">10K+</div>
-                <div className="home-stat-label">注册用户</div>
-              </div>
-              <div className="home-stat">
-                <div className="home-stat-number">500+</div>
-                <div className="home-stat-label">合作院校</div>
-              </div>
-              <div className="home-stat">
-                <div className="home-stat-number">98%</div>
-                <div className="home-stat-label">满意度</div>
-              </div>
-            </motion.div>
-          </div>
+          </motion.div>
         </motion.section>
 
         <div className="home-content-wrap">

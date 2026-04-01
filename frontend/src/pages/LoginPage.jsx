@@ -204,6 +204,7 @@ export default function LoginPage() {
   useEffect(() => {
     // 中文注释：进入登录页时处理会话过期提示和微信回调。
     handleSessionExpiredTip();
+    handleLoginModeQuery();
     handleWechatCallbackLogin();
   }, []);
 
@@ -313,11 +314,41 @@ export default function LoginPage() {
     window.history.replaceState({}, document.title, "/login");
   }
 
+  function replaceLoginQueryParams(updater) {
+    const currentUrl = new URL(window.location.href);
+    updater(currentUrl.searchParams);
+    const nextQuery = currentUrl.searchParams.toString();
+    const nextUrl = nextQuery ? `/login?${nextQuery}` : "/login";
+    window.history.replaceState({}, document.title, nextUrl);
+  }
+
+  function handleLoginModeQuery() {
+    const currentUrl = new URL(window.location.href);
+    const mode = (currentUrl.searchParams.get("mode") || "").trim().toLowerCase();
+    if (mode === "sms") {
+      setActiveTab("sms");
+      replaceLoginQueryParams((searchParams) => {
+        searchParams.delete("mode");
+      });
+    }
+  }
+
+  function switchToSmsLogin(prefilledMobile = "") {
+    clearMessages();
+    resetSmsInviteRequirement();
+    if (prefilledMobile) {
+      setSmsPhone(prefilledMobile.replace(/\D/g, "").slice(0, 11));
+    }
+    setActiveTab("sms");
+  }
+
   function handleSessionExpiredTip() {
     const currentUrl = new URL(window.location.href);
     if (currentUrl.searchParams.get("session_expired") === "1") {
       setErrorMessage("登录已过期，请重新登录");
-      clearLoginQueryParams();
+      replaceLoginQueryParams((searchParams) => {
+        searchParams.delete("session_expired");
+      });
     }
   }
 
@@ -618,7 +649,7 @@ export default function LoginPage() {
                     <input type="checkbox" checked={rememberLogin} onChange={(event) => setRememberLogin(event.target.checked)} className="login-checkbox" />
                     <span>记住我</span>
                   </label>
-                  <button type="button" onClick={() => window.alert("忘记密码功能暂未接入")} className="login-link-button">
+                  <button type="button" onClick={() => switchToSmsLogin(phone)} className="login-link-button">
                     忘记密码？
                   </button>
                 </div>

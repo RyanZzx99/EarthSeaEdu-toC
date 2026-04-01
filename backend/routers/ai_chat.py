@@ -624,6 +624,7 @@ def _detect_combined_progress_fallback_reason(
 @router.get("/api/v1/ai-chat/sessions/current")
 def get_current_active_session(
     biz_domain: str = Query(..., description="涓氬姟鍩燂紱褰撳墠浼?student_profile_build"),
+    create_if_missing: bool = Query(default=False, description="若当前没有 active 会话，是否自动创建一个新会话"),
     authorization: str | None = Header(default=None, alias="Authorization"),
     db=Depends(get_db),
 ):
@@ -638,6 +639,26 @@ def get_current_active_session(
         student_id=student_id,
         biz_domain=biz_domain,
     )
+    if session is None and create_if_missing:
+        init_result = init_or_get_session(
+            db,
+            student_id=student_id,
+            session_id=None,
+            biz_domain=biz_domain,
+        )
+        return {
+            "has_active_session": True,
+            "session": {
+                "session_id": init_result.session_id,
+                "session_status": init_result.session_status,
+                "current_stage": init_result.current_stage,
+                "current_round": init_result.current_round,
+                "missing_dimensions": [],
+                "last_message_at": None,
+                "is_new_session": init_result.is_new_session,
+            },
+        }
+
     if session is None:
         return {
             "has_active_session": False,

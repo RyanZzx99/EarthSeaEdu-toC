@@ -45,11 +45,13 @@ from backend.schemas.auth import BindMobileRequiredResponse
 from backend.schemas.auth import AvailabilityCheckResponse
 from backend.schemas.auth import CheckNicknameAvailabilityRequest
 from backend.schemas.auth import CheckPasswordAvailabilityRequest
+from backend.schemas.auth import CheckResetPasswordAvailabilityRequest
 from backend.schemas.auth import InviteRequirementCheckResponse
 from backend.schemas.auth import LoginResponse
 from backend.schemas.auth import PasswordLoginRequest
 from backend.schemas.auth import SendSmsCodeRequest
 from backend.schemas.auth import SetPasswordRequest
+from backend.schemas.auth import ResetPasswordBySmsRequest
 from backend.schemas.auth import SmsInviteRequirementCheckRequest
 from backend.schemas.auth import SmsLoginRequest
 from backend.schemas.auth import GenerateInviteCodesRequest
@@ -79,7 +81,9 @@ from backend.services.auth_service import login_by_wechat
 from backend.services.auth_service import send_and_save_sms_code
 from backend.services.auth_service import check_nickname_availability
 from backend.services.auth_service import check_password_availability
+from backend.services.auth_service import check_reset_password_availability
 from backend.services.auth_service import set_password_for_user
+from backend.services.auth_service import reset_password_for_user_by_sms
 from backend.services.auth_service import update_nickname_for_user
 from backend.services.auth_service import create_invite_codes
 from backend.services.auth_service import issue_invite_code
@@ -615,6 +619,7 @@ def set_password_api(
             db=db,
             user_id=user_id,
             new_password=payload.new_password,
+            current_password=payload.current_password,
         )
 
         # 返回成功
@@ -657,6 +662,30 @@ def me_api(
         # 中文注释：前端据此判断密码区域默认显示“设置/修改密码”按钮还是直接展开表单
         "has_password": bool(user.password_hash),
     }
+
+
+@router.post("/me/password/reset-by-sms")
+def reset_my_password_by_sms_api(
+    payload: ResetPasswordBySmsRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """
+    当前登录用户通过短信验证码重置密码。
+    """
+    user_id = get_current_user_id(authorization)
+
+    try:
+        reset_password_for_user_by_sms(
+            db=db,
+            user_id=user_id,
+            mobile=payload.mobile,
+            code=payload.code,
+            new_password=payload.new_password,
+        )
+        return {"message": "密码重置成功"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/me/nickname")
@@ -731,6 +760,32 @@ def check_my_password_api(
 
     try:
         available, message = check_password_availability(
+            db=db,
+            user_id=user_id,
+            new_password=payload.new_password,
+            current_password=payload.current_password,
+        )
+        return {
+            "available": available,
+            "message": message,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/me/password/check-for-reset", response_model=AvailabilityCheckResponse)
+def check_my_reset_password_api(
+    payload: CheckResetPasswordAvailabilityRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """
+    当前登录用户在忘记密码场景下检查新密码是否可用
+    """
+    user_id = get_current_user_id(authorization)
+
+    try:
+        available, message = check_reset_password_availability(
             db=db,
             user_id=user_id,
             new_password=payload.new_password,
