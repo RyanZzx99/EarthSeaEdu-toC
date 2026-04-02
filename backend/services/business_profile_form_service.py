@@ -74,6 +74,7 @@ TABLE_LABELS = {
 }
 
 FIELD_LABELS = {
+    "MAJ_INTEREST_TEXT": "目标专业原始文本",
     "student_id": "学生 ID",
     "schema_version": "架构版本",
     "profile_type": "档案类型",
@@ -333,6 +334,7 @@ HIDDEN_FIELDS_BY_TABLE = {
 }
 
 FIELD_HELPERS = {
+    ("student_basic_info", "MAJ_INTEREST_TEXT"): "如果目标专业下拉里没有合适选项，可在这里填写原始表述，例如：人文。",
     ("student_competition_entries", "notes"): "可以写介绍一下你参加的比赛和你拿到的名次。",
 }
 

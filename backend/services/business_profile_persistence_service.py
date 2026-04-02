@@ -163,11 +163,9 @@ COLUMN_DEFAULTS: dict[str, dict[str, Any]] = {
         "sort_order": 1,
     },
     "student_activity_entries": {
-        "activity_name": "活动记录",
         "sort_order": 1,
     },
     "student_project_entries": {
-        "project_name": "项目记录",
         "sort_order": 1,
     },
     "student_project_outputs": {
@@ -1005,11 +1003,38 @@ def _normalize_payload_for_persistence(payload: dict[str, Any]) -> None:
     # 学术科目这一步分成两层：
     # 1. 先做本地规则补全，只补高置信字段，例如 A-Level 的 stage_code、IB 的 level_code
     # 2. 再做 required_fields 校验，补不齐的行直接跳过，避免撞数据库约束
+    _normalize_curriculum_system_primary_flags(payload)
     _apply_academic_subject_local_fill_rules(payload)
     _normalize_academic_subject_payload(payload)
     _normalize_language_payload(payload)
     _normalize_standardized_payload(payload)
     _normalize_experience_payload(payload)
+
+
+def _normalize_curriculum_system_primary_flags(payload: dict[str, Any]) -> None:
+    """
+    课程体系主体系归一化。
+
+    规则：
+    1. 只要当前有效课程体系只有一条，就自动把它设为主课程体系。
+    2. 这里不主动改写“多条课程体系”的主体系选择，避免覆盖用户手动判断。
+    """
+
+    rows = payload.get("student_basic_info_curriculum_system")
+    if not isinstance(rows, list):
+        return
+
+    meaningful_rows = [
+        row
+        for row in rows
+        if isinstance(row, dict) and str(row.get("curriculum_system_code") or "").strip()
+    ]
+    if len(meaningful_rows) != 1:
+        return
+
+    only_row = meaningful_rows[0]
+    if only_row.get("is_primary") != 1:
+        only_row["is_primary"] = 1
 
 
 def _apply_academic_subject_local_fill_rules(payload: dict[str, Any]) -> None:

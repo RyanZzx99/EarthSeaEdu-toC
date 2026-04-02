@@ -27,11 +27,13 @@ import {
 import { getMe } from "../api/auth";
 import {
   buildAiChatProfile,
+  buildAiChatDraftExperimentWsUrl,
   buildAiChatWsUrl,
   getAiChatMessages,
   getAiChatResult,
   getAiChatSessionDetail,
   getCurrentAiChatSession,
+  regenerateAiChatDraftExperimentRadar,
 } from "../api/aiChat";
 import RankingTool from "../components/RankingTool";
 import ScoreConverter from "../components/ScoreConverter";
@@ -39,6 +41,8 @@ import ScoreConverter from "../components/ScoreConverter";
 const AI_CHAT_BIZ_DOMAIN = "student_profile_build";
 const AI_CHAT_SESSION_CACHE_KEY = "latest_ai_chat_session_id";
 const AI_CHAT_OPEN_PANEL_KEY = "open_ai_chat_panel";
+const ENABLE_DRAFT_EXPERIMENT_FLOW = true;
+const DRAFT_EXPERIMENT_MARK = "【草稿建档实验】";
 
 const examLinks = [
   { name: "托福报名", url: "https://www.ets.org/toefl", accent: "#2c4a8a", badge: "TOEFL" },
@@ -237,6 +241,7 @@ export default function HomePage() {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState("");
   const [currentStage, setCurrentStage] = useState("idle");
+  const [conversationPhase, setConversationPhase] = useState(null);
   const [assistantStreaming, setAssistantStreaming] = useState(false);
   const [assistantThinking, setAssistantThinking] = useState(false);
 
@@ -245,6 +250,7 @@ export default function HomePage() {
   const [nextQuestionFocus, setNextQuestionFocus] = useState(null);
   const [pendingProfileData, setPendingProfileData] = useState(null);
   const [profileResultStatus, setProfileResultStatus] = useState(null);
+  const [isDraftExperimentResult, setIsDraftExperimentResult] = useState(false);
   const [saveErrorMessage, setSaveErrorMessage] = useState("");
   const [queuedOutgoingMessages, setQueuedOutgoingMessages] = useState([]);
 
@@ -257,6 +263,7 @@ export default function HomePage() {
   const assistantStreamingMessageIdRef = useRef(null);
   const sessionIdRef = useRef(null);
   const currentStageRef = useRef("idle");
+  const conversationPhaseRef = useRef(null);
   const nextQuestionFocusRef = useRef(null);
   const chatEndedRef = useRef(false);
   const assistantStreamingRef = useRef(false);
@@ -274,6 +281,13 @@ export default function HomePage() {
   useEffect(() => {
     // 涓枃娉ㄩ噴锛?    // WebSocket onmessage 鍦ㄥ缓杩炴椂鍙粦瀹氫竴娆°€?    // 濡傛灉浜嬩欢澶勭悊鐩存帴璇诲彇 React state锛屽悗缁緢瀹规槗鎷垮埌寤鸿繛鐬棿鐨勬棫鍊笺€?    // 杩欓噷鐢?ref 鍚屾鏈€鏂伴樁娈碉紝淇濊瘉浜嬩欢鍥炶皟鎷垮埌鐨勬槸瀹炴椂鐘舵€併€?    currentStageRef.current = currentStage;
   }, [currentStage]);
+
+  useEffect(() => {
+    // 中文注释：
+    // 对话阶段还会继续细分为 generating_assistant / ready_for_input。
+    // 发送下一条消息时，必须以 ref 中最新的 conversationPhase 为准，不能只看 currentStage。
+    conversationPhaseRef.current = conversationPhase;
+  }, [conversationPhase]);
 
   useEffect(() => {
     // 涓枃娉ㄩ噴锛?    // 涓嬩竴杞拷闂劍鐐逛細琚?progress_updated 涓嶆柇鍒锋柊銆?    // 鍚庣画 stage_changed 闇€瑕佷緷璧栬繖涓€兼潵鐢熸垚鎻愮ず鏂囨锛屽洜姝ゅ悓姝ュ埌 ref銆?    nextQuestionFocusRef.current = nextQuestionFocus;
@@ -305,9 +319,15 @@ export default function HomePage() {
       return;
     }
 
+    if (aiSessionId || messages.length > 0 || profileData) {
+      return;
+    }
+
     localStorage.removeItem(AI_CHAT_OPEN_PANEL_KEY);
-    handleStartChat();
-  }, [profile?.user_id]);
+    setShowProfileResult(false);
+    setShowChat(true);
+    setUiHint("可以继续补充信息，我会基于当前会话继续整理档案。");
+  }, [profile?.user_id, aiSessionId, messages.length, profileData]);
 
   useEffect(() => {
     // 涓枃娉ㄩ噴锛?    // 鑷姩缁彂鎺掗槦娑堟伅鏃讹紝涔熻鎷垮埌鏈€鏂扮殑鈥滄槸鍚︿粛鍦ㄦ祦寮忕敓鎴愨€濈姸鎬併€?    assistantStreamingRef.current = assistantStreaming;
@@ -339,10 +359,16 @@ export default function HomePage() {
   }, [profileData]);
 
   const hasGeneratedProfile = Boolean(profileData || pendingProfileData || profileResultStatus);
-  const isArchiveCreating = currentStage === "profile_saving" || profileResultStatus === "generated";
+  const isArchiveCreating =
+    !isDraftExperimentResult &&
+    (currentStage === "profile_saving" || profileResultStatus === "generated");
+  const isConversationReadyForInput =
+    currentStage === "conversation" && conversationPhase === "ready_for_input";
+  const isConversationStillProcessing =
+    currentStage === "conversation" && conversationPhase !== "ready_for_input";
   const canChatInCurrentStage =
     currentStage === "idle" ||
-    currentStage === "conversation" ||
+    isConversationReadyForInput ||
     currentStage === "build_ready" ||
     currentStage === "completed" ||
     currentStage === "failed";
@@ -350,18 +376,17 @@ export default function HomePage() {
     assistantStreaming ||
     assistantThinking ||
     createProfileLoading ||
+    isConversationStillProcessing ||
     currentStage === "progress_updating" ||
     currentStage === "extraction" ||
     currentStage === "scoring" ||
     currentStage === "profile_saving";
-  const isChatBusy =
-    assistantStreaming ||
-    createProfileLoading ||
-    (assistantThinking && currentStage !== "build_ready");
+  const isChatBusy = isRoundProcessing;
   const isBuildProfileBlocked =
     createProfileLoading ||
     assistantStreaming ||
     assistantThinking ||
+    isConversationStillProcessing ||
     currentStage === "progress_updating" ||
     currentStage === "extraction" ||
     currentStage === "scoring" ||
@@ -488,6 +513,8 @@ export default function HomePage() {
 
   async function restoreAiState(studentId) {
     try {
+      const shouldForceOpenChatFromNavigation =
+        localStorage.getItem(AI_CHAT_OPEN_PANEL_KEY) === "1";
       const currentResponse = await getCurrentAiChatSession(AI_CHAT_BIZ_DOMAIN);
       const currentSessionId = currentResponse.data?.session?.session_id || null;
       const rememberedSessionId = localStorage.getItem(AI_CHAT_SESSION_CACHE_KEY);
@@ -536,8 +563,10 @@ export default function HomePage() {
       setMissingDimensions(sessionDetail.missing_dimensions || []);
       setCurrentStage(normalizedStage);
       currentStageRef.current = normalizedStage;
+      setChatEnded(normalizedStage === "build_ready");
+      chatEndedRef.current = normalizedStage === "build_ready";
 
-      if (restoredMessages.length > 0) {
+      if (restoredMessages.length > 0 || shouldForceOpenChatFromNavigation) {
         setShowChat(true);
       }
 
@@ -546,17 +575,25 @@ export default function HomePage() {
           const resultResponse = await getAiChatResult(targetSessionId);
           const normalizedResult = normalizeProfileResult(resultResponse.data);
           const restoredResultStatus = resultResponse.data?.result_status || null;
+          const restoredIsDraftExperiment = Boolean(
+            ENABLE_DRAFT_EXPERIMENT_FLOW &&
+              String(sessionDetail.remark || "").includes(DRAFT_EXPERIMENT_MARK)
+          );
 
           setPendingProfileData(normalizedResult);
           setProfileData(normalizedResult);
           setProfileResultStatus(restoredResultStatus);
+          setIsDraftExperimentResult(restoredIsDraftExperiment);
           setSaveErrorMessage(resultResponse.data?.save_error_message || "");
-          setShowChat(false);
+          setShowChat(shouldForceOpenChatFromNavigation);
           setShowProfileResult(false);
           setChatEnded(true);
           chatEndedRef.current = true;
 
-          if (restoredResultStatus === "generated" || normalizedStage === "profile_saving") {
+          if (
+            !restoredIsDraftExperiment &&
+            (restoredResultStatus === "generated" || normalizedStage === "profile_saving")
+          ) {
             setCreateProfileLoading(true);
             createProfileLoadingRef.current = true;
             setUiHint("六维图结果已恢复，档案正在后台继续创建。");
@@ -566,6 +603,10 @@ export default function HomePage() {
               resultStatus: restoredResultStatus,
             });
             void waitForProfileGenerationResult(targetSessionId, true);
+          } else if (shouldForceOpenChatFromNavigation) {
+            setUiHint("可以继续补充信息，我会基于当前会话继续整理档案。");
+          } else if (restoredIsDraftExperiment) {
+            setUiHint("已恢复你上一次基于草稿生成的六维图结果。");
           } else if (restoredResultStatus === "saved") {
             setUiHint("已恢复你上一次生成的六维图结果。");
           } else if (normalizedStage === "build_ready") {
@@ -577,7 +618,13 @@ export default function HomePage() {
           console.error("恢复 AI 建档结果失败", error);
         }
       } else if (restoredMessages.length > 0) {
-        setUiHint("已恢复你上一次的对话记录。");
+        setUiHint(normalizedStage === "build_ready" ? "" : "已恢复你上一次的对话记录。");
+      } else if (shouldForceOpenChatFromNavigation) {
+        setUiHint("可以继续补充信息，我会基于当前会话继续整理档案。");
+      }
+
+      if (shouldForceOpenChatFromNavigation) {
+        localStorage.removeItem(AI_CHAT_OPEN_PANEL_KEY);
       }
 
       if (!studentId) {
@@ -603,7 +650,11 @@ export default function HomePage() {
     }
 
     connectPromiseRef.current = new Promise((resolve, reject) => {
-      const ws = new WebSocket(buildAiChatWsUrl());
+      const ws = new WebSocket(
+        ENABLE_DRAFT_EXPERIMENT_FLOW
+          ? buildAiChatDraftExperimentWsUrl()
+          : buildAiChatWsUrl()
+      );
       let connectResolved = false;
       let connectRejected = false;
 
@@ -720,6 +771,8 @@ export default function HomePage() {
         const conversationPhase = payload.conversation_phase || null;
         setCurrentStage(nextStage);
         currentStageRef.current = nextStage;
+        setConversationPhase(conversationPhase);
+        conversationPhaseRef.current = conversationPhase;
         logProfileFlow("阶段变更", {
           sessionId: event.session_id,
           currentStage: nextStage,
@@ -735,29 +788,44 @@ export default function HomePage() {
           if (conversationPhase === "generating_assistant") {
             setAssistantThinking(true);
             setUiHint(chatEndedRef.current ? "你可以继续补充信息，我会基于新增内容继续整理档案。" : "建档助手正在整理回复...");
-          } else {
+          } else if (conversationPhase === "ready_for_input") {
             setAssistantThinking(false);
             setAssistantStreaming(false);
             assistantStreamingMessageIdRef.current = null;
             setUiHint(chatEndedRef.current ? "你可以继续补充信息，我会基于新增内容继续整理档案。" : "这一轮已处理完成，你可以继续输入下一条信息。");
+          } else {
+            setAssistantThinking(true);
+            setAssistantStreaming(false);
+            assistantStreamingMessageIdRef.current = null;
+            setUiHint("正在整理本轮档案信息，整理完成后会恢复输入。");
           }
         } else if (nextStage === "progress_updating") {
+          setConversationPhase(null);
+          conversationPhaseRef.current = null;
           setAssistantThinking(false);
           setUiHint("正在更新档案进度...");
         } else if (nextStage === "build_ready") {
+          setConversationPhase(null);
+          conversationPhaseRef.current = null;
           setAssistantThinking(false);
           setChatEnded(true);
           chatEndedRef.current = true;
           setUiHint("");
         } else if (nextStage === "profile_saving") {
+          setConversationPhase(null);
+          conversationPhaseRef.current = null;
           setAssistantThinking(false);
           setCreateProfileLoading(true);
           createProfileLoadingRef.current = true;
           setUiHint("六维图结果已经生成，档案正在后台创建。");
         } else if (nextStage === "completed") {
+          setConversationPhase(null);
+          conversationPhaseRef.current = null;
           setAssistantThinking(false);
           setUiHint("六维图结果已生成。");
         } else if (nextStage === "failed") {
+          setConversationPhase(null);
+          conversationPhaseRef.current = null;
           setAssistantThinking(false);
           setAssistantStreaming(false);
           assistantStreamingMessageIdRef.current = null;
@@ -803,8 +871,7 @@ export default function HomePage() {
 
       case "assistant_done":
         setAssistantStreaming(false);
-        setAssistantThinking(false);
-        setUiHint("助手回复完成，正在整理本轮进度...");
+        setUiHint("助手回复完成，正在整理本轮档案信息...");
         setMessages((previous) => {
           const nextMessages = [...previous];
           const streamingId = assistantStreamingMessageIdRef.current;
@@ -977,10 +1044,12 @@ export default function HomePage() {
   function handleContinueSupplementInfo() {
     setShowProfileResult(false);
     setShowChat(true);
-    setCurrentStage("build_ready");
-    currentStageRef.current = "build_ready";
-    setAssistantThinking(false);
-    assistantThinkingRef.current = false;
+        setCurrentStage("build_ready");
+        currentStageRef.current = "build_ready";
+        setConversationPhase(null);
+        conversationPhaseRef.current = null;
+        setAssistantThinking(false);
+        assistantThinkingRef.current = false;
     setAssistantStreaming(false);
     assistantStreamingRef.current = false;
     setQueuedOutgoingMessages([]);
@@ -1176,6 +1245,28 @@ export default function HomePage() {
     });
 
     try {
+      if (ENABLE_DRAFT_EXPERIMENT_FLOW) {
+        const response = await regenerateAiChatDraftExperimentRadar(sessionIdRef.current);
+        const normalized = normalizeProfileResult(response.data || {});
+        setPendingProfileData(normalized);
+        setProfileData(normalized);
+        setProfileResultStatus(response.data?.result_status || "generated");
+        setIsDraftExperimentResult(true);
+        setShowProfileResult(true);
+        setShowChat(false);
+        setChatEnded(true);
+        chatEndedRef.current = true;
+        setCurrentStage("build_ready");
+        currentStageRef.current = "build_ready";
+        setUiHint("六维图已基于最新草稿生成。");
+        setConnectionError("");
+        logProfileFlow("草稿实验六维图生成完成", {
+          sessionId: sessionIdRef.current,
+          resultStatus: response.data?.result_status || "generated",
+        });
+        return;
+      }
+
       const response = await buildAiChatProfile(sessionIdRef.current);
       const acceptedStage = response.data?.current_stage || "extraction";
       setCurrentStage(acceptedStage);
@@ -1208,14 +1299,15 @@ export default function HomePage() {
     const trimmedInput = inputValue.trim();
     const canSendCurrentRound =
       currentStageRef.current === "idle" ||
-      currentStageRef.current === "conversation" ||
+      (currentStageRef.current === "conversation" && conversationPhaseRef.current === "ready_for_input") ||
       currentStageRef.current === "build_ready" ||
       currentStageRef.current === "completed" ||
       currentStageRef.current === "failed";
     const isBusyNow =
-      assistantStreaming ||
-      assistantThinking ||
-      createProfileLoading ||
+      assistantStreamingRef.current ||
+      assistantThinkingRef.current ||
+      createProfileLoadingRef.current ||
+      (currentStageRef.current === "conversation" && conversationPhaseRef.current !== "ready_for_input") ||
       currentStageRef.current === "progress_updating" ||
       currentStageRef.current === "extraction" ||
       currentStageRef.current === "scoring" ||
@@ -1529,7 +1621,7 @@ export default function HomePage() {
                             onKeyDown={handleInputKeyDown}
                             placeholder="直接告诉我你的课程体系、成绩、竞赛、活动或项目经历..."
                             rows={2}
-                            disabled={false}
+                            disabled={isRoundProcessing}
                           />
                         </div>
 
@@ -1540,7 +1632,7 @@ export default function HomePage() {
                             onClick={sendUserMessage}
                             whileHover={{ scale: 1.04 }}
                             whileTap={{ scale: 0.96 }}
-                            disabled={!inputValue.trim()}
+                            disabled={!inputValue.trim() || isRoundProcessing}
                           >
                             <Send size={18} strokeWidth={2.2} />
                           </motion.button>
@@ -1599,12 +1691,14 @@ export default function HomePage() {
                       <h3 className="home-radar-title">你的六维建档结果</h3>
                       <p className="home-radar-subtitle">{getProfileStatusText(profileResultStatus)}</p>
                       <p className="home-radar-subtitle home-radar-subtitle-secondary">
-                        当前档案状态：{getArchiveStatusText(profileResultStatus)}
+                        {isDraftExperimentResult
+                          ? "当前结果来源：草稿档案"
+                          : `当前档案状态：${getArchiveStatusText(profileResultStatus)}`}
                       </p>
                     </div>
 
                     <div className="home-radar-actions">
-                      {profileResultStatus === "saved" && aiSessionId ? (
+                      {aiSessionId ? (
                         <motion.button
                           type="button"
                           className="home-radar-secondary-button"

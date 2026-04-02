@@ -28,8 +28,9 @@ from fastapi import Request
 # 导入重定向响应
 from fastapi.responses import RedirectResponse
 
-# 导入 URL 编码工具
+# 导入 URL 编码与解析工具
 from urllib.parse import urlencode
+from urllib.parse import urlparse
 
 # 导入数据库 Session
 from sqlalchemy.orm import Session
@@ -111,6 +112,50 @@ from backend.utils.security import decode_token_safe
 # 1. 这里不再额外写 prefix
 # 2. 由 main.py 统一 include_router 时挂到 /api/v1/auth
 router = APIRouter()
+
+
+def _build_login_page_url_from_redirect_uri() -> str | None:
+    """
+    根据微信后端回调地址推导前端登录页地址。
+
+    规则：
+    1. 只取 redirect_uri 的协议 + host + port
+    2. 统一拼成 /login
+    3. 只在 redirect_uri 可解析时返回
+    """
+    redirect_uri = (settings.wechat_open_redirect_uri or "").strip()
+    if not redirect_uri:
+        return None
+
+    parsed = urlparse(redirect_uri)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+
+    return f"{parsed.scheme}://{parsed.netloc}/login"
+
+
+def _resolve_frontend_login_page_url() -> str:
+    """
+    解析微信登录回跳到前端时应使用的登录页地址。
+
+    优先级：
+    1. 如果显式配置了非 localhost 的 FRONTEND_LOGIN_PAGE_URL，则直接使用
+    2. 否则优先根据 WECHAT_OPEN_REDIRECT_URI 自动推导同域 /login
+    3. 最后再回退到配置值或默认 localhost
+    """
+    configured_login_url = (settings.frontend_login_page_url or "").strip()
+    derived_login_url = _build_login_page_url_from_redirect_uri()
+
+    if configured_login_url and "localhost" not in configured_login_url and "127.0.0.1" not in configured_login_url:
+        return configured_login_url.rstrip("/")
+
+    if derived_login_url:
+        return derived_login_url.rstrip("/")
+
+    if configured_login_url:
+        return configured_login_url.rstrip("/")
+
+    return "http://localhost:5173/login"
 
 
 def verify_invite_admin_key(x_admin_key: str | None) -> None:
@@ -233,10 +278,12 @@ def wechat_callback(
     5. 前端登录页拿到 code/state 后，再调用 /login/wechat 完成真正登录
     """
 
+    frontend_login_page_url = _resolve_frontend_login_page_url()
+
     # 如果微信回调带了 error，说明授权失败或用户取消
     if error:
         # 拼接前端错误回跳地址
-        redirect_url = f"{settings.frontend_login_page_url}?wechat_error={error}"
+        redirect_url = f"{frontend_login_page_url}?wechat_error={error}"
 
         # 302 跳转到前端
         return RedirectResponse(url=redirect_url, status_code=302)
@@ -245,7 +292,7 @@ def wechat_callback(
     if not code or not state:
         # 给前端一个可识别的错误参数
         redirect_url = (
-            f"{settings.frontend_login_page_url}"
+            f"{frontend_login_page_url}"
             f"?wechat_error=missing_code_or_state"
         )
 
@@ -261,7 +308,7 @@ def wechat_callback(
     )
 
     # 组装前端登录页地址
-    redirect_url = f"{settings.frontend_login_page_url}?{query_string}"
+    redirect_url = f"{frontend_login_page_url}?{query_string}"
 
     # 返回 302 给浏览器，跳到前端登录页
     return RedirectResponse(url=redirect_url, status_code=302)

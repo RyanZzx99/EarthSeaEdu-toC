@@ -29,6 +29,7 @@ from time import sleep
 from typing import Any
 
 import requests
+from sqlalchemy import case
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -123,6 +124,46 @@ def get_active_prompt_config(
     return prompt
 
 
+def get_prompt_config_by_statuses(
+    db: Session,
+    *,
+    prompt_key: str,
+    allowed_statuses: tuple[str, ...],
+) -> AiPromptConfig:
+    """
+    按允许状态读取 Prompt 配置。
+
+    作用：
+    1. 旧链路仍然只读 active Prompt。
+    2. 新的实验链路允许读取 draft Prompt，方便先落代码再单独启用。
+    """
+
+    normalized_statuses = tuple(
+        status.strip() for status in allowed_statuses if isinstance(status, str) and status.strip()
+    )
+    if not normalized_statuses:
+        raise PromptRuntimeError("allowed_statuses 不能为空")
+
+    status_priority = case(
+        *[(AiPromptConfig.status == status, index) for index, status in enumerate(normalized_statuses)],
+        else_=len(normalized_statuses),
+    )
+    stmt = (
+        select(AiPromptConfig)
+        .where(AiPromptConfig.prompt_key == prompt_key)
+        .where(AiPromptConfig.status.in_(normalized_statuses))
+        .where(AiPromptConfig.delete_flag == "1")
+        .order_by(status_priority.asc(), AiPromptConfig.id.desc())
+        .limit(1)
+    )
+    prompt = db.execute(stmt).scalar_one_or_none()
+    if prompt is None:
+        raise PromptRuntimeError(
+            f"未找到可用 Prompt：prompt_key={prompt_key}, allowed_statuses={','.join(normalized_statuses)}"
+        )
+    return prompt
+
+
 def execute_prompt_with_context(
     db: Session,
     *,
@@ -208,6 +249,104 @@ def execute_prompt_with_context(
         message=(
             f"模型调用完成：context长度={context_length} 字符；"
             f"超时配置={timeout_summary}；"
+            f"实际耗时={elapsed_ms:.2f} ms"
+        ),
+    )
+    return PromptExecutionResult(
+        prompt_key=prompt_key,
+        model_name=model_name,
+        content=content,
+        raw_response=response_json,
+    )
+
+
+def execute_prompt_with_context_by_statuses(
+    db: Session,
+    *,
+    prompt_key: str,
+    context: dict[str, Any],
+    allowed_statuses: tuple[str, ...],
+) -> PromptExecutionResult:
+    """
+    按指定状态集合执行 Prompt。
+
+    作用：
+    1. 给草稿建档实验链路单独使用。
+    2. 旧 execute_prompt_with_context 保持不动，避免影响现有业务接口。
+    """
+
+    student_id = str(context.get("student_id") or "") or None
+    session_id = str(context.get("session_id") or "") or None
+
+    prompt = get_prompt_config_by_statuses(
+        db,
+        prompt_key=prompt_key,
+        allowed_statuses=allowed_statuses,
+    )
+    model_name = _resolve_model_name(prompt)
+    safe_context = _to_json_safe(context)
+    context_length = _measure_context_length(safe_context)
+    timeout_config = _build_timeout_config(stream=False)
+    timeout_summary = _format_timeout_config(timeout_config, stream=False)
+    log_flow_info(
+        logger,
+        flow_name="AI模型",
+        step_name="实验链路非流式模型调用",
+        student_id=student_id,
+        session_id=session_id,
+        prompt_key=prompt_key,
+        message=(
+            f"准备调用模型：{model_name}，"
+            f"context长度={context_length} 字符，"
+            f"允许状态={','.join(allowed_statuses)}，"
+            f"超时配置={timeout_summary}"
+        ),
+    )
+    request_body = _build_chat_completion_body(
+        prompt=prompt,
+        context=safe_context,
+        model_name=model_name,
+        stream=False,
+    )
+    start_time = perf_counter()
+    try:
+        response_json = _post_chat_completion(
+            request_body,
+            timeout_config=timeout_config,
+            prompt_key=prompt_key,
+            student_id=student_id,
+            session_id=session_id,
+        )
+        content = _extract_assistant_content(response_json)
+    except Exception:
+        elapsed_ms = (perf_counter() - start_time) * 1000
+        logger.exception(
+            "%s 实验链路模型调用失败，context长度=%s 字符，允许状态=%s，超时配置=%s，实际耗时 %.2f ms",
+            build_flow_prefix(
+                flow_name="AI模型",
+                step_name="实验链路非流式模型调用",
+                student_id=student_id,
+                session_id=session_id,
+                prompt_key=prompt_key,
+            ),
+            context_length,
+            ",".join(allowed_statuses),
+            timeout_summary,
+            elapsed_ms,
+        )
+        raise
+    elapsed_ms = (perf_counter() - start_time) * 1000
+    log_flow_info(
+        logger,
+        flow_name="AI模型",
+        step_name="实验链路非流式模型调用",
+        student_id=student_id,
+        session_id=session_id,
+        prompt_key=prompt_key,
+        message=(
+            f"模型调用完成，context长度={context_length} 字符，"
+            f"允许状态={','.join(allowed_statuses)}，"
+            f"超时配置={timeout_summary}，"
             f"实际耗时={elapsed_ms:.2f} ms"
         ),
     )

@@ -539,6 +539,19 @@ def persist_progress_result(
             session_id=session_id,
         )
 
+    archive_snapshot = resolved_progress_context.get("current_archive_form_snapshot")
+    if isinstance(archive_snapshot, dict) and archive_snapshot:
+        # 中文注释：
+        # progress_extraction prompt 虽然已经在上下文里看到了正式档案/草稿快照，
+        # 但模型返回结果时仍可能“忘记继承”某些已存在字段，最常见的就是标化、
+        # 语言或课程体系又被写回 missing。
+        # 这里在真正落库前，再把快照信息强制并回 progress_result，
+        # 保证“档案里已明确存在的信息”不会被 prompt 回退掉。
+        progress_result = _merge_progress_with_archive_snapshot(
+            progress_result,
+            archive_snapshot,
+        )
+
     normalized_progress_result = _apply_recent_turn_progress_guards(
         progress_result=progress_result,
         progress_context=resolved_progress_context,
@@ -3331,7 +3344,11 @@ def _build_archive_snapshot_progress_hint(
     if target_country:
         basic_info_progress["target_country"] = {"collected": True, "value": target_country}
 
-    major_interest = str(basic_info.get("MAJ_CODE_VAL") or "").strip()
+    major_interest = str(
+        basic_info.get("MAJ_INTEREST_TEXT")
+        or basic_info.get("MAJ_CODE_VAL")
+        or ""
+    ).strip()
     if major_interest:
         basic_info_progress["major_interest"] = {"collected": True, "value": major_interest}
 

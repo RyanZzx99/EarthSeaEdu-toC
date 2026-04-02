@@ -738,17 +738,17 @@ export default function LoginPage() {
                 <motion.div className="login-wechat-placeholder-wrap relative overflow-hidden">
                   <div className="login-wechat-placeholder relative">
                     <ScannerLine />
-                    <div className="login-wechat-placeholder-badge">二维码待接入</div>
+                    <div className="login-wechat-placeholder-badge">已接入</div>
                   </div>
                 </motion.div>
 
                 <div className="text-center">
-                  <p className="login-wechat-title">使用 <span style={{ color: "#07c160", fontWeight: 600 }}>微信</span> 扫描二维码登录</p>
-                  <p className="login-wechat-subtitle">打开微信 → 扫一扫 → 扫描上方二维码</p>
+                  <p className="login-wechat-title">使用 <span style={{ color: "#07c160", fontWeight: 600 }}>微信</span> 扫码登录</p>
+                  <p className="login-wechat-subtitle">点击下方按钮后，将跳转到微信开放平台官方扫码确认页</p>
                 </div>
 
                 <motion.button type="button" onClick={handleWechatAuthorize} className="login-wechat-button w-full py-3 rounded-2xl" style={{ cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>
-                  {loading ? "跳转中..." : "前往微信扫码"}
+                  {loading ? "正在打开微信扫码页..." : "打开微信扫码登录"}
                 </motion.button>
 
                 <div className="flex items-center gap-3 w-full">

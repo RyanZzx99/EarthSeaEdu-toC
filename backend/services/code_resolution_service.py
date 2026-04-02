@@ -348,6 +348,15 @@ def resolve_school_code(db: Session, raw_text: str | None) -> CodeResolutionResu
     return _resolve_code_by_like(db, SCHOOL_CONFIG, raw_text)
 
 
+def _normalize_optional_raw_text(value: str | None) -> str | None:
+    """保留用户原始表达，仅做首尾空白清理。"""
+
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
 def apply_code_resolution_to_payload(
     db: Session,
     payload: dict[str, Any],
@@ -369,6 +378,8 @@ def apply_code_resolution_to_payload(
 
     student_basic_info = payload.setdefault("student_basic_info", {})
     student_academic = payload.setdefault("student_academic", {})
+    raw_major_text = _normalize_optional_raw_text(major_text)
+    country_result = resolve_country_code(db, target_country_text)
 
     # 国家和专业当前只回填最终 code，匹配失败时保留 null，不阻断后续流程。
     country_result = resolve_country_code(db, target_country_text)
@@ -377,6 +388,9 @@ def apply_code_resolution_to_payload(
         student_basic_info["CTRY_CODE_VAL"] = country_result.mapped_code
     elif "CTRY_CODE_VAL" not in student_basic_info:
         student_basic_info["CTRY_CODE_VAL"] = None
+
+    if raw_major_text:
+        student_basic_info["MAJ_INTEREST_TEXT"] = raw_major_text
 
     major_result = resolve_major_code(db, major_text)
     results["MAJ_CODE_VAL"] = major_result

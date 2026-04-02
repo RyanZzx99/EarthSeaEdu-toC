@@ -491,3 +491,82 @@ class AiChatProfileResult(Base):
         back_populates="profile_result",
         lazy="select",
     )
+
+
+class AiChatProfileDraft(Base):
+    """
+    【草稿建档实验】AI 对话阶段的结构化草稿表。
+
+    作用：
+    1. 承载每个 session 的最新 draft_json。
+    2. 记录最近一次 patch，便于调试实验链路。
+    3. 与正式业务表分离，避免污染当前正式档案流程。
+    """
+
+    __tablename__ = "ai_chat_profile_drafts"
+
+    draft_id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+        comment="草稿主键ID",
+    )
+    session_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("ai_chat_sessions.session_id", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False,
+        unique=True,
+        comment="会话ID；一条会话只保留一份最新草稿",
+    )
+    student_id: Mapped[str] = mapped_column(
+        CHAR(36),
+        ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False,
+        comment="学生ID",
+    )
+    biz_domain: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        comment="业务域",
+    )
+    draft_json: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        comment="【草稿建档实验】当前最新结构化草稿",
+    )
+    last_patch_json: Mapped[dict | list | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="【草稿建档实验】最近一次增量 patch",
+    )
+    source_round: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="草稿更新到的会话轮次",
+    )
+    version_no: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        comment="草稿版本号；每次更新递增",
+    )
+    create_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        comment="创建时间",
+    )
+    update_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+    delete_flag: Mapped[str] = mapped_column(
+        CHAR(1),
+        nullable=False,
+        default="1",
+        comment="逻辑删除标记；1=有效，0=已删除",
+    )

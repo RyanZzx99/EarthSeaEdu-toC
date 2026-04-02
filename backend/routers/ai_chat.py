@@ -34,10 +34,19 @@ from backend.schemas.ai_chat import ArchiveFormSavePayload
 from backend.schemas.ai_chat import UserMessagePayload
 from backend.services.ai_chat_pipeline_service import CONVERSATION_PROMPT_KEY
 from backend.services.ai_chat_pipeline_service import CONVERSATION_WITH_PROGRESS_PROMPT_KEY
+from backend.services.ai_chat_pipeline_service import PROGRESS_PROMPT_KEY
+from backend.services.ai_chat_pipeline_service import _build_progress_extraction_context
+from backend.services.ai_chat_pipeline_service import _merge_progress_with_archive_snapshot
+from backend.services.ai_chat_pipeline_service import _parse_json_object
 from backend.services.ai_chat_pipeline_service import build_conversation_context
 from backend.services.ai_chat_pipeline_service import persist_progress_result
 from backend.services.ai_chat_pipeline_service import run_manual_profile_generation_background
 from backend.services.ai_chat_pipeline_service import run_progress_update_pipeline
+from backend.services.ai_chat_profile_draft_experiment_service import DRAFT_EXPERIMENT_MARK
+from backend.services.ai_chat_profile_draft_experiment_service import extract_latest_patch_into_ai_chat_profile_draft_experiment
+from backend.services.ai_chat_profile_draft_experiment_service import get_ai_chat_profile_draft_experiment_detail
+from backend.services.ai_chat_profile_draft_experiment_service import regenerate_profile_result_from_ai_chat_profile_draft_experiment
+from backend.services.ai_chat_profile_draft_experiment_service import sync_ai_chat_profile_draft_experiment_from_official_snapshot
 from backend.services.ai_chat_service import append_assistant_message
 from backend.services.ai_chat_service import append_user_message
 from backend.services.ai_chat_service import get_active_session_by_student_and_domain
@@ -50,6 +59,7 @@ from backend.services.ai_chat_service import update_session_stage
 from backend.services.ai_prompt_runtime_service import PromptRuntimeError
 from backend.services.ai_prompt_runtime_service import PromptStreamChunk
 from backend.services.ai_prompt_runtime_service import PromptStreamSession
+from backend.services.ai_prompt_runtime_service import execute_prompt_with_context
 from backend.services.ai_prompt_runtime_service import stream_prompt_with_context
 from backend.services.business_profile_form_service import load_business_profile_form_bundle
 from backend.services.business_profile_manual_save_service import regenerate_profile_result_from_business_profile_snapshot
@@ -1014,6 +1024,156 @@ def regenerate_ai_chat_session_archive_radar(
     }
 
 
+@router.get("/api/v1/ai-chat-draft-experiment/sessions/{session_id}/draft")
+def get_ai_chat_profile_draft_experiment(
+    session_id: str,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db=Depends(get_db),
+):
+    """
+    【草稿建档实验】读取当前 session 的 draft。
+    """
+
+    student_id = _get_current_student_id(authorization)
+    try:
+        session = get_session_detail(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    return get_ai_chat_profile_draft_experiment_detail(
+        db,
+        student_id=student_id,
+        session_id=session_id,
+        biz_domain=session.biz_domain,
+    )
+
+
+@router.post("/api/v1/ai-chat-draft-experiment/sessions/{session_id}/draft/sync-from-official")
+def sync_ai_chat_profile_draft_experiment(
+    session_id: str,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db=Depends(get_db),
+):
+    """
+    【草稿建档实验】用正式业务表快照覆盖 draft。
+    """
+
+    student_id = _get_current_student_id(authorization)
+    try:
+        session = get_session_detail(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    if session.current_stage in {"progress_updating", "extraction", "scoring", "profile_saving"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{DRAFT_EXPERIMENT_MARK} 当前会话仍在后台处理中，请等待当前流程完成后再同步 draft。",
+        )
+
+    return sync_ai_chat_profile_draft_experiment_from_official_snapshot(
+        db,
+        student_id=student_id,
+        session_id=session_id,
+        biz_domain=session.biz_domain,
+        source_round=session.current_round,
+    )
+
+
+@router.post("/api/v1/ai-chat-draft-experiment/sessions/{session_id}/draft/extract-latest-patch")
+def extract_ai_chat_profile_draft_experiment_latest_patch(
+    session_id: str,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db=Depends(get_db),
+):
+    """
+    【草稿建档实验】从最近一轮对话提取 patch，并更新 draft。
+    """
+
+    student_id = _get_current_student_id(authorization)
+    try:
+        session = get_session_detail(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    if session.current_stage in {"progress_updating", "extraction", "scoring", "profile_saving"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{DRAFT_EXPERIMENT_MARK} 当前会话仍在后台处理中，请等待当前流程完成后再提取 draft patch。",
+        )
+
+    try:
+        return extract_latest_patch_into_ai_chat_profile_draft_experiment(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+            biz_domain=session.biz_domain,
+            source_round=session.current_round,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/api/v1/ai-chat-draft-experiment/sessions/{session_id}/draft/regenerate-radar")
+def regenerate_ai_chat_profile_draft_experiment_radar(
+    session_id: str,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db=Depends(get_db),
+):
+    """
+    【草稿建档实验】基于 draft 直接重算六维图。
+    """
+
+    student_id = _get_current_student_id(authorization)
+    try:
+        session = get_session_detail(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    if session.current_stage in {"progress_updating", "extraction", "scoring", "profile_saving"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{DRAFT_EXPERIMENT_MARK} 当前会话仍在后台处理中，请等待当前流程完成后再重算六维图。",
+        )
+
+    try:
+        return regenerate_profile_result_from_ai_chat_profile_draft_experiment(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+            biz_domain=session.biz_domain,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/api/v1/ai-chat/sessions/{session_id}/build-profile", status_code=202)
 def build_ai_chat_profile_result(
     session_id: str,
@@ -1161,6 +1321,83 @@ async def ai_chat_websocket(websocket: WebSocket) -> None:
                 websocket,
                 code="UNSUPPORTED_EVENT_TYPE",
                 message=f"暂不支持的消息类型：{envelope.type}",
+                request_id=envelope.request_id,
+                session_id=context.session_id,
+            )
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+
+@router.websocket("/ws/ai-chat-draft-experiment")
+async def ai_chat_draft_experiment_websocket(websocket: WebSocket) -> None:
+    """
+    【草稿建档实验】独立 WebSocket 入口。
+
+    中文注释：
+    1. 旧的 /ws/ai-chat 完全保留，不改现有生产链路。
+    2. 实验链路单独走这条地址，便于前端灰度和后续快速回滚。
+    """
+
+    await manager.accept(websocket)
+
+    try:
+        while True:
+            raw_message = await websocket.receive_json()
+            envelope = _parse_envelope(raw_message)
+            if envelope is None:
+                await _send_error(
+                    websocket,
+                    code="INVALID_MESSAGE",
+                    message=f"{DRAFT_EXPERIMENT_MARK} WebSocket 消息格式不合法",
+                )
+                continue
+
+            if envelope.type == "connect_init":
+                await _handle_connect_init(websocket, envelope)
+                continue
+
+            if envelope.type == "ping":
+                await _send_event(
+                    websocket,
+                    event_type="pong",
+                    request_id=envelope.request_id,
+                    session_id=envelope.session_id,
+                )
+                continue
+
+            context = manager.get(websocket)
+            if context is None:
+                await _send_error(
+                    websocket,
+                    code="CONNECTION_NOT_INITIALIZED",
+                    message=f"{DRAFT_EXPERIMENT_MARK} 请先发送 connect_init 完成连接初始化",
+                    request_id=envelope.request_id,
+                    session_id=envelope.session_id,
+                )
+                continue
+
+            if envelope.type == "user_message":
+                await _handle_user_message_draft_experiment(websocket, envelope, context)
+                continue
+
+            if envelope.type == "cancel_generation":
+                await _handle_cancel_generation(websocket, envelope, context)
+                continue
+
+            if envelope.type == "continue_generation":
+                await _send_error(
+                    websocket,
+                    code="CONTINUE_NOT_SUPPORTED",
+                    message=f"{DRAFT_EXPERIMENT_MARK} 当前版本暂不支持在取消后继续同一轮生成，请重新发送消息发起新一轮对话。",
+                    request_id=envelope.request_id,
+                    session_id=context.session_id,
+                )
+                continue
+
+            await _send_error(
+                websocket,
+                code="UNSUPPORTED_EVENT_TYPE",
+                message=f"{DRAFT_EXPERIMENT_MARK} 暂不支持的消息类型：{envelope.type}",
                 request_id=envelope.request_id,
                 session_id=context.session_id,
             )
@@ -1321,6 +1558,65 @@ async def _handle_user_message(
     manager.reset_generation_control(websocket)
     task = asyncio.create_task(
         _run_user_message_pipeline(
+            websocket=websocket,
+            envelope=envelope,
+            context=context,
+            payload=payload,
+        )
+    )
+    manager.set_generation_task(websocket, task)
+    task.add_done_callback(lambda finished_task: _on_generation_task_done(websocket, finished_task))
+
+
+async def _handle_user_message_draft_experiment(
+    websocket: WebSocket,
+    envelope: AiChatWsEnvelope,
+    context: AiChatConnectionContext,
+) -> None:
+    """
+    【草稿建档实验】启动一轮 user_message 处理任务。
+
+    中文注释：
+    1. 协议和旧链路保持一致，前端不需要改消息体结构。
+    2. 真正的差异在后台 pipeline：progress 和 conversation 都优先读取 draft，
+       assistant 完成后还会额外抽取一轮 draft patch。
+    """
+
+    try:
+        payload = UserMessagePayload.model_validate(envelope.payload)
+    except ValidationError:
+        await _send_error(
+            websocket,
+            code="INVALID_USER_MESSAGE",
+            message=f"{DRAFT_EXPERIMENT_MARK} user_message 缺少有效的 content 字段",
+            request_id=envelope.request_id,
+            session_id=context.session_id,
+        )
+        return
+
+    if envelope.session_id and envelope.session_id != context.session_id:
+        await _send_error(
+            websocket,
+            code="SESSION_ID_MISMATCH",
+            message=f"{DRAFT_EXPERIMENT_MARK} 消息中的 session_id 与当前连接绑定的 session_id 不一致",
+            request_id=envelope.request_id,
+            session_id=context.session_id,
+        )
+        return
+
+    if manager.has_running_generation(websocket):
+        await _send_error(
+            websocket,
+            code="GENERATION_IN_PROGRESS",
+            message=f"{DRAFT_EXPERIMENT_MARK} 当前已有一轮生成正在进行中，请等待完成或先取消当前生成",
+            request_id=envelope.request_id,
+            session_id=context.session_id,
+        )
+        return
+
+    manager.reset_generation_control(websocket)
+    task = asyncio.create_task(
+        _run_user_message_pipeline_draft_experiment(
             websocket=websocket,
             envelope=envelope,
             context=context,
@@ -1629,6 +1925,310 @@ async def _run_user_message_pipeline(
         )
 
 
+async def _run_user_message_pipeline_draft_experiment(
+    *,
+    websocket: WebSocket,
+    envelope: AiChatWsEnvelope,
+    context: AiChatConnectionContext,
+    payload: UserMessagePayload,
+) -> None:
+    """
+    【草稿建档实验】真正执行一轮 user_message 的完整链路。
+
+    当前实验链路顺序：
+    1. 用户消息落库
+    2. progress_extraction 在 draft 视角下更新进度
+    3. conversation 在 draft 视角下生成 assistant 回复
+    4. assistant 结束后抽取 latest patch 并 merge 到 draft
+
+    中文注释：
+    1. 旧链路完全保留，这里只在实验 WebSocket 路径下运行。
+    2. 如果 draft patch 提取失败，不回滚本轮用户消息和 assistant 消息，只把错误显式抛给前端。
+    """
+
+    try:
+        progress_result: dict[str, Any] = {}
+        with log_timed_step(
+            logger,
+            flow_name="草稿建档实验",
+            step_name="整轮用户消息处理",
+            student_id=context.student_id,
+            session_id=context.session_id,
+        ):
+            with log_timed_step(
+                logger,
+                flow_name="草稿建档实验",
+                step_name="保存用户消息",
+                student_id=context.student_id,
+                session_id=context.session_id,
+            ):
+                user_message_result = await asyncio.to_thread(
+                    _persist_user_message_sync,
+                    context.student_id,
+                    context.session_id,
+                    payload.content,
+                )
+
+            await _send_event(
+                websocket,
+                event_type="user_message_saved",
+                request_id=envelope.request_id,
+                session_id=context.session_id,
+                payload={
+                    "message_id": user_message_result.message_id,
+                    "sequence_no": user_message_result.sequence_no,
+                    "current_round": user_message_result.current_round,
+                    "last_message_at": user_message_result.last_message_at.isoformat(),
+                },
+            )
+
+        await _send_event(
+            websocket,
+            event_type="stage_changed",
+            request_id=envelope.request_id,
+            session_id=context.session_id,
+            payload={
+                "current_stage": "progress_updating",
+            },
+        )
+
+        with log_timed_step(
+            logger,
+            flow_name="草稿建档实验",
+            step_name="执行进度提取",
+            student_id=context.student_id,
+            session_id=context.session_id,
+        ):
+            progress_result = await asyncio.to_thread(
+                _run_progress_update_pipeline_draft_experiment_sync,
+                context.student_id,
+                context.session_id,
+                context.biz_domain,
+            )
+
+        await _send_event(
+            websocket,
+            event_type="progress_updated",
+            request_id=envelope.request_id,
+            session_id=context.session_id,
+            payload={
+                "missing_dimensions": progress_result.get("missing_dimensions", []),
+                "next_question_focus": progress_result.get("next_question_focus"),
+                "stop_ready": progress_result.get("stop_ready", False),
+                "dimension_progress": progress_result.get("dimension_progress", {}),
+            },
+        )
+
+        await _send_event(
+            websocket,
+            event_type="stage_changed",
+            request_id=envelope.request_id,
+            session_id=context.session_id,
+            payload={
+                "current_stage": "conversation",
+                "conversation_phase": "generating_assistant",
+            },
+        )
+
+        with log_timed_step(
+            logger,
+            flow_name="草稿建档实验",
+            step_name="构建回复上下文",
+            student_id=context.student_id,
+            session_id=context.session_id,
+        ):
+            conversation_context = await asyncio.to_thread(
+                _load_draft_experiment_conversation_context_sync,
+                context.student_id,
+                context.session_id,
+                context.biz_domain,
+                progress_result,
+            )
+
+        with log_timed_step(
+            logger,
+            flow_name="草稿建档实验",
+            step_name="打开回复流式连接",
+            student_id=context.student_id,
+            session_id=context.session_id,
+        ):
+            stream_session = await asyncio.to_thread(
+                _open_conversation_stream_session_sync,
+                conversation_context,
+            )
+        manager.set_stream_close_callback(websocket, stream_session.close)
+
+        with log_timed_step(
+            logger,
+            flow_name="草稿建档实验",
+            step_name="流式生成助手回复",
+            student_id=context.student_id,
+            session_id=context.session_id,
+        ):
+            cancelled, assistant_content = await _stream_assistant_tokens(
+                websocket=websocket,
+                envelope=envelope,
+                context=context,
+                stream_session=stream_session,
+            )
+        manager.set_stream_close_callback(websocket, None)
+
+        if cancelled:
+            manager.clear_generation_runtime(websocket)
+            await _send_event(
+                websocket,
+                event_type="generation_cancelled",
+                request_id=envelope.request_id,
+                session_id=context.session_id,
+                payload={
+                    "discarded_partial_reply": bool(assistant_content),
+                },
+            )
+            await _send_event(
+                websocket,
+                event_type="stage_changed",
+                request_id=envelope.request_id,
+                session_id=context.session_id,
+                payload={
+                    "current_stage": "build_ready" if progress_result.get("stop_ready") else "conversation",
+                    "conversation_phase": None if progress_result.get("stop_ready") else "ready_for_input",
+                },
+            )
+            return
+
+        if not assistant_content:
+            raise ValueError(f"{DRAFT_EXPERIMENT_MARK} conversation 未能产出可保存的助手回复。")
+
+        with log_timed_step(
+            logger,
+            flow_name="草稿建档实验",
+            step_name="保存助手回复",
+            student_id=context.student_id,
+            session_id=context.session_id,
+        ):
+            assistant_message_result = await asyncio.to_thread(
+                _persist_assistant_message_sync,
+                context.student_id,
+                context.session_id,
+                assistant_content,
+                user_message_result.message_id,
+            )
+
+        await _send_event(
+            websocket,
+            event_type="assistant_done",
+            request_id=envelope.request_id,
+            session_id=context.session_id,
+            payload={
+                "message_id": assistant_message_result.message_id,
+                "sequence_no": assistant_message_result.sequence_no,
+                "content": assistant_content,
+                "current_round": assistant_message_result.current_round,
+            },
+        )
+
+        draft_patch_error_message: str | None = None
+        try:
+            with log_timed_step(
+                logger,
+                flow_name="草稿建档实验",
+                step_name="提取并合并 draft patch",
+                student_id=context.student_id,
+                session_id=context.session_id,
+            ):
+                draft_detail = await asyncio.to_thread(
+                    _extract_latest_patch_into_ai_chat_profile_draft_experiment_sync,
+                    context.student_id,
+                    context.session_id,
+                    context.biz_domain,
+                    assistant_message_result.current_round,
+                )
+            await _send_event(
+                websocket,
+                event_type="draft_experiment_updated",
+                request_id=envelope.request_id,
+                session_id=context.session_id,
+                payload={
+                    "experiment_tag": DRAFT_EXPERIMENT_MARK,
+                    "version_no": draft_detail.get("version_no"),
+                    "source_round": draft_detail.get("source_round"),
+                },
+            )
+        except Exception as draft_exc:  # noqa: BLE001
+            draft_patch_error_message = str(draft_exc)
+            logger.exception(
+                "%s draft patch 提取失败：%s",
+                build_flow_prefix(
+                    flow_name="草稿建档实验",
+                    step_name="提取并合并 draft patch",
+                    student_id=context.student_id,
+                    session_id=context.session_id,
+                ),
+                draft_exc,
+            )
+
+        manager.clear_generation_runtime(websocket)
+
+        next_stage = "build_ready" if progress_result.get("stop_ready") else "conversation"
+        await _send_event(
+            websocket,
+            event_type="stage_changed",
+            request_id=envelope.request_id,
+            session_id=context.session_id,
+            payload={
+                "current_stage": next_stage,
+                "conversation_phase": None if next_stage == "build_ready" else "ready_for_input",
+            },
+        )
+
+        if draft_patch_error_message:
+            await _send_error(
+                websocket,
+                code="DRAFT_PATCH_EXPERIMENT_FAILED",
+                message=f"{DRAFT_EXPERIMENT_MARK} 本轮回复已保存，但 draft patch 提取失败：{draft_patch_error_message}",
+                request_id=envelope.request_id,
+                session_id=context.session_id,
+            )
+    except asyncio.CancelledError:
+        raise
+    except (ValueError, PromptRuntimeError) as exc:
+        logger.exception(
+            "%s 对话链路失败：%s",
+            build_flow_prefix(
+                flow_name="草稿建档实验",
+                step_name="整轮用户消息处理",
+                student_id=context.student_id,
+                session_id=context.session_id,
+            ),
+            exc,
+        )
+        await _send_error(
+            websocket,
+            code="DRAFT_EXPERIMENT_CHAT_PIPELINE_FAILED",
+            message=str(exc),
+            request_id=envelope.request_id,
+            session_id=context.session_id,
+        )
+    except Exception as exc:
+        logger.exception(
+            "%s 对话链路出现未预期异常：%s",
+            build_flow_prefix(
+                flow_name="草稿建档实验",
+                step_name="整轮用户消息处理",
+                student_id=context.student_id,
+                session_id=context.session_id,
+            ),
+            exc,
+        )
+        await _send_error(
+            websocket,
+            code="DRAFT_EXPERIMENT_CHAT_PIPELINE_UNEXPECTED_ERROR",
+            message=str(exc),
+            request_id=envelope.request_id,
+            session_id=context.session_id,
+        )
+
+
 async def _stream_assistant_tokens(
     *,
     websocket: WebSocket,
@@ -1833,6 +2433,128 @@ def _load_conversation_context_sync(
             student_id=student_id,
             session_id=session_id,
             current_progress_json=current_progress_json,
+        )
+    finally:
+        db.close()
+
+
+def _load_draft_experiment_conversation_context_sync(
+    student_id: str,
+    session_id: str,
+    biz_domain: str,
+    current_progress_json: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    【草稿建档实验】在线程中加载 conversation_prompt 所需上下文。
+
+    中文注释：
+    1. 旧链路里的 conversation 上下文会把正式业务表快照并入 prompt。
+    2. 实验链路里要求“继续对话优先读最新 draft”，所以这里显式把 archive 快照替换成 draft。
+    3. 旧函数保持不动，实验链路单独走这份上下文装配。
+    """
+
+    db = SessionLocal()
+    try:
+        conversation_context = build_conversation_context(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+            current_progress_json=current_progress_json,
+        )
+        draft_detail = get_ai_chat_profile_draft_experiment_detail(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+            biz_domain=biz_domain,
+        )
+        draft_json = draft_detail.get("draft_json") or {}
+        conversation_context["current_official_archive_form_snapshot"] = (
+            conversation_context.get("current_archive_form_snapshot") or {}
+        )
+        conversation_context["current_archive_form_snapshot"] = draft_json
+        conversation_context["current_draft_json"] = draft_json
+        conversation_context["current_progress_json"] = _merge_progress_with_archive_snapshot(
+            conversation_context.get("current_progress_json") or {},
+            draft_json,
+        )
+        return conversation_context
+    finally:
+        db.close()
+
+
+def _run_progress_update_pipeline_draft_experiment_sync(
+    student_id: str,
+    session_id: str,
+    biz_domain: str,
+):
+    """
+    【草稿建档实验】在线程中执行 progress_extraction，并让 prompt 读取 draft 快照。
+
+    中文注释：
+    1. 这条实验链故意不复用 run_progress_update_pipeline 的最终上下文，
+       因为旧链路默认会把正式业务表快照并入 progress。
+    2. 这里保留原 prompt、原 persist 逻辑，只替换 prompt 看到的 archive 快照为 draft。
+    """
+
+    db = SessionLocal()
+    try:
+        progress_context = _build_progress_extraction_context(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+        )
+        draft_detail = get_ai_chat_profile_draft_experiment_detail(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+            biz_domain=biz_domain,
+        )
+        draft_json = draft_detail.get("draft_json") or {}
+        progress_context["current_official_archive_form_snapshot"] = (
+            progress_context.get("current_archive_form_snapshot") or {}
+        )
+        progress_context["current_archive_form_snapshot"] = draft_json
+        progress_context["current_draft_json"] = draft_json
+        progress_context["current_progress_json"] = _merge_progress_with_archive_snapshot(
+            progress_context.get("current_progress_json") or {},
+            draft_json,
+        )
+        progress_runtime_result = execute_prompt_with_context(
+            db,
+            prompt_key=PROGRESS_PROMPT_KEY,
+            context=progress_context,
+        )
+        progress_json = _parse_json_object(
+            raw_text=progress_runtime_result.content,
+            scene_name="draft_experiment_progress_extraction",
+        )
+        return persist_progress_result(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+            progress_result=progress_json,
+            progress_context=progress_context,
+        )
+    finally:
+        db.close()
+
+
+def _extract_latest_patch_into_ai_chat_profile_draft_experiment_sync(
+    student_id: str,
+    session_id: str,
+    biz_domain: str,
+    source_round: int,
+):
+    """【草稿建档实验】在线程中把最近一轮对话 merge 到 draft。"""
+
+    db = SessionLocal()
+    try:
+        return extract_latest_patch_into_ai_chat_profile_draft_experiment(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+            biz_domain=biz_domain,
+            source_round=source_round,
         )
     finally:
         db.close()
