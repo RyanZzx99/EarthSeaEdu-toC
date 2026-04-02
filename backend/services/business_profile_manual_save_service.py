@@ -1,12 +1,10 @@
 """
-正式档案表单保存与六维图重算服务。
+正式档案页保存与六维图重算服务。
 
-中文注释：
-1. 这条链路面向档案页的“查看并手动修改正式业务表”场景。
-2. 用户提交的是正式业务表结构化表单，而不是 profile_json 文本。
-3. 当前拆成两条链路：
-   - 保存档案：只更新正式业务表，不调用 AI。
-   - 重新生成六维图：读取数据库最新快照，只重跑 scoring。
+这条链路保持旧接口不变，但内部已经支持：
+1. 保存正式档案后累计 pending changed fields
+2. 更新六维图时区分 full / partial / reuse_only
+3. 档案页更新六维图始终基于正式业务表，不读取 draft
 """
 
 from __future__ import annotations
@@ -22,6 +20,14 @@ from sqlalchemy.orm import Session
 
 from backend.services.ai_chat_service import save_profile_result
 from backend.services.ai_chat_service import update_session_stage
+from backend.services.ai_profile_radar_pending_service import accumulate_pending_radar_changes
+from backend.services.ai_profile_radar_pending_service import build_reuse_only_profile_result_payload
+from backend.services.ai_profile_radar_pending_service import build_scoring_context_for_strategy
+from backend.services.ai_profile_radar_pending_service import extract_changed_fields_from_profile_diff
+from backend.services.ai_profile_radar_pending_service import get_latest_complete_profile_result
+from backend.services.ai_profile_radar_pending_service import map_changed_fields_to_affected_dimensions
+from backend.services.ai_profile_radar_pending_service import merge_partial_scoring_result
+from backend.services.ai_profile_radar_pending_service import RadarRegenerationStrategy
 from backend.services.ai_prompt_runtime_service import execute_prompt_with_context
 from backend.services.business_profile_form_service import load_business_profile_snapshot
 from backend.services.business_profile_persistence_service import build_db_payload_from_profile_json
@@ -43,17 +49,40 @@ def save_business_profile_form_only(
 ) -> dict[str, Any]:
     """
     只保存正式档案表单，不重算六维图。
+
+    说明：
+    1. 保存前后会做正式档案快照 diff。
+    2. 只有在该会话已经存在至少一版完整六维图时，才会累计 pending changes。
     """
 
     if not isinstance(archive_form, dict):
         raise ValueError("档案表单数据格式错误。")
 
+    previous_profile_json = load_business_profile_snapshot(
+        db,
+        student_id=student_id,
+    )
     canonical_profile_json = _persist_archive_form_and_load_snapshot(
         db,
         student_id=student_id,
         session_id=session_id,
         archive_form=archive_form,
     )
+
+    changed_fields = extract_changed_fields_from_profile_diff(
+        previous_profile_json=previous_profile_json,
+        current_profile_json=canonical_profile_json,
+    )
+    accumulate_pending_radar_changes(
+        db,
+        student_id=student_id,
+        session_id=session_id,
+        biz_domain="student_profile_build",
+        changed_fields=changed_fields,
+        change_source="archive_form_save",
+        change_remark="正式档案页保存后累计待处理六维图改动",
+    )
+
     update_session_stage(
         db,
         student_id=student_id,
@@ -72,12 +101,16 @@ def regenerate_profile_result_from_business_profile_snapshot(
     biz_domain: str,
 ) -> dict[str, Any]:
     """
-    基于数据库最新正式档案快照重新生成六维图。
+    基于正式业务表快照更新六维图。
 
-    中文注释：
-    1. 这里不再跑 extraction。
-    2. 六维图完全基于正式业务表快照重跑 scoring。
-    3. 调 AI 前会把 scoring 上下文完整打到日志里，方便控制台排查。
+    规则：
+    1. 没有旧六维图结果时，走 full scoring。
+    2. 已有旧结果，但本次改动不影响六维图时，直接复用旧分数。
+    3. 已有旧结果，且本次改动影响部分维度时，只重算受影响维度。
+
+    注意：
+    档案页更新六维图不会清空共享的 pending changes，
+    因为这些 pending 还可能包含仅存在于 draft 的改动。
     """
 
     try:
@@ -101,39 +134,57 @@ def regenerate_profile_result_from_business_profile_snapshot(
                 student_id=student_id,
             )
 
-        scoring_context = {
-            "student_id": student_id,
-            "session_id": session_id,
-            "profile_json": _to_json_safe(canonical_profile_json),
-        }
-
-        with log_timed_step(
-            logger,
-            flow_name="AI建档",
-            step_name="基于正式档案重算六维图",
+        strategy = _build_archive_regeneration_strategy(
+            db,
             student_id=student_id,
             session_id=session_id,
-        ):
-            logger.info(
-                "[AI建档][步骤:基于正式档案重算六维图][学生:%s][会话:%s] 传给AI的scoring上下文=%s",
-                student_id,
-                session_id,
-                json.dumps(scoring_context, ensure_ascii=False, indent=2),
+            biz_domain=biz_domain,
+            canonical_profile_json=canonical_profile_json,
+        )
+        scoring_context = build_scoring_context_for_strategy(
+            student_id=student_id,
+            session_id=session_id,
+            profile_json=canonical_profile_json,
+            strategy=strategy,
+        )
+
+        if strategy.mode == "reuse_only":
+            scoring_json = build_reuse_only_profile_result_payload(
+                profile_json=canonical_profile_json,
+                strategy=strategy,
             )
-            scoring_runtime_result = execute_prompt_with_context(
-                db,
-                prompt_key=SCORING_PROMPT_KEY,
-                context=scoring_context,
-            )
-            scoring_json = _parse_json_object(
-                raw_text=scoring_runtime_result.content,
-                scene_name="archive_form_scoring",
-            )
+        else:
+            with log_timed_step(
+                logger,
+                flow_name="AI建档",
+                step_name="基于正式档案重算六维图",
+                student_id=student_id,
+                session_id=session_id,
+            ):
+                logger.info(
+                    "[AI建档][步骤:基于正式档案重算六维图][学生:%s][会话:%s] 传给AI的scoring上下文=%s",
+                    student_id,
+                    session_id,
+                    json.dumps(scoring_context, ensure_ascii=False, indent=2),
+                )
+                scoring_runtime_result = execute_prompt_with_context(
+                    db,
+                    prompt_key=SCORING_PROMPT_KEY,
+                    context=scoring_context,
+                )
+                scoring_json = _parse_json_object(
+                    raw_text=scoring_runtime_result.content,
+                    scene_name="archive_form_scoring",
+                )
+                scoring_json = merge_partial_scoring_result(
+                    strategy=strategy,
+                    scoring_json=scoring_json,
+                )
 
         with log_timed_step(
             logger,
             flow_name="AI建档结果",
-            step_name="回写重算后的六维图结果",
+            step_name="回写正式档案六维图结果",
             student_id=student_id,
             session_id=session_id,
         ):
@@ -178,7 +229,65 @@ def regenerate_profile_result_from_business_profile_snapshot(
         "result_status": "saved",
         "save_error_message": None,
         "db_payload_json": scoring_context["profile_json"],
+        "regeneration_mode": strategy.mode,
+        "affected_dimensions": strategy.affected_dimensions,
+        "changed_fields": strategy.changed_fields,
     }
+
+
+def _build_archive_regeneration_strategy(
+    db: Session,
+    *,
+    student_id: str,
+    session_id: str,
+    biz_domain: str,
+    canonical_profile_json: dict[str, Any],
+) -> RadarRegenerationStrategy:
+    previous_result = get_latest_complete_profile_result(
+        db,
+        student_id=student_id,
+        session_id=session_id,
+    )
+    if previous_result is None:
+        return RadarRegenerationStrategy(
+            mode="full",
+            previous_result=None,
+            pending_row=None,
+            changed_fields=[],
+            affected_dimensions=[],
+            previous_radar_scores_json={},
+            previous_summary_text=None,
+        )
+
+    changed_fields = extract_changed_fields_from_profile_diff(
+        previous_profile_json=previous_result.profile_json or {},
+        current_profile_json=canonical_profile_json,
+    )
+    affected_dimensions = map_changed_fields_to_affected_dimensions(
+        db,
+        biz_domain=biz_domain,
+        changed_fields=changed_fields,
+    )
+    if not changed_fields or not affected_dimensions:
+        return RadarRegenerationStrategy(
+            mode="reuse_only",
+            previous_result=previous_result,
+            pending_row=None,
+            changed_fields=changed_fields,
+            affected_dimensions=affected_dimensions,
+            previous_radar_scores_json=_to_json_safe(previous_result.radar_scores_json or {}),
+            previous_summary_text=previous_result.summary_text,
+        )
+
+    return RadarRegenerationStrategy(
+        mode="partial",
+        previous_result=previous_result,
+        pending_row=None,
+        changed_fields=changed_fields,
+        affected_dimensions=affected_dimensions,
+        previous_radar_scores_json=_to_json_safe(previous_result.radar_scores_json or {}),
+        previous_summary_text=previous_result.summary_text,
+    )
 
 
 def _persist_archive_form_and_load_snapshot(
@@ -227,13 +336,6 @@ def _parse_json_object(
     raw_text: str,
     scene_name: str,
 ) -> dict[str, Any]:
-    """
-    解析模型返回的 JSON 对象。
-
-    中文注释：
-    这里保留一层轻量兜底，避免模型偶尔带上 markdown 包裹导致重新评分失败。
-    """
-
     cleaned = raw_text.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.removeprefix("```json").removeprefix("```JSON")
@@ -250,8 +352,6 @@ def _parse_json_object(
 
 
 def _to_json_safe(value: Any) -> Any:
-    """把数据库快照里的非常规类型转成可 JSON 序列化的安全对象。"""
-
     if isinstance(value, dict):
         return {key: _to_json_safe(item) for key, item in value.items()}
     if isinstance(value, list):

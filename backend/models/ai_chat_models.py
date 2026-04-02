@@ -570,3 +570,173 @@ class AiChatProfileDraft(Base):
         default="1",
         comment="逻辑删除标记；1=有效，0=已删除",
     )
+class AiProfileRadarFieldImpactRule(Base):
+    """
+    【六维图差量重算】正式档案字段与六维维度影响规则表。
+
+    作用：
+    1. 把“哪个表的哪个字段会影响哪些维度”从代码中抽离到数据库。
+    2. 档案页保存与 AI 对话 patch 都共用这张表计算 affected_dimensions。
+    3. 支持精确字段匹配和 `*` 整表通配。
+    """
+
+    __tablename__ = "ai_profile_radar_field_impact_rules"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+        comment="主键ID",
+    )
+    biz_domain: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="业务域；例如 student_profile_build",
+    )
+    table_name: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        comment="正式档案表名",
+    )
+    field_name: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        comment="字段名；支持 * 作为整表通配",
+    )
+    affects_radar: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        comment="是否影响六维图；1=影响 0=不影响",
+    )
+    affected_dimensions_json: Mapped[list | dict] = mapped_column(
+        JSON,
+        nullable=False,
+        comment="受影响维度数组",
+    )
+    remark: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="规则说明",
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=100,
+        comment="排序号；值越小优先级越高",
+    )
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="active",
+        comment="状态；active / disabled",
+    )
+    create_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        comment="创建时间",
+    )
+    update_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+    delete_flag: Mapped[str] = mapped_column(
+        CHAR(1),
+        nullable=False,
+        default="1",
+        comment="逻辑删除标记；1=有效 0=删除",
+    )
+
+
+class AiProfileRadarPendingChange(Base):
+    """
+    【六维图差量重算】待处理字段改动与受影响维度状态表。
+
+    作用：
+    1. 只记录“自上一版六维图生成以后”待处理的字段改动。
+    2. 只在用户已经有旧六维图结果时启用。
+    3. 供首页生成 / 档案页更新六维图时判断走 full 还是 partial。
+    """
+
+    __tablename__ = "ai_profile_radar_pending_changes"
+
+    pending_id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+        comment="主键ID",
+    )
+    session_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("ai_chat_sessions.session_id", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False,
+        comment="会话ID",
+    )
+    student_id: Mapped[str] = mapped_column(
+        CHAR(36),
+        ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False,
+        comment="学生ID",
+    )
+    biz_domain: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        comment="业务域",
+    )
+    last_profile_result_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("ai_chat_profile_results.id", ondelete="SET NULL", onupdate="CASCADE"),
+        nullable=True,
+        comment="上一版六维图结果ID；作为差量重算基线",
+    )
+    pending_changed_fields_json: Mapped[list | None] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+        comment="待处理字段路径列表",
+    )
+    pending_affected_dimensions_json: Mapped[list | None] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+        comment="待处理受影响维度列表",
+    )
+    last_change_source: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="最近一次改动来源；例如 archive_form / ai_dialogue_patch",
+    )
+    last_change_remark: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="最近一次改动备注",
+    )
+    version_no: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        comment="版本号；每次累计改动递增",
+    )
+    create_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        comment="创建时间",
+    )
+    update_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+    delete_flag: Mapped[str] = mapped_column(
+        CHAR(1),
+        nullable=False,
+        default="1",
+        comment="逻辑删除标记；1=有效 0=删除",
+    )

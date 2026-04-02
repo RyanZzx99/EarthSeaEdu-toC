@@ -22,6 +22,13 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.models.ai_chat_models import AiChatProfileDraft
+from backend.services.ai_profile_radar_pending_service import accumulate_pending_radar_changes
+from backend.services.ai_profile_radar_pending_service import build_radar_regeneration_strategy
+from backend.services.ai_profile_radar_pending_service import build_reuse_only_profile_result_payload
+from backend.services.ai_profile_radar_pending_service import build_scoring_context_for_strategy
+from backend.services.ai_profile_radar_pending_service import extract_changed_fields_from_patch_json
+from backend.services.ai_profile_radar_pending_service import merge_partial_scoring_result
+from backend.services.ai_profile_radar_pending_service import reset_pending_radar_changes
 from backend.services.ai_chat_service import get_latest_progress_state
 from backend.services.ai_chat_service import save_profile_result
 from backend.services.ai_chat_service import get_visible_messages
@@ -205,6 +212,16 @@ def extract_latest_patch_into_ai_chat_profile_draft_experiment(
             last_patch_json=patch_json,
             source_round=source_round,
         )
+        changed_fields = extract_changed_fields_from_patch_json(patch_json)
+        pending_change_result = accumulate_pending_radar_changes(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+            biz_domain=biz_domain,
+            changed_fields=changed_fields,
+            change_source="ai_dialogue_patch",
+            change_remark=f"{DRAFT_EXPERIMENT_MARK} 对话 patch 已并入 draft",
+        )
         return {
             "experiment_tag": DRAFT_EXPERIMENT_MARK,
             "session_id": session_id,
@@ -218,6 +235,8 @@ def extract_latest_patch_into_ai_chat_profile_draft_experiment(
             "version_no": draft_row.version_no,
             "create_time": draft_row.create_time.isoformat(),
             "update_time": draft_row.update_time.isoformat(),
+            "changed_fields": changed_fields,
+            "pending_change_result": pending_change_result,
         }
 
 
@@ -243,11 +262,23 @@ def regenerate_profile_result_from_ai_chat_profile_draft_experiment(
         biz_domain=biz_domain,
     )
     draft_json = deepcopy(draft_detail["draft_json"])
-    scoring_context = {
-        "student_id": student_id,
-        "session_id": session_id,
-        "profile_json": draft_json,
-    }
+    official_profile_json = _prepare_draft_for_official_persistence(
+        db,
+        draft_json=draft_json,
+        student_id=student_id,
+    )
+    strategy = build_radar_regeneration_strategy(
+        db,
+        student_id=student_id,
+        session_id=session_id,
+        biz_domain=biz_domain,
+    )
+    scoring_context = build_scoring_context_for_strategy(
+        student_id=student_id,
+        session_id=session_id,
+        profile_json=official_profile_json,
+        strategy=strategy,
+    )
 
     with log_timed_step(
         logger,
@@ -256,25 +287,36 @@ def regenerate_profile_result_from_ai_chat_profile_draft_experiment(
         student_id=student_id,
         session_id=session_id,
     ):
-        log_flow_info(
-            logger,
-            flow_name="草稿建档实验",
-            step_name="基于 draft 重算六维图",
-            student_id=student_id,
-            session_id=session_id,
-            prompt_key=DRAFT_EXPERIMENT_SCORING_PROMPT_KEY,
-            message=f"{DRAFT_EXPERIMENT_MARK} 传给 scoring 的上下文={json.dumps(scoring_context, ensure_ascii=False)}",
-        )
-        scoring_runtime_result = execute_prompt_with_context_by_statuses(
-            db,
-            prompt_key=DRAFT_EXPERIMENT_SCORING_PROMPT_KEY,
-            context=scoring_context,
-            allowed_statuses=("active",),
-        )
-        scoring_json = _parse_json_object(
-            raw_text=scoring_runtime_result.content,
-            scene_name="draft_experiment_scoring",
-        )
+        if strategy.mode == "reuse_only":
+            scoring_json = build_reuse_only_profile_result_payload(
+                profile_json=official_profile_json,
+                strategy=strategy,
+            )
+        else:
+            log_flow_info(
+                logger,
+                flow_name="草稿建档实验",
+                step_name="基于 draft 重算六维图",
+                student_id=student_id,
+                session_id=session_id,
+                prompt_key=DRAFT_EXPERIMENT_SCORING_PROMPT_KEY,
+                message=f"{DRAFT_EXPERIMENT_MARK} 传给 scoring 的上下文={json.dumps(scoring_context, ensure_ascii=False)}",
+            )
+            scoring_runtime_result = execute_prompt_with_context_by_statuses(
+                db,
+                prompt_key=DRAFT_EXPERIMENT_SCORING_PROMPT_KEY,
+                context=scoring_context,
+                allowed_statuses=("active",),
+            )
+            scoring_json = _parse_json_object(
+                raw_text=scoring_runtime_result.content,
+                scene_name="draft_experiment_scoring",
+            )
+            scoring_json = merge_partial_scoring_result(
+                strategy=strategy,
+                scoring_json=scoring_json,
+            )
+
         with log_timed_step(
             logger,
             flow_name="草稿建档实验",
@@ -282,11 +324,6 @@ def regenerate_profile_result_from_ai_chat_profile_draft_experiment(
             student_id=student_id,
             session_id=session_id,
         ):
-            official_profile_json = _prepare_draft_for_official_persistence(
-                db,
-                draft_json=draft_json,
-                student_id=student_id,
-            )
             db_payload = build_db_payload_from_profile_json(
                 official_profile_json,
                 student_id=student_id,
@@ -310,6 +347,13 @@ def regenerate_profile_result_from_ai_chat_profile_draft_experiment(
             session_stage="build_ready",
             session_remark=f"{DRAFT_EXPERIMENT_MARK} 基于 draft 重新生成六维图",
         )
+        reset_pending_radar_changes(
+            db,
+            student_id=student_id,
+            session_id=session_id,
+            biz_domain=biz_domain,
+            last_profile_result_id=saved_result.profile_result_id,
+        )
         return {
             "experiment_tag": DRAFT_EXPERIMENT_MARK,
             "session_id": session_id,
@@ -320,6 +364,9 @@ def regenerate_profile_result_from_ai_chat_profile_draft_experiment(
             "profile_json": official_profile_json,
             "radar_scores_json": scoring_json.get("radar_scores_json") or {},
             "summary_text": scoring_json.get("summary_text"),
+            "regeneration_mode": strategy.mode,
+            "affected_dimensions": strategy.affected_dimensions,
+            "changed_fields": strategy.changed_fields,
         }
 
 

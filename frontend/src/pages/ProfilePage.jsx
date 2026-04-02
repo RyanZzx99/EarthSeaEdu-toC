@@ -146,6 +146,109 @@ const ROW_TABLES_WITH_STUDENT_ID = new Set([
   "student_project_entries",
 ]);
 
+const LEGACY_ENUM_VALUE_ALIASES = {
+  student_language: {
+    best_score_status_code: {
+      PREDICTED: "ESTIMATED",
+    },
+  },
+  student_language_ielts: {
+    status_code: {
+      PREDICTED: "ESTIMATED",
+    },
+  },
+  student_language_toefl_ibt: {
+    status_code: {
+      PREDICTED: "ESTIMATED",
+    },
+  },
+  student_language_toefl_essentials: {
+    status_code: {
+      PREDICTED: "ESTIMATED",
+    },
+  },
+  student_language_det: {
+    status_code: {
+      PREDICTED: "ESTIMATED",
+    },
+  },
+  student_language_pte: {
+    status_code: {
+      PREDICTED: "ESTIMATED",
+    },
+  },
+  student_language_languagecert: {
+    status_code: {
+      PREDICTED: "ESTIMATED",
+    },
+  },
+  student_language_cambridge: {
+    status_code: {
+      PREDICTED: "ESTIMATED",
+    },
+  },
+  student_language_other: {
+    status_code: {
+      PREDICTED: "ESTIMATED",
+    },
+  },
+  student_standardized_test_records: {
+    status: {
+      PREDICTED: "ESTIMATED",
+    },
+  },
+};
+
+function normalizeLegacyEnumValue(tableName, fieldName, value) {
+  if (value === null || value === undefined || value === "") {
+    return value;
+  }
+  const alias =
+    LEGACY_ENUM_VALUE_ALIASES?.[tableName]?.[fieldName]?.[String(value).toUpperCase()];
+  return alias || value;
+}
+
+function normalizeArchiveFormEnumValues(archiveForm) {
+  if (!archiveForm || typeof archiveForm !== "object") {
+    return archiveForm || {};
+  }
+
+  const nextArchiveForm = deepClone(archiveForm);
+  Object.entries(nextArchiveForm).forEach(([tableName, tableValue]) => {
+    if (Array.isArray(tableValue)) {
+      nextArchiveForm[tableName] = tableValue.map((row) => {
+        if (!row || typeof row !== "object") {
+          return row;
+        }
+        const normalizedRow = { ...row };
+        Object.keys(normalizedRow).forEach((fieldName) => {
+          normalizedRow[fieldName] = normalizeLegacyEnumValue(
+            tableName,
+            fieldName,
+            normalizedRow[fieldName]
+          );
+        });
+        return normalizedRow;
+      });
+      return;
+    }
+
+    if (tableValue && typeof tableValue === "object") {
+      const normalizedRow = { ...tableValue };
+      Object.keys(normalizedRow).forEach((fieldName) => {
+        normalizedRow[fieldName] = normalizeLegacyEnumValue(
+          tableName,
+          fieldName,
+          normalizedRow[fieldName]
+        );
+      });
+      nextArchiveForm[tableName] = normalizedRow;
+    }
+  });
+
+  return nextArchiveForm;
+}
+
 function normalizeArchiveBundle(data) {
   const radarScores = data?.radar_scores_json || {};
   const hasRadarResult = Boolean(
@@ -156,7 +259,7 @@ function normalizeArchiveBundle(data) {
 
   return {
     session_id: data?.session_id || "",
-    archive_form: data?.archive_form || {},
+    archive_form: normalizeArchiveFormEnumValues(data?.archive_form || {}),
     form_meta: data?.form_meta || { table_order: [], tables: {} },
     result_status: data?.result_status || null,
     summary_text: data?.summary_text || "当前档案已保存，但还没有生成完整总结。",
@@ -426,6 +529,14 @@ function normalizeChangedValue(rawValue, inputType) {
   return rawValue;
 }
 
+function normalizeFieldChangedValue(tableName, fieldName, rawValue, inputType) {
+  return normalizeLegacyEnumValue(
+    tableName,
+    fieldName,
+    normalizeChangedValue(rawValue, inputType)
+  );
+}
+
 function normalizeSearchText(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -646,15 +757,19 @@ function renderFieldControl({ tableName, field, value, onChange }) {
     const hasMatchedCurrentValue = hasCurrentValue
       ? options.some((option) => String(option.value) === String(value))
       : true;
-    const normalizedOptions = hasMatchedCurrentValue
+    const normalizedValue = normalizeLegacyEnumValue(tableName, field.name, value);
+    const normalizedHasMatchedCurrentValue = hasCurrentValue
+      ? options.some((option) => String(option.value) === String(normalizedValue))
+      : true;
+    const normalizedOptions = normalizedHasMatchedCurrentValue
       ? options
-      : [{ value, label: `当前值：${value}` }, ...options];
+      : [{ value: normalizedValue, label: `当前值：${normalizedValue}` }, ...options];
 
     if (isSearchableSelectField(tableName, field.name)) {
       return (
         <SearchableSelectControl
           options={normalizedOptions}
-          value={value ?? ""}
+          value={normalizedValue ?? ""}
           onChange={onChange}
           placeholder="请输入关键词搜索"
         />
@@ -662,7 +777,11 @@ function renderFieldControl({ tableName, field, value, onChange }) {
     }
 
     return (
-      <select className="profile-form-control" value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
+      <select
+        className="profile-form-control"
+        value={normalizedValue ?? ""}
+        onChange={(event) => onChange(event.target.value)}
+      >
         <option value="">请选择</option>
         {normalizedOptions.map((option) => (
           <option key={`${field.name}-${option.value}`} value={option.value}>
@@ -760,6 +879,7 @@ export default function ProfilePage() {
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [archiveSaving, setArchiveSaving] = useState(false);
   const [archiveRegenerating, setArchiveRegenerating] = useState(false);
+  const [archiveDraftSyncing, setArchiveDraftSyncing] = useState(false);
   const [archiveSessionId, setArchiveSessionId] = useState("");
   const [archiveBundle, setArchiveBundle] = useState(null);
   const [archiveFormState, setArchiveFormState] = useState({});
@@ -1110,12 +1230,34 @@ export default function ProfilePage() {
     setArchiveErrorMessage("");
   }
 
-  async function saveArchiveFormSnapshot({ silent = false } = {}) {
+  async function syncArchiveDraftAfterSave({ suppressError = false } = {}) {
+    if (!ENABLE_DRAFT_EXPERIMENT_FLOW || !archiveSessionId) {
+      return;
+    }
+
+    try {
+      setArchiveDraftSyncing(true);
+      await syncAiChatDraftExperimentFromOfficial(archiveSessionId);
+    } catch (error) {
+      if (!suppressError) {
+        setArchiveErrorMessage(
+          error?.response?.data?.detail || "档案已保存，但同步智能建档上下文失败，请稍后重试。"
+        );
+      }
+    } finally {
+      setArchiveDraftSyncing(false);
+    }
+  }
+
+  async function saveArchiveFormSnapshot({ silent = false, waitForDraftSync = true } = {}) {
     if (!archiveSessionId) {
       throw new Error("当前缺少会话信息，暂时无法保存档案。");
     }
 
-    const payloadArchiveForm = injectArchiveFormStudentIds(archiveFormState, archiveStudentId);
+    const payloadArchiveForm = injectArchiveFormStudentIds(
+      normalizeArchiveFormEnumValues(archiveFormState),
+      archiveStudentId
+    );
     const response = await saveAiChatArchiveForm(archiveSessionId, payloadArchiveForm);
     const normalizedBundle = normalizeArchiveBundleForView(response.data);
     const normalizedArchiveForm = injectArchiveFormStudentIds(
@@ -1131,7 +1273,11 @@ export default function ProfilePage() {
     localStorage.setItem(AI_CHAT_SESSION_CACHE_KEY, archiveSessionId);
 
     if (ENABLE_DRAFT_EXPERIMENT_FLOW) {
-      await syncAiChatDraftExperimentFromOfficial(archiveSessionId);
+      if (waitForDraftSync) {
+        await syncArchiveDraftAfterSave();
+      } else {
+        void syncArchiveDraftAfterSave({ suppressError: true });
+      }
     }
 
     if (!silent) {
@@ -1152,7 +1298,7 @@ export default function ProfilePage() {
       setArchiveSaveWarning("");
       setArchiveErrorMessage("");
 
-      await saveArchiveFormSnapshot({ silent: true });
+      await saveArchiveFormSnapshot({ silent: true, waitForDraftSync: false });
       setArchiveMessage("保存成功");
       localStorage.setItem(AI_CHAT_SESSION_CACHE_KEY, archiveSessionId);
     } catch (error) {
@@ -2027,7 +2173,16 @@ export default function ProfilePage() {
                     field,
                     value: sectionValue[field.name],
                     onChange: (rawValue) =>
-                      updateSingleField(tableName, field.name, normalizeChangedValue(rawValue, field.input_type)),
+                      updateSingleField(
+                        tableName,
+                        field.name,
+                        normalizeFieldChangedValue(
+                          tableName,
+                          field.name,
+                          rawValue,
+                          field.input_type
+                        )
+                      ),
                   })}
                   {field.helper_text ? <p className="profile-form-help">{field.helper_text}</p> : null}
                 </div>
@@ -2191,7 +2346,12 @@ export default function ProfilePage() {
                                   tableName,
                                   rowIndex,
                                   field.name,
-                                  normalizeChangedValue(rawValue, field.input_type)
+                                  normalizeFieldChangedValue(
+                                    tableName,
+                                    field.name,
+                                    rawValue,
+                                    field.input_type
+                                  )
                                 ),
                             })}
                             {field.helper_text ? <p className="profile-form-help">{field.helper_text}</p> : null}
@@ -2274,8 +2434,9 @@ export default function ProfilePage() {
   }
 
   function renderArchivePanel() {
-    const saveDisabled = !isArchiveDirty || archiveSaving || archiveRegenerating;
-    const regenerateDisabled = archiveSaving || archiveRegenerating;
+    const archiveRegenerateBusy = archiveSaving || archiveRegenerating || archiveDraftSyncing;
+    const saveDisabled = !isArchiveDirty || archiveSaving;
+    const regenerateDisabled = archiveRegenerateBusy;
 
     return (
       <div className="profile-content-stack profile-archive-panel">
@@ -2445,7 +2606,7 @@ export default function ProfilePage() {
               <button
                 type="button"
                 className={`profile-floating-button profile-floating-button-radar ${
-                  archiveRegenerating ? "profile-floating-button-loading" : ""
+                  archiveRegenerateBusy ? "profile-floating-button-loading" : ""
                 }`}
                 disabled={regenerateDisabled}
                 onClick={handleRegenerateArchiveRadar}
@@ -2454,6 +2615,16 @@ export default function ProfilePage() {
                   <>
                     <span className="profile-floating-button-spinner" />
                     {"\u6b63\u5728\u751f\u6210..."}
+                  </>
+                ) : archiveRegenerateBusy ? (
+                  <>
+                    <span className="profile-floating-button-spinner" />
+                    {"\u6b63\u5728\u540c\u6b65..."}
+                  </>
+                ) : archiveRegenerateBusy ? (
+                  <>
+                    <span className="profile-floating-button-spinner" />
+                    {"\u6b63\u5728\u540c\u6b65..."}
                   </>
                 ) : (
                   "\u91cd\u65b0\u751f\u6210\u516d\u7ef4\u56fe"
@@ -2467,8 +2638,9 @@ export default function ProfilePage() {
   }
 
   function renderArchivePanelV2() {
-    const saveDisabled = !isArchiveDirty || archiveSaving || archiveRegenerating;
-    const regenerateDisabled = archiveSaving || archiveRegenerating;
+    const archiveRegenerateBusy = archiveSaving || archiveRegenerating || archiveDraftSyncing;
+    const saveDisabled = !isArchiveDirty || archiveSaving;
+    const regenerateDisabled = archiveRegenerateBusy;
     const hasRadarResult = Boolean(archiveBundle?.has_radar_result);
 
     return (
@@ -2655,7 +2827,7 @@ export default function ProfilePage() {
               <button
                 type="button"
                 className={`profile-floating-button profile-floating-button-radar ${
-                  archiveRegenerating ? "profile-floating-button-loading" : ""
+                  archiveRegenerateBusy ? "profile-floating-button-loading" : ""
                 }`}
                 disabled={regenerateDisabled}
                 onClick={handleRegenerateArchiveRadar}
