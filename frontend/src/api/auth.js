@@ -399,3 +399,36 @@ export function listNicknameAuditLogs(params, adminKey) {
     },
   });
 }
+
+export function listAiPromptConfigs(params, adminKey) {
+  return request.get("/api/v1/auth/ai-prompts", {
+    params,
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
+
+export function updateAiPromptConfig(promptId, data, adminKey) {
+  return request.post(`/api/v1/auth/ai-prompts/${promptId}/update`, data, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
+
+export function listAiRuntimeConfigs(adminKey) {
+  return request.get("/api/v1/auth/ai-runtime-configs", {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
+
+export function updateAiRuntimeConfig(configKey, data, adminKey) {
+  return request.post(`/api/v1/auth/ai-runtime-configs/${configKey}/update`, data, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}

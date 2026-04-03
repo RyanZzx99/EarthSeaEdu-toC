@@ -17,7 +17,6 @@ from typing import Any
 from typing import Callable
 
 from fastapi import APIRouter
-from fastapi import BackgroundTasks
 from fastapi import Depends
 from fastapi import Header
 from fastapi import HTTPException
@@ -33,20 +32,17 @@ from backend.schemas.ai_chat import ConnectInitPayload
 from backend.schemas.ai_chat import ArchiveFormSavePayload
 from backend.schemas.ai_chat import UserMessagePayload
 from backend.services.ai_chat_pipeline_service import CONVERSATION_PROMPT_KEY
-from backend.services.ai_chat_pipeline_service import CONVERSATION_WITH_PROGRESS_PROMPT_KEY
 from backend.services.ai_chat_pipeline_service import PROGRESS_PROMPT_KEY
 from backend.services.ai_chat_pipeline_service import _build_progress_extraction_context
 from backend.services.ai_chat_pipeline_service import _merge_progress_with_archive_snapshot
 from backend.services.ai_chat_pipeline_service import _parse_json_object
 from backend.services.ai_chat_pipeline_service import build_conversation_context
 from backend.services.ai_chat_pipeline_service import persist_progress_result
-from backend.services.ai_chat_pipeline_service import run_manual_profile_generation_background
 from backend.services.ai_chat_pipeline_service import run_progress_update_pipeline
-from backend.services.ai_chat_profile_draft_experiment_service import DRAFT_EXPERIMENT_MARK
-from backend.services.ai_chat_profile_draft_experiment_service import extract_latest_patch_into_ai_chat_profile_draft_experiment
-from backend.services.ai_chat_profile_draft_experiment_service import get_ai_chat_profile_draft_experiment_detail
-from backend.services.ai_chat_profile_draft_experiment_service import regenerate_profile_result_from_ai_chat_profile_draft_experiment
-from backend.services.ai_chat_profile_draft_experiment_service import sync_ai_chat_profile_draft_experiment_from_official_snapshot
+from backend.services.ai_chat_profile_draft_service import extract_latest_patch_into_ai_chat_profile_draft
+from backend.services.ai_chat_profile_draft_service import get_ai_chat_profile_draft_detail
+from backend.services.ai_chat_profile_draft_service import regenerate_profile_result_from_ai_chat_profile_draft
+from backend.services.ai_chat_profile_draft_service import sync_ai_chat_profile_draft_from_official_snapshot
 from backend.services.ai_chat_service import append_assistant_message
 from backend.services.ai_chat_service import append_user_message
 from backend.services.ai_chat_service import get_active_session_by_student_and_domain
@@ -76,6 +72,7 @@ ASSISTANT_REPLY_START_MARKER = "<assistant_reply>"
 ASSISTANT_REPLY_END_MARKER = "</assistant_reply>"
 PROGRESS_RESULT_START_MARKER = "<progress_result>"
 PROGRESS_RESULT_END_MARKER = "</progress_result>"
+PROFILE_DRAFT_FLOW_NAME = "智能建档"
 
 
 def _extract_bearer_token(authorization: str | None) -> str | None:
@@ -237,219 +234,6 @@ class AiChatConnectionManager:
 
 
 manager = AiChatConnectionManager()
-
-
-@dataclass(slots=True)
-class CombinedConversationParseResult:
-    """
-    conversation_with_progress 合并输出的解析结果。
-
-    中文注释：
-    1. assistant_text 是最终给学生展示、也会落库的自然语言回复。
-    2. progress_result 是隐藏在尾部标签里的结构化进度 JSON。
-    3. parse_error 不为空时，表示本轮需要回退到旧的 progress_extraction 链路。
-    """
-
-    assistant_text: str
-    progress_result: dict[str, Any] | None
-    raw_progress_text: str | None
-    parse_error: str | None = None
-
-
-class CombinedConversationStreamParser:
-    """
-    增量解析 conversation_with_progress 的流式输出。
-
-    输出协议固定为：
-    1. <assistant_reply> ... </assistant_reply>
-    2. <progress_result> {...} </progress_result>
-
-    中文注释：
-    这里的目标不是在流式阶段把 JSON 解析完，而是只把 assistant_reply 里的自然语言增量推给前端，
-    避免把标签和隐藏 JSON 泄露到聊天窗口。
-    """
-
-    def __init__(self) -> None:
-        self._state = "before_reply"
-        self._buffer = ""
-
-    def feed(self, delta_text: str) -> str:
-        if not delta_text:
-            return ""
-
-        self._buffer += delta_text
-        visible_parts: list[str] = []
-        while True:
-            if self._state == "before_reply":
-                marker_index = self._buffer.find(ASSISTANT_REPLY_START_MARKER)
-                if marker_index < 0:
-                    self._buffer = self._buffer[-(len(ASSISTANT_REPLY_START_MARKER) - 1):]
-                    break
-                self._buffer = self._buffer[marker_index + len(ASSISTANT_REPLY_START_MARKER):]
-                self._state = "in_reply"
-                continue
-
-            if self._state == "in_reply":
-                marker_index = self._buffer.find(ASSISTANT_REPLY_END_MARKER)
-                if marker_index < 0:
-                    safe_length = max(0, len(self._buffer) - len(ASSISTANT_REPLY_END_MARKER) + 1)
-                    if safe_length <= 0:
-                        break
-                    visible_parts.append(self._buffer[:safe_length])
-                    self._buffer = self._buffer[safe_length:]
-                    break
-
-                visible_parts.append(self._buffer[:marker_index])
-                self._buffer = self._buffer[marker_index + len(ASSISTANT_REPLY_END_MARKER):]
-                self._state = "after_reply"
-                continue
-
-            if self._state == "after_reply":
-                marker_index = self._buffer.find(PROGRESS_RESULT_START_MARKER)
-                if marker_index < 0:
-                    self._buffer = self._buffer[-(len(PROGRESS_RESULT_START_MARKER) - 1):]
-                    break
-                self._buffer = self._buffer[marker_index + len(PROGRESS_RESULT_START_MARKER):]
-                self._state = "in_progress"
-                continue
-
-            if self._state == "in_progress":
-                marker_index = self._buffer.find(PROGRESS_RESULT_END_MARKER)
-                if marker_index < 0:
-                    self._buffer = self._buffer[-(len(PROGRESS_RESULT_END_MARKER) - 1):]
-                    break
-                self._buffer = self._buffer[marker_index + len(PROGRESS_RESULT_END_MARKER):]
-                self._state = "done"
-                continue
-
-            self._buffer = ""
-            break
-
-        return "".join(visible_parts)
-
-
-def _strip_optional_code_fence(text: str) -> str:
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.removeprefix("```json").removeprefix("```JSON")
-        cleaned = cleaned.removeprefix("```").removesuffix("```").strip()
-    return cleaned
-
-
-def _extract_assistant_text_for_fallback(raw_text: str) -> str:
-    """
-    在合并输出解析失败时，尽量从原始文本里提取可落库的 assistant 内容。
-    """
-
-    assistant_start = raw_text.find(ASSISTANT_REPLY_START_MARKER)
-    assistant_end = raw_text.find(ASSISTANT_REPLY_END_MARKER)
-    progress_start = raw_text.find(PROGRESS_RESULT_START_MARKER)
-
-    if assistant_start >= 0:
-        start_index = assistant_start + len(ASSISTANT_REPLY_START_MARKER)
-        if assistant_end > assistant_start:
-            return raw_text[start_index:assistant_end].strip()
-        if progress_start > start_index:
-            return raw_text[start_index:progress_start].strip()
-        return raw_text[start_index:].strip()
-
-    if progress_start >= 0:
-        return raw_text[:progress_start].strip()
-
-    cleaned_text = raw_text
-    for marker in (
-        ASSISTANT_REPLY_START_MARKER,
-        ASSISTANT_REPLY_END_MARKER,
-        PROGRESS_RESULT_START_MARKER,
-        PROGRESS_RESULT_END_MARKER,
-    ):
-        cleaned_text = cleaned_text.replace(marker, "")
-    return cleaned_text.strip()
-
-
-def _parse_conversation_with_progress_output(raw_text: str) -> CombinedConversationParseResult:
-    """
-    解析单次模型调用返回的“回复 + 进度 JSON”。
-    """
-
-    assistant_start = raw_text.find(ASSISTANT_REPLY_START_MARKER)
-    if assistant_start < 0:
-        assistant_text = _extract_assistant_text_for_fallback(raw_text)
-        return CombinedConversationParseResult(
-            assistant_text=assistant_text,
-            progress_result=None,
-            raw_progress_text=None,
-            parse_error="未找到 assistant_reply 起始标记",
-        )
-
-    assistant_end = raw_text.find(
-        ASSISTANT_REPLY_END_MARKER,
-        assistant_start + len(ASSISTANT_REPLY_START_MARKER),
-    )
-    if assistant_end < 0:
-        assistant_text = _extract_assistant_text_for_fallback(raw_text)
-        return CombinedConversationParseResult(
-            assistant_text=assistant_text,
-            progress_result=None,
-            raw_progress_text=None,
-            parse_error="未找到 assistant_reply 结束标记",
-        )
-
-    assistant_text = raw_text[
-        assistant_start + len(ASSISTANT_REPLY_START_MARKER):assistant_end
-    ].strip()
-    progress_start = raw_text.find(
-        PROGRESS_RESULT_START_MARKER,
-        assistant_end + len(ASSISTANT_REPLY_END_MARKER),
-    )
-    if progress_start < 0:
-        return CombinedConversationParseResult(
-            assistant_text=assistant_text,
-            progress_result=None,
-            raw_progress_text=None,
-            parse_error="未找到 progress_result 起始标记",
-        )
-
-    progress_end = raw_text.find(
-        PROGRESS_RESULT_END_MARKER,
-        progress_start + len(PROGRESS_RESULT_START_MARKER),
-    )
-    if progress_end < 0:
-        return CombinedConversationParseResult(
-            assistant_text=assistant_text,
-            progress_result=None,
-            raw_progress_text=None,
-            parse_error="未找到 progress_result 结束标记",
-        )
-
-    raw_progress_text = raw_text[
-        progress_start + len(PROGRESS_RESULT_START_MARKER):progress_end
-    ].strip()
-    cleaned_progress_text = _strip_optional_code_fence(raw_progress_text)
-    try:
-        progress_result = json.loads(cleaned_progress_text)
-    except json.JSONDecodeError as exc:
-        return CombinedConversationParseResult(
-            assistant_text=assistant_text,
-            progress_result=None,
-            raw_progress_text=raw_progress_text,
-            parse_error=f"progress_result 不是合法 JSON：{exc}",
-        )
-
-    if not isinstance(progress_result, dict):
-        return CombinedConversationParseResult(
-            assistant_text=assistant_text,
-            progress_result=None,
-            raw_progress_text=raw_progress_text,
-            parse_error="progress_result 必须是 JSON 对象",
-        )
-
-    return CombinedConversationParseResult(
-        assistant_text=assistant_text,
-        progress_result=progress_result,
-        raw_progress_text=raw_progress_text,
-        parse_error=None,
-    )
 
 
 def _get_latest_user_text_from_conversation_context(
@@ -1024,14 +808,14 @@ def regenerate_ai_chat_session_archive_radar(
     }
 
 
-@router.get("/api/v1/ai-chat-draft-experiment/sessions/{session_id}/draft")
-def get_ai_chat_profile_draft_experiment(
+@router.get("/api/v1/ai-chat/sessions/{session_id}/draft")
+def get_ai_chat_profile_draft(
     session_id: str,
     authorization: str | None = Header(default=None, alias="Authorization"),
     db=Depends(get_db),
 ):
     """
-    【草稿建档实验】读取当前 session 的 draft。
+    读取当前 session 的对话草稿。
     """
 
     student_id = _get_current_student_id(authorization)
@@ -1047,7 +831,7 @@ def get_ai_chat_profile_draft_experiment(
     if session is None:
         raise HTTPException(status_code=404, detail="会话不存在")
 
-    return get_ai_chat_profile_draft_experiment_detail(
+    return get_ai_chat_profile_draft_detail(
         db,
         student_id=student_id,
         session_id=session_id,
@@ -1055,14 +839,14 @@ def get_ai_chat_profile_draft_experiment(
     )
 
 
-@router.post("/api/v1/ai-chat-draft-experiment/sessions/{session_id}/draft/sync-from-official")
-def sync_ai_chat_profile_draft_experiment(
+@router.post("/api/v1/ai-chat/sessions/{session_id}/draft/sync-from-official")
+def sync_ai_chat_profile_draft(
     session_id: str,
     authorization: str | None = Header(default=None, alias="Authorization"),
     db=Depends(get_db),
 ):
     """
-    【草稿建档实验】用正式业务表快照覆盖 draft。
+    用正式业务表快照覆盖当前 session 的对话草稿。
     """
 
     student_id = _get_current_student_id(authorization)
@@ -1081,10 +865,10 @@ def sync_ai_chat_profile_draft_experiment(
     if session.current_stage in {"progress_updating", "extraction", "scoring", "profile_saving"}:
         raise HTTPException(
             status_code=409,
-            detail=f"{DRAFT_EXPERIMENT_MARK} 当前会话仍在后台处理中，请等待当前流程完成后再同步 draft。",
+            detail="当前会话仍在后台处理中，请等待当前流程完成后再同步智能建档草稿。",
         )
 
-    return sync_ai_chat_profile_draft_experiment_from_official_snapshot(
+    return sync_ai_chat_profile_draft_from_official_snapshot(
         db,
         student_id=student_id,
         session_id=session_id,
@@ -1093,14 +877,14 @@ def sync_ai_chat_profile_draft_experiment(
     )
 
 
-@router.post("/api/v1/ai-chat-draft-experiment/sessions/{session_id}/draft/extract-latest-patch")
-def extract_ai_chat_profile_draft_experiment_latest_patch(
+@router.post("/api/v1/ai-chat/sessions/{session_id}/draft/extract-latest-patch")
+def extract_ai_chat_profile_draft_latest_patch(
     session_id: str,
     authorization: str | None = Header(default=None, alias="Authorization"),
     db=Depends(get_db),
 ):
     """
-    【草稿建档实验】从最近一轮对话提取 patch，并更新 draft。
+    从最近一轮对话提取 patch，并更新当前 session 的对话草稿。
     """
 
     student_id = _get_current_student_id(authorization)
@@ -1119,11 +903,11 @@ def extract_ai_chat_profile_draft_experiment_latest_patch(
     if session.current_stage in {"progress_updating", "extraction", "scoring", "profile_saving"}:
         raise HTTPException(
             status_code=409,
-            detail=f"{DRAFT_EXPERIMENT_MARK} 当前会话仍在后台处理中，请等待当前流程完成后再提取 draft patch。",
+            detail="当前会话仍在后台处理中，请等待当前流程完成后再提取最新对话 patch。",
         )
 
     try:
-        return extract_latest_patch_into_ai_chat_profile_draft_experiment(
+        return extract_latest_patch_into_ai_chat_profile_draft(
             db,
             student_id=student_id,
             session_id=session_id,
@@ -1134,14 +918,14 @@ def extract_ai_chat_profile_draft_experiment_latest_patch(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/api/v1/ai-chat-draft-experiment/sessions/{session_id}/draft/regenerate-radar")
-def regenerate_ai_chat_profile_draft_experiment_radar(
+@router.post("/api/v1/ai-chat/sessions/{session_id}/draft/regenerate-radar")
+def regenerate_ai_chat_profile_draft_radar(
     session_id: str,
     authorization: str | None = Header(default=None, alias="Authorization"),
     db=Depends(get_db),
 ):
     """
-    【草稿建档实验】基于 draft 直接重算六维图。
+    基于当前 session 的对话草稿直接重算六维图。
     """
 
     student_id = _get_current_student_id(authorization)
@@ -1160,11 +944,11 @@ def regenerate_ai_chat_profile_draft_experiment_radar(
     if session.current_stage in {"progress_updating", "extraction", "scoring", "profile_saving"}:
         raise HTTPException(
             status_code=409,
-            detail=f"{DRAFT_EXPERIMENT_MARK} 当前会话仍在后台处理中，请等待当前流程完成后再重算六维图。",
+            detail="当前会话仍在后台处理中，请等待当前流程完成后再重算六维图。",
         )
 
     try:
-        return regenerate_profile_result_from_ai_chat_profile_draft_experiment(
+        return regenerate_profile_result_from_ai_chat_profile_draft(
             db,
             student_id=student_id,
             session_id=session_id,
@@ -1173,93 +957,16 @@ def regenerate_ai_chat_profile_draft_experiment_radar(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-
-@router.post("/api/v1/ai-chat/sessions/{session_id}/build-profile", status_code=202)
-def build_ai_chat_profile_result(
-    session_id: str,
-    background_tasks: BackgroundTasks,
-    authorization: str | None = Header(default=None, alias="Authorization"),
-    db=Depends(get_db),
-):
-    """
-    显式触发某个会话的最终建档与六维图生成。
-
-    新口径：
-    1. 接口只负责受理后台任务，不同步等待完整结果。
-    2. extraction、scoring、正式业务表入库都放到后台任务里执行。
-    3. 前端通过轮询会话阶段来展示 loading，并在任务结束后再读取最终结果。
-    """
-
-    student_id = _get_current_student_id(authorization)
-    with log_timed_step(
-        logger,
-        flow_name="AI建档",
-        step_name="受理生成六维图请求",
-        student_id=student_id,
-        session_id=session_id,
-    ):
-        try:
-            session = get_session_detail(
-                db,
-                student_id=student_id,
-                session_id=session_id,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-
-        if session is None:
-            raise HTTPException(status_code=404, detail="会话不存在")
-
-        if session.current_stage in {"progress_updating", "extraction", "scoring", "profile_saving"}:
-            raise HTTPException(
-                status_code=409,
-                detail="当前上一轮对话仍在处理中，请等待处理完成后再生成六维图。",
-            )
-
-        latest_progress_result = get_latest_progress_state(
-            db,
-            session_id=session_id,
-        )
-        if not isinstance(latest_progress_result, dict):
-            raise HTTPException(status_code=409, detail="当前还没有可用的建档进度，请先继续对话补充信息。")
-        if latest_progress_result.get("stop_ready") is not True:
-            raise HTTPException(status_code=409, detail="当前信息还不足以生成六维图，请先继续补充关键信息。")
-
-        update_session_stage(
-            db,
-            student_id=student_id,
-            session_id=session_id,
-            current_stage="extraction",
-            remark=None,
-        )
-        background_tasks.add_task(
-            run_manual_profile_generation_background,
-            student_id=student_id,
-            session_id=session_id,
-            biz_domain=session.biz_domain,
-        )
-        log_flow_info(
-            logger,
-            flow_name="AI建档",
-            step_name="受理生成六维图请求",
-            student_id=student_id,
-            session_id=session_id,
-            message="后台任务已创建，进入结构化提取阶段。",
-        )
-
-        return {
-            "session_id": session_id,
-            "task_status": "accepted",
-            "current_stage": "extraction",
-            "message": "六维图正在后台生成中",
-        }
-
 @router.websocket("/ws/ai-chat")
 async def ai_chat_websocket(websocket: WebSocket) -> None:
     """
-    AI 瀵硅瘽 WebSocket 鍏ュ彛銆?
-    褰撳墠鏀寔鐨勬秷鎭被鍨嬶細
-    1. `connect_init`锛氬缓杩炲垵濮嬪寲锛岃礋璐ｉ壌鏉冨拰浼氳瘽缁戝畾銆?    2. `ping`锛氬績璺炽€?    3. `user_message`锛氫繚瀛樼敤鎴峰彂瑷€锛屽苟鍚姩鏈疆 AI 鐢熸垚浠诲姟銆?    4. `cancel_generation`锛氱湡姝ｆ墦鏂綋鍓嶆鍦ㄨ繘琛屼腑鐨勬祦寮忕敓鎴愩€?    5. `continue_generation`锛氬綋鍓嶅厛鏄庣‘杩斿洖涓嶆敮鎸侊紝鍥犱负琚彇娑堢殑涓婃父娴佹棤娉曞師鍦扮画娴併€?    """
+    AI 对话 WebSocket 入口。
+
+    当前正式链路：
+    1. 对话阶段维护 draft
+    2. progress 与 conversation 都优先读取最新 draft
+    3. assistant 回复完成后，会额外抽取一轮 draft patch
+    """
 
     await manager.accept(websocket)
 
@@ -1300,7 +1007,7 @@ async def ai_chat_websocket(websocket: WebSocket) -> None:
                 continue
 
             if envelope.type == "user_message":
-                await _handle_user_message(websocket, envelope, context)
+                await _handle_user_message_draft(websocket, envelope, context)
                 continue
 
             if envelope.type == "cancel_generation":
@@ -1321,83 +1028,6 @@ async def ai_chat_websocket(websocket: WebSocket) -> None:
                 websocket,
                 code="UNSUPPORTED_EVENT_TYPE",
                 message=f"暂不支持的消息类型：{envelope.type}",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-            )
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
-
-
-@router.websocket("/ws/ai-chat-draft-experiment")
-async def ai_chat_draft_experiment_websocket(websocket: WebSocket) -> None:
-    """
-    【草稿建档实验】独立 WebSocket 入口。
-
-    中文注释：
-    1. 旧的 /ws/ai-chat 完全保留，不改现有生产链路。
-    2. 实验链路单独走这条地址，便于前端灰度和后续快速回滚。
-    """
-
-    await manager.accept(websocket)
-
-    try:
-        while True:
-            raw_message = await websocket.receive_json()
-            envelope = _parse_envelope(raw_message)
-            if envelope is None:
-                await _send_error(
-                    websocket,
-                    code="INVALID_MESSAGE",
-                    message=f"{DRAFT_EXPERIMENT_MARK} WebSocket 消息格式不合法",
-                )
-                continue
-
-            if envelope.type == "connect_init":
-                await _handle_connect_init(websocket, envelope)
-                continue
-
-            if envelope.type == "ping":
-                await _send_event(
-                    websocket,
-                    event_type="pong",
-                    request_id=envelope.request_id,
-                    session_id=envelope.session_id,
-                )
-                continue
-
-            context = manager.get(websocket)
-            if context is None:
-                await _send_error(
-                    websocket,
-                    code="CONNECTION_NOT_INITIALIZED",
-                    message=f"{DRAFT_EXPERIMENT_MARK} 请先发送 connect_init 完成连接初始化",
-                    request_id=envelope.request_id,
-                    session_id=envelope.session_id,
-                )
-                continue
-
-            if envelope.type == "user_message":
-                await _handle_user_message_draft_experiment(websocket, envelope, context)
-                continue
-
-            if envelope.type == "cancel_generation":
-                await _handle_cancel_generation(websocket, envelope, context)
-                continue
-
-            if envelope.type == "continue_generation":
-                await _send_error(
-                    websocket,
-                    code="CONTINUE_NOT_SUPPORTED",
-                    message=f"{DRAFT_EXPERIMENT_MARK} 当前版本暂不支持在取消后继续同一轮生成，请重新发送消息发起新一轮对话。",
-                    request_id=envelope.request_id,
-                    session_id=context.session_id,
-                )
-                continue
-
-            await _send_error(
-                websocket,
-                code="UNSUPPORTED_EVENT_TYPE",
-                message=f"{DRAFT_EXPERIMENT_MARK} 暂不支持的消息类型：{envelope.type}",
                 request_id=envelope.request_id,
                 session_id=context.session_id,
             )
@@ -1568,18 +1198,13 @@ async def _handle_user_message(
     task.add_done_callback(lambda finished_task: _on_generation_task_done(websocket, finished_task))
 
 
-async def _handle_user_message_draft_experiment(
+async def _handle_user_message_draft(
     websocket: WebSocket,
     envelope: AiChatWsEnvelope,
     context: AiChatConnectionContext,
 ) -> None:
     """
-    【草稿建档实验】启动一轮 user_message 处理任务。
-
-    中文注释：
-    1. 协议和旧链路保持一致，前端不需要改消息体结构。
-    2. 真正的差异在后台 pipeline：progress 和 conversation 都优先读取 draft，
-       assistant 完成后还会额外抽取一轮 draft patch。
+    启动一轮基于 draft 的 user_message 处理任务。
     """
 
     try:
@@ -1588,7 +1213,7 @@ async def _handle_user_message_draft_experiment(
         await _send_error(
             websocket,
             code="INVALID_USER_MESSAGE",
-            message=f"{DRAFT_EXPERIMENT_MARK} user_message 缺少有效的 content 字段",
+            message="user_message 缺少有效的 content 字段",
             request_id=envelope.request_id,
             session_id=context.session_id,
         )
@@ -1598,7 +1223,7 @@ async def _handle_user_message_draft_experiment(
         await _send_error(
             websocket,
             code="SESSION_ID_MISMATCH",
-            message=f"{DRAFT_EXPERIMENT_MARK} 消息中的 session_id 与当前连接绑定的 session_id 不一致",
+            message="消息中的 session_id 与当前连接绑定的 session_id 不一致",
             request_id=envelope.request_id,
             session_id=context.session_id,
         )
@@ -1608,7 +1233,7 @@ async def _handle_user_message_draft_experiment(
         await _send_error(
             websocket,
             code="GENERATION_IN_PROGRESS",
-            message=f"{DRAFT_EXPERIMENT_MARK} 当前已有一轮生成正在进行中，请等待完成或先取消当前生成",
+            message="当前已有一轮生成正在进行中，请等待完成或先取消当前生成",
             request_id=envelope.request_id,
             session_id=context.session_id,
         )
@@ -1616,7 +1241,7 @@ async def _handle_user_message_draft_experiment(
 
     manager.reset_generation_control(websocket)
     task = asyncio.create_task(
-        _run_user_message_pipeline_draft_experiment(
+        _run_user_message_pipeline_draft(
             websocket=websocket,
             envelope=envelope,
             context=context,
@@ -1659,7 +1284,7 @@ async def _handle_cancel_generation(
     )
 
 
-async def _run_user_message_pipeline(
+async def _run_user_message_pipeline_draft(
     *,
     websocket: WebSocket,
     envelope: AiChatWsEnvelope,
@@ -1667,32 +1292,21 @@ async def _run_user_message_pipeline(
     payload: UserMessagePayload,
 ) -> None:
     """
-    真正执行一轮 user_message 的完整链路。
-
-    当前链路顺序：
-    1. 用户消息落库
-    2. 先执行 progress_extraction，更新本轮最新进度
-    3. 再基于最新 progress 调用 conversation，流式生成 assistant 回复
-    4. assistant 结束后保存回复并回写当前阶段
-
-    中文注释：
-    这里显式停用 conversation_with_progress 的合并链路，恢复为两个独立 prompt：
-    - student_profile_build.progress_extraction
-    - student_profile_build.conversation
+    执行一轮基于 draft 的完整对话链路。
     """
 
     try:
         progress_result: dict[str, Any] = {}
         with log_timed_step(
             logger,
-            flow_name="AI对话",
+            flow_name=PROFILE_DRAFT_FLOW_NAME,
             step_name="整轮用户消息处理",
             student_id=context.student_id,
             session_id=context.session_id,
         ):
             with log_timed_step(
                 logger,
-                flow_name="AI对话",
+                flow_name=PROFILE_DRAFT_FLOW_NAME,
                 step_name="保存用户消息",
                 student_id=context.student_id,
                 session_id=context.session_id,
@@ -1729,13 +1343,13 @@ async def _run_user_message_pipeline(
 
         with log_timed_step(
             logger,
-            flow_name="AI对话",
+            flow_name=PROFILE_DRAFT_FLOW_NAME,
             step_name="执行进度提取",
             student_id=context.student_id,
             session_id=context.session_id,
         ):
             progress_result = await asyncio.to_thread(
-                _run_progress_update_pipeline_sync,
+                    _run_progress_update_pipeline_draft_sync,
                 context.student_id,
                 context.session_id,
                 context.biz_domain,
@@ -1767,21 +1381,22 @@ async def _run_user_message_pipeline(
 
         with log_timed_step(
             logger,
-            flow_name="AI对话",
+            flow_name=PROFILE_DRAFT_FLOW_NAME,
             step_name="构建回复上下文",
             student_id=context.student_id,
             session_id=context.session_id,
         ):
             conversation_context = await asyncio.to_thread(
-                _load_conversation_context_sync,
+                    _load_draft_conversation_context_sync,
                 context.student_id,
                 context.session_id,
+                context.biz_domain,
                 progress_result,
             )
 
         with log_timed_step(
             logger,
-            flow_name="AI对话",
+            flow_name=PROFILE_DRAFT_FLOW_NAME,
             step_name="打开回复流式连接",
             student_id=context.student_id,
             session_id=context.session_id,
@@ -1794,7 +1409,7 @@ async def _run_user_message_pipeline(
 
         with log_timed_step(
             logger,
-            flow_name="AI对话",
+            flow_name=PROFILE_DRAFT_FLOW_NAME,
             step_name="流式生成助手回复",
             student_id=context.student_id,
             session_id=context.session_id,
@@ -1835,273 +1450,7 @@ async def _run_user_message_pipeline(
 
         with log_timed_step(
             logger,
-            flow_name="AI对话",
-            step_name="保存助手回复",
-            student_id=context.student_id,
-            session_id=context.session_id,
-        ):
-            assistant_message_result = await asyncio.to_thread(
-                _persist_assistant_message_sync,
-                context.student_id,
-                context.session_id,
-                assistant_content,
-                user_message_result.message_id,
-            )
-
-        await _send_event(
-            websocket,
-            event_type="assistant_done",
-            request_id=envelope.request_id,
-            session_id=context.session_id,
-            payload={
-                "message_id": assistant_message_result.message_id,
-                "sequence_no": assistant_message_result.sequence_no,
-                "content": assistant_content,
-                "current_round": assistant_message_result.current_round,
-            },
-        )
-
-        # 中文注释：
-        # 这里仍然要在发出“可继续输入”的阶段事件前，先释放本轮 generation 运行态，
-        # 否则前端刚收到 ready_for_input 就立刻发下一条消息时，会被后端误判成“当前仍有生成在进行中”。
-        manager.clear_generation_runtime(websocket)
-
-        next_stage = "build_ready" if progress_result.get("stop_ready") else "conversation"
-        log_flow_info(
-            logger,
-            flow_name="AI对话",
-            step_name="整轮用户消息处理",
-            student_id=context.student_id,
-            session_id=context.session_id,
-            message=f"本轮处理完成，下一阶段：{next_stage}",
-        )
-        await _send_event(
-            websocket,
-            event_type="stage_changed",
-            request_id=envelope.request_id,
-            session_id=context.session_id,
-            payload={
-                "current_stage": next_stage,
-                "conversation_phase": None if next_stage == "build_ready" else "ready_for_input",
-            },
-        )
-    except asyncio.CancelledError:
-        raise
-    except (ValueError, PromptRuntimeError) as exc:
-        logger.exception(
-            "%s 对话链路失败：%s",
-            build_flow_prefix(
-                flow_name="AI对话",
-                step_name="整轮用户消息处理",
-                student_id=context.student_id,
-                session_id=context.session_id,
-            ),
-            exc,
-        )
-        await _send_error(
-            websocket,
-            code="CHAT_PIPELINE_FAILED",
-            message=str(exc),
-            request_id=envelope.request_id,
-            session_id=context.session_id,
-        )
-    except Exception as exc:
-        logger.exception(
-            "%s 对话链路出现未预期异常：%s",
-            build_flow_prefix(
-                flow_name="AI对话",
-                step_name="整轮用户消息处理",
-                student_id=context.student_id,
-                session_id=context.session_id,
-            ),
-            exc,
-        )
-        await _send_error(
-            websocket,
-            code="CHAT_PIPELINE_UNEXPECTED_ERROR",
-            message=str(exc),
-            request_id=envelope.request_id,
-            session_id=context.session_id,
-        )
-
-
-async def _run_user_message_pipeline_draft_experiment(
-    *,
-    websocket: WebSocket,
-    envelope: AiChatWsEnvelope,
-    context: AiChatConnectionContext,
-    payload: UserMessagePayload,
-) -> None:
-    """
-    【草稿建档实验】真正执行一轮 user_message 的完整链路。
-
-    当前实验链路顺序：
-    1. 用户消息落库
-    2. progress_extraction 在 draft 视角下更新进度
-    3. conversation 在 draft 视角下生成 assistant 回复
-    4. assistant 结束后抽取 latest patch 并 merge 到 draft
-
-    中文注释：
-    1. 旧链路完全保留，这里只在实验 WebSocket 路径下运行。
-    2. 如果 draft patch 提取失败，不回滚本轮用户消息和 assistant 消息，只把错误显式抛给前端。
-    """
-
-    try:
-        progress_result: dict[str, Any] = {}
-        with log_timed_step(
-            logger,
-            flow_name="草稿建档实验",
-            step_name="整轮用户消息处理",
-            student_id=context.student_id,
-            session_id=context.session_id,
-        ):
-            with log_timed_step(
-                logger,
-                flow_name="草稿建档实验",
-                step_name="保存用户消息",
-                student_id=context.student_id,
-                session_id=context.session_id,
-            ):
-                user_message_result = await asyncio.to_thread(
-                    _persist_user_message_sync,
-                    context.student_id,
-                    context.session_id,
-                    payload.content,
-                )
-
-            await _send_event(
-                websocket,
-                event_type="user_message_saved",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-                payload={
-                    "message_id": user_message_result.message_id,
-                    "sequence_no": user_message_result.sequence_no,
-                    "current_round": user_message_result.current_round,
-                    "last_message_at": user_message_result.last_message_at.isoformat(),
-                },
-            )
-
-        await _send_event(
-            websocket,
-            event_type="stage_changed",
-            request_id=envelope.request_id,
-            session_id=context.session_id,
-            payload={
-                "current_stage": "progress_updating",
-            },
-        )
-
-        with log_timed_step(
-            logger,
-            flow_name="草稿建档实验",
-            step_name="执行进度提取",
-            student_id=context.student_id,
-            session_id=context.session_id,
-        ):
-            progress_result = await asyncio.to_thread(
-                _run_progress_update_pipeline_draft_experiment_sync,
-                context.student_id,
-                context.session_id,
-                context.biz_domain,
-            )
-
-        await _send_event(
-            websocket,
-            event_type="progress_updated",
-            request_id=envelope.request_id,
-            session_id=context.session_id,
-            payload={
-                "missing_dimensions": progress_result.get("missing_dimensions", []),
-                "next_question_focus": progress_result.get("next_question_focus"),
-                "stop_ready": progress_result.get("stop_ready", False),
-                "dimension_progress": progress_result.get("dimension_progress", {}),
-            },
-        )
-
-        await _send_event(
-            websocket,
-            event_type="stage_changed",
-            request_id=envelope.request_id,
-            session_id=context.session_id,
-            payload={
-                "current_stage": "conversation",
-                "conversation_phase": "generating_assistant",
-            },
-        )
-
-        with log_timed_step(
-            logger,
-            flow_name="草稿建档实验",
-            step_name="构建回复上下文",
-            student_id=context.student_id,
-            session_id=context.session_id,
-        ):
-            conversation_context = await asyncio.to_thread(
-                _load_draft_experiment_conversation_context_sync,
-                context.student_id,
-                context.session_id,
-                context.biz_domain,
-                progress_result,
-            )
-
-        with log_timed_step(
-            logger,
-            flow_name="草稿建档实验",
-            step_name="打开回复流式连接",
-            student_id=context.student_id,
-            session_id=context.session_id,
-        ):
-            stream_session = await asyncio.to_thread(
-                _open_conversation_stream_session_sync,
-                conversation_context,
-            )
-        manager.set_stream_close_callback(websocket, stream_session.close)
-
-        with log_timed_step(
-            logger,
-            flow_name="草稿建档实验",
-            step_name="流式生成助手回复",
-            student_id=context.student_id,
-            session_id=context.session_id,
-        ):
-            cancelled, assistant_content = await _stream_assistant_tokens(
-                websocket=websocket,
-                envelope=envelope,
-                context=context,
-                stream_session=stream_session,
-            )
-        manager.set_stream_close_callback(websocket, None)
-
-        if cancelled:
-            manager.clear_generation_runtime(websocket)
-            await _send_event(
-                websocket,
-                event_type="generation_cancelled",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-                payload={
-                    "discarded_partial_reply": bool(assistant_content),
-                },
-            )
-            await _send_event(
-                websocket,
-                event_type="stage_changed",
-                request_id=envelope.request_id,
-                session_id=context.session_id,
-                payload={
-                    "current_stage": "build_ready" if progress_result.get("stop_ready") else "conversation",
-                    "conversation_phase": None if progress_result.get("stop_ready") else "ready_for_input",
-                },
-            )
-            return
-
-        if not assistant_content:
-            raise ValueError(f"{DRAFT_EXPERIMENT_MARK} conversation 未能产出可保存的助手回复。")
-
-        with log_timed_step(
-            logger,
-            flow_name="草稿建档实验",
+            flow_name=PROFILE_DRAFT_FLOW_NAME,
             step_name="保存助手回复",
             student_id=context.student_id,
             session_id=context.session_id,
@@ -2131,13 +1480,13 @@ async def _run_user_message_pipeline_draft_experiment(
         try:
             with log_timed_step(
                 logger,
-                flow_name="草稿建档实验",
+                flow_name=PROFILE_DRAFT_FLOW_NAME,
                 step_name="提取并合并 draft patch",
                 student_id=context.student_id,
                 session_id=context.session_id,
             ):
                 draft_detail = await asyncio.to_thread(
-                    _extract_latest_patch_into_ai_chat_profile_draft_experiment_sync,
+                    _extract_latest_patch_into_ai_chat_profile_draft_sync,
                     context.student_id,
                     context.session_id,
                     context.biz_domain,
@@ -2145,11 +1494,10 @@ async def _run_user_message_pipeline_draft_experiment(
                 )
             await _send_event(
                 websocket,
-                event_type="draft_experiment_updated",
+                event_type="draft_updated",
                 request_id=envelope.request_id,
                 session_id=context.session_id,
                 payload={
-                    "experiment_tag": DRAFT_EXPERIMENT_MARK,
                     "version_no": draft_detail.get("version_no"),
                     "source_round": draft_detail.get("source_round"),
                 },
@@ -2159,7 +1507,7 @@ async def _run_user_message_pipeline_draft_experiment(
             logger.exception(
                 "%s draft patch 提取失败：%s",
                 build_flow_prefix(
-                    flow_name="草稿建档实验",
+                    flow_name=PROFILE_DRAFT_FLOW_NAME,
                     step_name="提取并合并 draft patch",
                     student_id=context.student_id,
                     session_id=context.session_id,
@@ -2184,8 +1532,8 @@ async def _run_user_message_pipeline_draft_experiment(
         if draft_patch_error_message:
             await _send_error(
                 websocket,
-                code="DRAFT_PATCH_EXPERIMENT_FAILED",
-                message=f"{DRAFT_EXPERIMENT_MARK} 本轮回复已保存，但 draft patch 提取失败：{draft_patch_error_message}",
+                code="DRAFT_PATCH_FAILED",
+                message=f"本轮回复已保存，但对话草稿 patch 提取失败：{draft_patch_error_message}",
                 request_id=envelope.request_id,
                 session_id=context.session_id,
             )
@@ -2195,7 +1543,7 @@ async def _run_user_message_pipeline_draft_experiment(
         logger.exception(
             "%s 对话链路失败：%s",
             build_flow_prefix(
-                flow_name="草稿建档实验",
+                flow_name=PROFILE_DRAFT_FLOW_NAME,
                 step_name="整轮用户消息处理",
                 student_id=context.student_id,
                 session_id=context.session_id,
@@ -2204,7 +1552,7 @@ async def _run_user_message_pipeline_draft_experiment(
         )
         await _send_error(
             websocket,
-            code="DRAFT_EXPERIMENT_CHAT_PIPELINE_FAILED",
+            code="CHAT_PIPELINE_FAILED",
             message=str(exc),
             request_id=envelope.request_id,
             session_id=context.session_id,
@@ -2213,7 +1561,7 @@ async def _run_user_message_pipeline_draft_experiment(
         logger.exception(
             "%s 对话链路出现未预期异常：%s",
             build_flow_prefix(
-                flow_name="草稿建档实验",
+                flow_name=PROFILE_DRAFT_FLOW_NAME,
                 step_name="整轮用户消息处理",
                 student_id=context.student_id,
                 session_id=context.session_id,
@@ -2222,7 +1570,7 @@ async def _run_user_message_pipeline_draft_experiment(
         )
         await _send_error(
             websocket,
-            code="DRAFT_EXPERIMENT_CHAT_PIPELINE_UNEXPECTED_ERROR",
+            code="CHAT_PIPELINE_UNEXPECTED_ERROR",
             message=str(exc),
             request_id=envelope.request_id,
             session_id=context.session_id,
@@ -2303,91 +1651,6 @@ async def _stream_assistant_tokens(
         )
 
 
-async def _stream_conversation_with_progress_tokens(
-    *,
-    websocket: WebSocket,
-    envelope: AiChatWsEnvelope,
-    context: AiChatConnectionContext,
-    stream_session: PromptStreamSession,
-) -> tuple[bool, str, str]:
-    """
-    流式读取 conversation_with_progress 的输出。
-
-    返回值：
-    1. 是否被用户主动取消
-    2. 模型完整原始输出
-    3. 已经成功抽取并推送给前端的 assistant 文本
-    """
-
-    raw_output_text = ""
-    assistant_text = ""
-    chunk_count = 0
-    first_token_logged = False
-    stream_started_at = perf_counter()
-    parser = CombinedConversationStreamParser()
-
-    while True:
-        if manager.is_cancel_requested(websocket):
-            stream_session.close()
-            return True, raw_output_text, assistant_text
-
-        stream_step = await asyncio.to_thread(
-            _read_next_stream_chunk_sync,
-            stream_session.iterator,
-        )
-        if stream_step["done"]:
-            error = stream_step["error"]
-            if manager.is_cancel_requested(websocket):
-                return True, raw_output_text, assistant_text
-            if error is not None:
-                raise PromptRuntimeError(f"流式生成中断：{error}") from error
-            log_flow_info(
-                logger,
-                flow_name="AI对话",
-                step_name="流式生成回复与进度",
-                student_id=context.student_id,
-                session_id=context.session_id,
-                message=f"流式回复结束，共返回 {chunk_count} 个分片，总耗时 {(perf_counter() - stream_started_at) * 1000:.2f} ms",
-            )
-            return False, raw_output_text, assistant_text
-
-        chunk = stream_step["chunk"]
-        if not isinstance(chunk, PromptStreamChunk):
-            continue
-
-        if manager.is_cancel_requested(websocket):
-            stream_session.close()
-            return True, raw_output_text, assistant_text
-
-        raw_output_text = chunk.accumulated_text
-        chunk_count += 1
-        visible_delta = parser.feed(chunk.delta_text)
-        if not visible_delta:
-            continue
-
-        assistant_text += visible_delta
-        if not first_token_logged:
-            first_token_logged = True
-            log_flow_info(
-                logger,
-                flow_name="AI对话",
-                step_name="流式生成回复与进度",
-                student_id=context.student_id,
-                session_id=context.session_id,
-                message=f"已收到首个可展示回复分片，首字耗时 {(perf_counter() - stream_started_at) * 1000:.2f} ms",
-            )
-        await _send_event(
-            websocket,
-            event_type="assistant_token",
-            request_id=envelope.request_id,
-            session_id=context.session_id,
-            payload={
-                "delta_text": visible_delta,
-                "accumulated_text": assistant_text,
-            },
-        )
-
-
 def _on_generation_task_done(websocket: WebSocket, task: asyncio.Task[Any]) -> None:
     """
     鍚庡彴鐢熸垚浠诲姟缁撴潫鍚庣殑缁熶竴娓呯悊鍥炶皟銆?
@@ -2419,38 +1682,19 @@ def _persist_user_message_sync(student_id: str, session_id: str, content: str):
         db.close()
 
 
-def _load_conversation_context_sync(
-    student_id: str,
-    session_id: str,
-    current_progress_json: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """在线程中加载 conversation_prompt 所需上下文。"""
-
-    db = SessionLocal()
-    try:
-        return build_conversation_context(
-            db,
-            student_id=student_id,
-            session_id=session_id,
-            current_progress_json=current_progress_json,
-        )
-    finally:
-        db.close()
-
-
-def _load_draft_experiment_conversation_context_sync(
+def _load_draft_conversation_context_sync(
     student_id: str,
     session_id: str,
     biz_domain: str,
     current_progress_json: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    【草稿建档实验】在线程中加载 conversation_prompt 所需上下文。
+    在线程中加载 conversation_prompt 所需的 draft 对话上下文。
 
     中文注释：
     1. 旧链路里的 conversation 上下文会把正式业务表快照并入 prompt。
-    2. 实验链路里要求“继续对话优先读最新 draft”，所以这里显式把 archive 快照替换成 draft。
-    3. 旧函数保持不动，实验链路单独走这份上下文装配。
+    2. 当前正式链路要求“继续对话优先读最新 draft”，所以这里显式把 archive 快照替换成 draft。
+    3. 旧的正式档案上下文函数保持不动，这里单独走 draft 上下文装配。
     """
 
     db = SessionLocal()
@@ -2461,7 +1705,7 @@ def _load_draft_experiment_conversation_context_sync(
             session_id=session_id,
             current_progress_json=current_progress_json,
         )
-        draft_detail = get_ai_chat_profile_draft_experiment_detail(
+        draft_detail = get_ai_chat_profile_draft_detail(
             db,
             student_id=student_id,
             session_id=session_id,
@@ -2482,13 +1726,13 @@ def _load_draft_experiment_conversation_context_sync(
         db.close()
 
 
-def _run_progress_update_pipeline_draft_experiment_sync(
+def _run_progress_update_pipeline_draft_sync(
     student_id: str,
     session_id: str,
     biz_domain: str,
 ):
     """
-    【草稿建档实验】在线程中执行 progress_extraction，并让 prompt 读取 draft 快照。
+    在线程中执行 progress_extraction，并让 prompt 读取最新 draft 快照。
 
     中文注释：
     1. 这条实验链故意不复用 run_progress_update_pipeline 的最终上下文，
@@ -2503,7 +1747,7 @@ def _run_progress_update_pipeline_draft_experiment_sync(
             student_id=student_id,
             session_id=session_id,
         )
-        draft_detail = get_ai_chat_profile_draft_experiment_detail(
+        draft_detail = get_ai_chat_profile_draft_detail(
             db,
             student_id=student_id,
             session_id=session_id,
@@ -2526,7 +1770,7 @@ def _run_progress_update_pipeline_draft_experiment_sync(
         )
         progress_json = _parse_json_object(
             raw_text=progress_runtime_result.content,
-            scene_name="draft_experiment_progress_extraction",
+            scene_name="draft_progress_extraction",
         )
         return persist_progress_result(
             db,
@@ -2539,17 +1783,17 @@ def _run_progress_update_pipeline_draft_experiment_sync(
         db.close()
 
 
-def _extract_latest_patch_into_ai_chat_profile_draft_experiment_sync(
+def _extract_latest_patch_into_ai_chat_profile_draft_sync(
     student_id: str,
     session_id: str,
     biz_domain: str,
     source_round: int,
 ):
-    """【草稿建档实验】在线程中把最近一轮对话 merge 到 draft。"""
+    """在线程中把最近一轮对话 patch 并入 draft。"""
 
     db = SessionLocal()
     try:
-        return extract_latest_patch_into_ai_chat_profile_draft_experiment(
+        return extract_latest_patch_into_ai_chat_profile_draft(
             db,
             student_id=student_id,
             session_id=session_id,
@@ -2579,17 +1823,6 @@ def _open_conversation_stream_session_sync(context: dict[str, Any]) -> PromptStr
 
     return _open_stream_session_sync(
         CONVERSATION_PROMPT_KEY,
-        context,
-    )
-
-
-def _open_conversation_with_progress_stream_session_sync(
-    context: dict[str, Any],
-) -> PromptStreamSession:
-    """在线程中打开 conversation_with_progress 的上游流式会话。"""
-
-    return _open_stream_session_sync(
-        CONVERSATION_WITH_PROGRESS_PROMPT_KEY,
         context,
     )
 
@@ -2657,32 +1890,6 @@ def _persist_progress_result_sync(
             session_id=session_id,
             progress_result=progress_result,
             progress_context=progress_context,
-        )
-    finally:
-        db.close()
-
-
-def _run_progress_update_pipeline_sync(
-    student_id: str,
-    session_id: str,
-    biz_domain: str,
-):
-    """
-    在线程中执行旧版 progress_extraction 链路。
-
-    中文注释：
-    1. 正常情况下，conversation_with_progress 会在单次调用里直接返回 progress JSON。
-    2. 如果合并输出解析失败，或语义校验发现 progress_result 明显不可信，
-       都会回退到这里单独跑旧版 progress_extraction。
-    """
-
-    db = SessionLocal()
-    try:
-        return run_progress_update_pipeline(
-            db,
-            student_id=student_id,
-            session_id=session_id,
-            biz_domain=biz_domain,
         )
     finally:
         db.close()

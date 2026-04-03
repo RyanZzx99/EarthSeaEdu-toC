@@ -14,6 +14,7 @@
 """
 
 # 导入可选类型
+from typing import Any
 from typing import Optional
 from datetime import datetime
 
@@ -625,57 +626,74 @@ class UserProfileResponse(BaseModel):
 
 
 class CreateNicknameRuleGroupRequest(BaseModel):
-    """
-    创建昵称规则分组请求体。
-    """
+    """????????????"""
 
-    group_code: str = Field(..., min_length=1, max_length=50, description="分组编码")
-    group_name: str = Field(..., min_length=1, max_length=100, description="分组名称")
-    group_type: str = Field(..., min_length=1, max_length=20, description="分组类型")
-    scope: str = Field(default="nickname", min_length=1, max_length=20, description="作用范围")
-    status: str = Field(default="draft", min_length=1, max_length=20, description="状态")
-    priority: int = Field(default=100, ge=1, le=10000, description="优先级")
-    description: Optional[str] = Field(default=None, max_length=255, description="说明")
+    group_code: str = Field(..., min_length=1, max_length=50, description="????")
+    group_name: str = Field(..., min_length=1, max_length=100, description="????")
+    group_type: str = Field(..., min_length=1, max_length=20, description="????")
+    scope: str = Field(default="nickname", min_length=1, max_length=20, description="????")
+    status: str = Field(default="draft", min_length=1, max_length=20, description="??")
+    priority: int = Field(default=100, ge=1, le=10000, description="???")
+    description: Optional[str] = Field(default=None, max_length=255, description="??")
 
 
 class CreateNicknameWordRuleRequest(BaseModel):
-    """
-    创建昵称词条规则请求体。
-    """
+    """????????????"""
 
-    group_id: int = Field(..., ge=1, description="规则分组ID")
-    word: str = Field(..., min_length=1, max_length=100, description="原始词条")
-    match_type: str = Field(default="contains", min_length=1, max_length=20, description="匹配方式")
-    decision: str = Field(default="reject", min_length=1, max_length=20, description="命中决策")
-    status: str = Field(default="draft", min_length=1, max_length=20, description="状态")
-    priority: int = Field(default=100, ge=1, le=10000, description="优先级")
-    risk_level: str = Field(default="medium", min_length=1, max_length=20, description="风险等级")
-    source: str = Field(default="manual", min_length=1, max_length=20, description="来源")
-    note: Optional[str] = Field(default=None, max_length=255, description="备注")
+    group_id: int = Field(..., ge=1, description="????ID")
+    word: str = Field(..., min_length=1, max_length=100, description="????")
+    match_type: str = Field(default="contains", min_length=1, max_length=20, description="????")
+    decision: str = Field(default="reject", min_length=1, max_length=20, description="????")
+    status: str = Field(default="draft", min_length=1, max_length=20, description="??")
+    priority: int = Field(default=100, ge=1, le=10000, description="???")
+    risk_level: str = Field(default="medium", min_length=1, max_length=20, description="????")
+    source: str = Field(default="manual", min_length=1, max_length=20, description="??")
+    note: Optional[str] = Field(default=None, max_length=255, description="??")
 
 
 class CreateNicknameContactPatternRequest(BaseModel):
-    """
-    创建昵称联系方式规则请求体。
-    """
+    """??????????????"""
 
-    group_id: Optional[int] = Field(default=None, ge=1, description="规则分组ID")
-    pattern_name: str = Field(..., min_length=1, max_length=100, description="规则名称")
-    pattern_type: str = Field(..., min_length=1, max_length=20, description="规则类型")
-    pattern_regex: str = Field(..., min_length=1, max_length=500, description="正则表达式")
-    decision: str = Field(default="reject", min_length=1, max_length=20, description="命中决策")
-    status: str = Field(default="draft", min_length=1, max_length=20, description="状态")
-    priority: int = Field(default=100, ge=1, le=10000, description="优先级")
-    risk_level: str = Field(default="high", min_length=1, max_length=20, description="风险等级")
-    normalized_hint: Optional[str] = Field(default=None, max_length=255, description="归一化说明")
-    note: Optional[str] = Field(default=None, max_length=255, description="备注")
+    group_id: Optional[int] = Field(default=None, ge=1, description="????ID")
+    pattern_name: str = Field(..., min_length=1, max_length=100, description="????")
+    pattern_type: str = Field(..., min_length=1, max_length=20, description="????")
+    pattern_regex: str = Field(..., min_length=1, max_length=500, description="?????")
+    decision: str = Field(default="reject", min_length=1, max_length=20, description="????")
+    status: str = Field(default="draft", min_length=1, max_length=20, description="??")
+    priority: int = Field(default=100, ge=1, le=10000, description="???")
+    risk_level: str = Field(default="high", min_length=1, max_length=20, description="????")
+    normalized_hint: Optional[str] = Field(default=None, max_length=255, description="?????")
+    note: Optional[str] = Field(default=None, max_length=255, description="??")
 
 
 class UpdateNicknameRuleTargetStatusRequest(BaseModel):
-    """
-    更新昵称规则目标状态请求体。
-    """
+    """??????????????"""
 
-    target_type: str = Field(..., min_length=1, max_length=20, description="对象类型：group/word/pattern")
-    target_id: int = Field(..., ge=1, description="对象ID")
-    status: str = Field(..., min_length=1, max_length=20, description="目标状态")
+    target_type: str = Field(..., min_length=1, max_length=20, description="????")
+    target_id: int = Field(..., ge=1, description="??ID")
+    status: str = Field(..., min_length=1, max_length=20, description="????")
+
+
+class UpdateAiPromptConfigRequest(BaseModel):
+    """????? AI Prompt ??????"""
+
+    prompt_name: str = Field(..., min_length=1, max_length=200, description="Prompt ????")
+    prompt_content: str = Field(..., min_length=1, description="Prompt ??")
+    prompt_version: str = Field(..., min_length=1, max_length=50, description="Prompt ???")
+    status: str = Field(..., min_length=1, max_length=20, description="Prompt ??")
+    output_format: str = Field(..., min_length=1, max_length=30, description="????")
+    model_name: Optional[str] = Field(default=None, max_length=100, description="????")
+    temperature: Optional[float] = Field(default=None, description="????")
+    top_p: Optional[float] = Field(default=None, description="Top-p ??")
+    max_tokens: Optional[int] = Field(default=None, ge=1, description="???? Token ?")
+    variables_json: Optional[Any] = Field(default=None, description="Prompt ???? JSON")
+    remark: Optional[str] = Field(default=None, max_length=500, description="??")
+
+
+class UpdateAiRuntimeConfigRequest(BaseModel):
+    """????? AI ?????????"""
+
+    config_value: Optional[str] = Field(default=None, description="????????????????")
+    status: str = Field(default="active", min_length=1, max_length=20, description="????")
+    remark: Optional[str] = Field(default=None, max_length=500, description="??")
+    clear_override: bool = Field(default=False, description="????????????? .env")

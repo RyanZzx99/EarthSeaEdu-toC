@@ -1,19 +1,19 @@
-"""
-AI 六维建档相关 ORM 模型定义。
+﻿"""
+AI 鍏淮寤烘。鐩稿叧 ORM 妯″瀷瀹氫箟銆?
 
-设计说明：
-1. 这一组模型对应 AI 会话链路新增的 4 张表：
+璁捐璇存槑锛?
+1. 杩欎竴缁勬ā鍨嬪搴?AI 浼氳瘽閾捐矾鏂板鐨?4 寮犺〃锛?
    - ai_prompt_configs
    - ai_chat_sessions
    - ai_chat_messages
    - ai_chat_profile_results
-2. 这些模型的职责不是直接承载“学生正式档案”，而是承载：
-   - Prompt 配置
-   - AI 对话过程
-   - AI 最终结构化结果
-   - 结果入库前后的审计信息
-3. student_id 统一直接复用 users.id，因此类型统一为 CHAR(36) 的 UUID 字符串。
-4. 当前项目仍使用 Base.metadata.create_all 启动建表，因此需要把模型注册到 backend.models.__init__ 中。
+2. 杩欎簺妯″瀷鐨勮亴璐ｄ笉鏄洿鎺ユ壙杞解€滃鐢熸寮忔。妗堚€濓紝鑰屾槸鎵胯浇锛?
+   - Prompt 閰嶇疆
+   - AI 瀵硅瘽杩囩▼
+   - AI 鏈€缁堢粨鏋勫寲缁撴灉
+   - 缁撴灉鍏ュ簱鍓嶅悗鐨勫璁′俊鎭?
+3. student_id 缁熶竴鐩存帴澶嶇敤 users.id锛屽洜姝ょ被鍨嬬粺涓€涓?CHAR(36) 鐨?UUID 瀛楃涓层€?
+4. 褰撳墠椤圭洰浠嶄娇鐢?Base.metadata.create_all 鍚姩寤鸿〃锛屽洜姝ら渶瑕佹妸妯″瀷娉ㄥ唽鍒?backend.models.__init__ 涓€?
 """
 
 from __future__ import annotations
@@ -37,12 +37,12 @@ from backend.config.db_conf import Base
 
 class AiPromptConfig(Base):
     """
-    AI Prompt 配置表。
+    AI Prompt 閰嶇疆琛ㄣ€?
 
-    作用：
-    1. 统一存储不同业务阶段使用的 Prompt 文本。
-    2. 支持版本管理、启停控制、模型参数配置。
-    3. 后续服务端在真正调用模型前，可根据 prompt_key / prompt_stage 读取当前 active 版本。
+    浣滅敤锛?
+    1. 缁熶竴瀛樺偍涓嶅悓涓氬姟闃舵浣跨敤鐨?Prompt 鏂囨湰銆?
+    2. 鏀寔鐗堟湰绠＄悊銆佸惎鍋滄帶鍒躲€佹ā鍨嬪弬鏁伴厤缃€?
+    3. 鍚庣画鏈嶅姟绔湪鐪熸璋冪敤妯″瀷鍓嶏紝鍙牴鎹?prompt_key / prompt_stage 璇诲彇褰撳墠 active 鐗堟湰銆?
     """
 
     __tablename__ = "ai_prompt_configs"
@@ -51,38 +51,38 @@ class AiPromptConfig(Base):
         BigInteger,
         primary_key=True,
         autoincrement=True,
-        comment="主键ID；表内唯一标识",
+        comment="涓婚敭ID锛涜〃鍐呭敮涓€鏍囪瘑",
     )
     prompt_key: Mapped[str] = mapped_column(
         String(150),
         nullable=False,
-        comment="Prompt 唯一业务键；建议使用 业务域.阶段 的命名方式",
+        comment="Prompt 唯一业务键",
     )
     prompt_name: Mapped[str] = mapped_column(
         String(200),
         nullable=False,
-        comment="Prompt 展示名称；主要给后台管理页使用",
+        comment="Prompt 显示名称",
     )
     biz_domain: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
-        comment="业务域；当前主要是 student_profile_build",
+        comment="涓氬姟鍩燂紱褰撳墠涓昏鏄?student_profile_build",
     )
     prompt_role: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
         default="system",
-        comment="Prompt 角色类型；常见值为 system / developer / user_template",
+        comment="Prompt 瑙掕壊绫诲瀷锛涘父瑙佸€间负 system / developer / user_template",
     )
     prompt_stage: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        comment="Prompt 所处阶段；例如 conversation / extraction / scoring",
+        comment="Prompt 鎵€澶勯樁娈碉紱渚嬪 conversation / extraction / scoring",
     )
     prompt_content: Mapped[str] = mapped_column(
         Text,
         nullable=False,
-        comment="Prompt 正文内容",
+        comment="Prompt 姝ｆ枃鍐呭",
     )
     prompt_version: Mapped[str] = mapped_column(
         String(50),
@@ -93,41 +93,41 @@ class AiPromptConfig(Base):
         String(20),
         nullable=False,
         default="draft",
-        comment="Prompt 状态；常见值为 draft / active / disabled / archived",
+        comment="Prompt 鐘舵€侊紱甯歌鍊间负 draft / active / disabled / archived",
     )
     model_name: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
-        comment="建议使用的模型名称；允许为空表示走系统默认模型",
+        comment="建议使用的模型名称，可为空",
     )
     temperature: Mapped[float | None] = mapped_column(
         nullable=True,
-        comment="采样温度；控制输出稳定性与发散度",
+        comment="采样温度",
     )
     top_p: Mapped[float | None] = mapped_column(
         nullable=True,
-        comment="Top-p 采样参数",
+        comment="Top-p 閲囨牱鍙傛暟",
     )
     max_tokens: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
-        comment="单次调用最大输出 Token 限制",
+        comment="鍗曟璋冪敤鏈€澶ц緭鍑?Token 闄愬埗",
     )
     output_format: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
         default="text",
-        comment="期望输出格式；例如 text / json",
+        comment="鏈熸湜杈撳嚭鏍煎紡锛涗緥濡?text / json",
     )
     variables_json: Mapped[dict | list | None] = mapped_column(
         JSON,
         nullable=True,
-        comment="Prompt 渲染所需的上下文字段清单",
+        comment="Prompt 娓叉煋鎵€闇€鐨勪笂涓嬫枃瀛楁娓呭崟",
     )
     remark: Mapped[str | None] = mapped_column(
         String(500),
         nullable=True,
-        comment="备注；用于记录版本说明、适用范围等",
+        comment="备注",
     )
     created_by: Mapped[str | None] = mapped_column(
         String(64),
@@ -137,37 +137,135 @@ class AiPromptConfig(Base):
     updated_by: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
-        comment="最后更新人",
+        comment="鏈€鍚庢洿鏂颁汉",
     )
     create_time: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         default=datetime.utcnow,
-        comment="创建时间",
+        comment="鍒涘缓鏃堕棿",
     )
     update_time: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
-        comment="更新时间",
+        comment="鏇存柊鏃堕棿",
     )
     delete_flag: Mapped[str] = mapped_column(
         CHAR(1),
         nullable=False,
         default="1",
-        comment="逻辑删除标记；1=有效，0=逻辑删除",
+        comment="閫昏緫鍒犻櫎鏍囪锛?=鏈夋晥锛?=閫昏緫鍒犻櫎",
+    )
+
+
+class AiRuntimeConfig(Base):
+    """
+    AI 鏉╂劘顢戦弮鍫曞帳缂冾喛銆冮妴?
+
+    娴ｆ粎鏁ら敍?
+    1. 閻劋绨粻锛勬倞閸涙ê婀崥搴″酱缂佸瓨濮?AI_MODEL_* 鏉╂劘顢戦弮鍫曞帳缂冾喓鈧?
+    2. 鏉╂劘顢戦弮鏈电喘閸忓牐顕伴弫鐗堝祦鎼存捁顩惄鏍р偓纭风礉娑撹櫣鈹栭弮璺烘礀闁偓 backend/.env 姒涙顓婚崐绗衡偓?
+    3. API Key 缁涘鏅遍幇鐔封偓鑲╂暠 is_secret 閺嶅洩顔囬敍灞芥倵閸欐澘鐫嶇粈鐑樻閸欘亣绻戦崶鐐村负閻礁鈧鈧?
+    """
+
+    __tablename__ = "ai_runtime_configs"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+        comment="娑撳鏁璉D",
+    )
+    config_group: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="闁板秶鐤嗛崚鍡欑矋閿涙稐绶ユ俊?ai_model",
+    )
+    config_key: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        comment="配置键，与环境变量同名",
+    )
+    config_name: Mapped[str] = mapped_column(
+        String(150),
+        nullable=False,
+        comment="闁板秶鐤嗙仦鏇犮仛閸氬秶袨",
+    )
+    config_value: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="数据库覆盖值；为空时回退到 .env 默认值",
+    )
+    value_type: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="string",
+        comment="閸婅偐琚崹瀣剁幢string/int/float/url/secret/model_name",
+    )
+    is_secret: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="是否敏感值，1=敏感",
+    )
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="active",
+        comment="閻樿埖鈧緤绱盿ctive / disabled",
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=100,
+        comment="排序值",
+    )
+    remark: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="备注",
+    )
+    created_by: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="创建人",
+    )
+    updated_by: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="閺堚偓閸氬孩娲块弬棰佹眽",
+    )
+    create_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        comment="閸掓稑缂撻弮鍫曟？",
+    )
+    update_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="閺囧瓨鏌婇弮鍫曟？",
+    )
+    delete_flag: Mapped[str] = mapped_column(
+        CHAR(1),
+        nullable=False,
+        default="1",
+        comment="闁槒绶崚鐘绘珟閺嶅洩顔囬敍?=閺堝鏅ラ敍?=闁槒绶崚鐘绘珟",
     )
 
 
 class AiChatSession(Base):
     """
-    AI 对话会话主表。
+    AI 瀵硅瘽浼氳瘽涓昏〃銆?
 
-    作用：
-    1. 记录某个学生一次完整 AI 建档会话的生命周期。
-    2. 承载当前阶段、当前轮次、缺失维度等会话状态。
-    3. 后续 WebSocket 连接初始化、恢复历史会话、结果归档都会依赖这张表。
+    浣滅敤锛?
+    1. 璁板綍鏌愪釜瀛︾敓涓€娆″畬鏁?AI 寤烘。浼氳瘽鐨勭敓鍛藉懆鏈熴€?
+    2. 鎵胯浇褰撳墠闃舵銆佸綋鍓嶈疆娆°€佺己澶辩淮搴︾瓑浼氳瘽鐘舵€併€?
+    3. 鍚庣画 WebSocket 杩炴帴鍒濆鍖栥€佹仮澶嶅巻鍙蹭細璇濄€佺粨鏋滃綊妗ｉ兘浼氫緷璧栬繖寮犺〃銆?
     """
 
     __tablename__ = "ai_chat_sessions"
@@ -176,56 +274,56 @@ class AiChatSession(Base):
         BigInteger,
         primary_key=True,
         autoincrement=True,
-        comment="主键ID",
+        comment="涓婚敭ID",
     )
     session_id: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
-        comment="会话ID；前后端交互时使用的唯一会话标识",
+        comment="浼氳瘽ID锛涘墠鍚庣浜や簰鏃朵娇鐢ㄧ殑鍞竴浼氳瘽鏍囪瘑",
     )
     student_id: Mapped[str] = mapped_column(
         CHAR(36),
         ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"),
         nullable=False,
-        comment="学生ID；直接复用 users.id",
+        comment="瀛︾敓ID锛涚洿鎺ュ鐢?users.id",
     )
     biz_domain: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
-        comment="业务域；当前主要为 student_profile_build",
+        comment="涓氬姟鍩燂紱褰撳墠涓昏涓?student_profile_build",
     )
     session_status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
         default="active",
-        comment="会话状态；例如 active / completed / cancelled / expired",
+        comment="浼氳瘽鐘舵€侊紱渚嬪 active / completed / cancelled / expired",
     )
     current_stage: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
         default="conversation",
-        comment="当前阶段；例如 conversation / extraction / scoring",
+        comment="褰撳墠闃舵锛涗緥濡?conversation / extraction / scoring",
     )
     current_round: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
         default=0,
-        comment="当前轮次；通常每次用户消息驱动一轮对话",
+        comment="当前轮次",
     )
     collected_slots_json: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
-        comment="已采集字段槽位 JSON；用于会话进度管理",
+        comment="已采集槽位 JSON",
     )
     missing_dimensions_json: Mapped[list | None] = mapped_column(
         JSON,
         nullable=True,
-        comment="缺失维度 JSON；用于驱动下一轮追问",
+        comment="缺失维度 JSON",
     )
     session_summary: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
-        comment="当前会话摘要；用于长对话压缩上下文",
+        comment="当前会话摘要",
     )
     last_message_at: Mapped[datetime | None] = mapped_column(
         DateTime,
@@ -235,22 +333,22 @@ class AiChatSession(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime,
         nullable=True,
-        comment="会话完成时间",
+        comment="浼氳瘽瀹屾垚鏃堕棿",
     )
     expired_at: Mapped[datetime | None] = mapped_column(
         DateTime,
         nullable=True,
-        comment="会话过期时间",
+        comment="浼氳瘽杩囨湡鏃堕棿",
     )
     final_profile_id: Mapped[int | None] = mapped_column(
         BigInteger,
         nullable=True,
-        comment="最终建档结果ID；回填 ai_chat_profile_results.id",
+        comment="鏈€缁堝缓妗ｇ粨鏋淚D锛涘洖濉?ai_chat_profile_results.id",
     )
     remark: Mapped[str | None] = mapped_column(
         String(500),
         nullable=True,
-        comment="备注；用于人工标记或异常说明",
+        comment="澶囨敞锛涚敤浜庝汉宸ユ爣璁版垨寮傚父璇存槑",
     )
     created_by: Mapped[str | None] = mapped_column(
         String(64),
@@ -260,26 +358,26 @@ class AiChatSession(Base):
     updated_by: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
-        comment="最后更新人",
+        comment="鏈€鍚庢洿鏂颁汉",
     )
     create_time: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         default=datetime.utcnow,
-        comment="创建时间",
+        comment="鍒涘缓鏃堕棿",
     )
     update_time: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
-        comment="更新时间",
+        comment="鏇存柊鏃堕棿",
     )
     delete_flag: Mapped[str] = mapped_column(
         CHAR(1),
         nullable=False,
         default="1",
-        comment="逻辑删除标记；1=有效，0=逻辑删除",
+        comment="閫昏緫鍒犻櫎鏍囪锛?=鏈夋晥锛?=閫昏緫鍒犻櫎",
     )
 
     messages: Mapped[list["AiChatMessage"]] = relationship(
@@ -295,12 +393,12 @@ class AiChatSession(Base):
 
 class AiChatMessage(Base):
     """
-    AI 对话消息表。
+    AI 瀵硅瘽娑堟伅琛ㄣ€?
 
-    作用：
-    1. 保存用户消息、助手消息、系统消息。
-    2. 用 sequence_no 保证会话内顺序稳定。
-    3. content_json 预留给后续存 token 统计、事件元数据、结构化补充信息。
+    浣滅敤锛?
+    1. 淇濆瓨鐢ㄦ埛娑堟伅銆佸姪鎵嬫秷鎭€佺郴缁熸秷鎭€?
+    2. 鐢?sequence_no 淇濊瘉浼氳瘽鍐呴『搴忕ǔ瀹氥€?
+    3. content_json 棰勭暀缁欏悗缁瓨 token 缁熻銆佷簨浠跺厓鏁版嵁銆佺粨鏋勫寲琛ュ厖淇℃伅銆?
     """
 
     __tablename__ = "ai_chat_messages"
@@ -309,45 +407,45 @@ class AiChatMessage(Base):
         BigInteger,
         primary_key=True,
         autoincrement=True,
-        comment="主键ID",
+        comment="涓婚敭ID",
     )
     session_id: Mapped[str] = mapped_column(
         String(64),
         ForeignKey("ai_chat_sessions.session_id", ondelete="CASCADE", onupdate="CASCADE"),
         nullable=False,
-        comment="会话ID；关联 ai_chat_sessions.session_id",
+        comment="浼氳瘽ID锛涘叧鑱?ai_chat_sessions.session_id",
     )
     student_id: Mapped[str] = mapped_column(
         CHAR(36),
         ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"),
         nullable=False,
-        comment="学生ID；直接复用 users.id",
+        comment="瀛︾敓ID锛涚洿鎺ュ鐢?users.id",
     )
     message_role: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
-        comment="消息角色；例如 user / assistant / system",
+        comment="娑堟伅瑙掕壊锛涗緥濡?user / assistant / system",
     )
     message_type: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
         default="visible_text",
-        comment="消息类型；例如 visible_text / hidden_summary / internal_state",
+        comment="娑堟伅绫诲瀷锛涗緥濡?visible_text / hidden_summary / internal_state",
     )
     sequence_no: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
-        comment="会话内顺序号；保证消息顺序可恢复",
+        comment="浼氳瘽鍐呴『搴忓彿锛涗繚璇佹秷鎭『搴忓彲鎭㈠",
     )
     parent_message_id: Mapped[int | None] = mapped_column(
         BigInteger,
         nullable=True,
-        comment="父消息ID；用于标记某条回复关联的上一条消息",
+        comment="父消息ID",
     )
     content: Mapped[str] = mapped_column(
         Text,
         nullable=False,
-        comment="消息正文",
+        comment="娑堟伅姝ｆ枃",
     )
     content_json: Mapped[dict | list | None] = mapped_column(
         JSON,
@@ -358,36 +456,36 @@ class AiChatMessage(Base):
         Integer,
         nullable=False,
         default=1,
-        comment="前端是否可见；1=可见，0=隐藏",
+        comment="鍓嶇鏄惁鍙锛?=鍙锛?=闅愯棌",
     )
     stream_chunk_count: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
-        comment="流式分片数量；后续接模型流式输出时使用",
+        comment="流式分片数量",
     )
     token_count: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
-        comment="Token 估算数；用于后续成本统计",
+        comment="Token 浼扮畻鏁帮紱鐢ㄤ簬鍚庣画鎴愭湰缁熻",
     )
     create_time: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         default=datetime.utcnow,
-        comment="创建时间",
+        comment="鍒涘缓鏃堕棿",
     )
     update_time: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
-        comment="更新时间",
+        comment="鏇存柊鏃堕棿",
     )
     delete_flag: Mapped[str] = mapped_column(
         CHAR(1),
         nullable=False,
         default="1",
-        comment="逻辑删除标记；1=有效，0=逻辑删除",
+        comment="閫昏緫鍒犻櫎鏍囪锛?=鏈夋晥锛?=閫昏緫鍒犻櫎",
     )
 
     session: Mapped["AiChatSession"] = relationship(
@@ -398,12 +496,12 @@ class AiChatMessage(Base):
 
 class AiChatProfileResult(Base):
     """
-    AI 建档结果表。
+    AI 寤烘。缁撴灉琛ㄣ€?
 
-    作用：
-    1. 存最终结构化档案 JSON。
-    2. 存六维图分数和中文总结。
-    3. 存服务端转换后的 db_payload_json 与入库审计信息。
+    浣滅敤锛?
+    1. 瀛樻渶缁堢粨鏋勫寲妗ｆ JSON銆?
+    2. 瀛樺叚缁村浘鍒嗘暟鍜屼腑鏂囨€荤粨銆?
+    3. 瀛樻湇鍔＄杞崲鍚庣殑 db_payload_json 涓庡叆搴撳璁′俊鎭€?
     """
 
     __tablename__ = "ai_chat_profile_results"
@@ -412,263 +510,7 @@ class AiChatProfileResult(Base):
         BigInteger,
         primary_key=True,
         autoincrement=True,
-        comment="主键ID",
-    )
-    session_id: Mapped[str] = mapped_column(
-        String(64),
-        ForeignKey("ai_chat_sessions.session_id", ondelete="CASCADE", onupdate="CASCADE"),
-        nullable=False,
-        comment="会话ID；一份结果对应一次完整建档会话",
-    )
-    student_id: Mapped[str] = mapped_column(
-        CHAR(36),
-        ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"),
-        nullable=False,
-        comment="学生ID；直接复用 users.id",
-    )
-    biz_domain: Mapped[str] = mapped_column(
-        String(100),
-        nullable=False,
-        comment="业务域；当前主要为 student_profile_build",
-    )
-    result_status: Mapped[str] = mapped_column(
-        String(20),
-        nullable=False,
-        default="generated",
-        comment="结果状态；例如 generated / saved / failed",
-    )
-    profile_json: Mapped[dict] = mapped_column(
-        JSON,
-        nullable=False,
-        comment="最终结构化建档 JSON",
-    )
-    radar_scores_json: Mapped[dict | None] = mapped_column(
-        JSON,
-        nullable=True,
-        comment="六维图分数 JSON",
-    )
-    summary_text: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-        comment="给前端展示的中文总结",
-    )
-    db_payload_json: Mapped[dict | None] = mapped_column(
-        JSON,
-        nullable=True,
-        comment="服务端转换后的标准入库 payload",
-    )
-    insert_sql_text: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-        comment="最终生成的 Insert SQL 文本；仅供后台审计",
-    )
-    save_error_message: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-        comment="入库失败原因",
-    )
-    create_time: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.utcnow,
-        comment="创建时间",
-    )
-    update_time: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
-        comment="更新时间",
-    )
-    delete_flag: Mapped[str] = mapped_column(
-        CHAR(1),
-        nullable=False,
-        default="1",
-        comment="逻辑删除标记；1=有效，0=逻辑删除",
-    )
-
-    session: Mapped["AiChatSession"] = relationship(
-        back_populates="profile_result",
-        lazy="select",
-    )
-
-
-class AiChatProfileDraft(Base):
-    """
-    【草稿建档实验】AI 对话阶段的结构化草稿表。
-
-    作用：
-    1. 承载每个 session 的最新 draft_json。
-    2. 记录最近一次 patch，便于调试实验链路。
-    3. 与正式业务表分离，避免污染当前正式档案流程。
-    """
-
-    __tablename__ = "ai_chat_profile_drafts"
-
-    draft_id: Mapped[int] = mapped_column(
-        BigInteger,
-        primary_key=True,
-        autoincrement=True,
-        comment="草稿主键ID",
-    )
-    session_id: Mapped[str] = mapped_column(
-        String(64),
-        ForeignKey("ai_chat_sessions.session_id", ondelete="CASCADE", onupdate="CASCADE"),
-        nullable=False,
-        unique=True,
-        comment="会话ID；一条会话只保留一份最新草稿",
-    )
-    student_id: Mapped[str] = mapped_column(
-        CHAR(36),
-        ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"),
-        nullable=False,
-        comment="学生ID",
-    )
-    biz_domain: Mapped[str] = mapped_column(
-        String(100),
-        nullable=False,
-        comment="业务域",
-    )
-    draft_json: Mapped[dict] = mapped_column(
-        JSON,
-        nullable=False,
-        comment="【草稿建档实验】当前最新结构化草稿",
-    )
-    last_patch_json: Mapped[dict | list | None] = mapped_column(
-        JSON,
-        nullable=True,
-        comment="【草稿建档实验】最近一次增量 patch",
-    )
-    source_round: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=0,
-        comment="草稿更新到的会话轮次",
-    )
-    version_no: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=1,
-        comment="草稿版本号；每次更新递增",
-    )
-    create_time: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.utcnow,
-        comment="创建时间",
-    )
-    update_time: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
-        comment="更新时间",
-    )
-    delete_flag: Mapped[str] = mapped_column(
-        CHAR(1),
-        nullable=False,
-        default="1",
-        comment="逻辑删除标记；1=有效，0=已删除",
-    )
-class AiProfileRadarFieldImpactRule(Base):
-    """
-    【六维图差量重算】正式档案字段与六维维度影响规则表。
-
-    作用：
-    1. 把“哪个表的哪个字段会影响哪些维度”从代码中抽离到数据库。
-    2. 档案页保存与 AI 对话 patch 都共用这张表计算 affected_dimensions。
-    3. 支持精确字段匹配和 `*` 整表通配。
-    """
-
-    __tablename__ = "ai_profile_radar_field_impact_rules"
-
-    id: Mapped[int] = mapped_column(
-        BigInteger,
-        primary_key=True,
-        autoincrement=True,
-        comment="主键ID",
-    )
-    biz_domain: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-        comment="业务域；例如 student_profile_build",
-    )
-    table_name: Mapped[str] = mapped_column(
-        String(128),
-        nullable=False,
-        comment="正式档案表名",
-    )
-    field_name: Mapped[str] = mapped_column(
-        String(128),
-        nullable=False,
-        comment="字段名；支持 * 作为整表通配",
-    )
-    affects_radar: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=1,
-        comment="是否影响六维图；1=影响 0=不影响",
-    )
-    affected_dimensions_json: Mapped[list | dict] = mapped_column(
-        JSON,
-        nullable=False,
-        comment="受影响维度数组",
-    )
-    remark: Mapped[str | None] = mapped_column(
-        String(500),
-        nullable=True,
-        comment="规则说明",
-    )
-    sort_order: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=100,
-        comment="排序号；值越小优先级越高",
-    )
-    status: Mapped[str] = mapped_column(
-        String(20),
-        nullable=False,
-        default="active",
-        comment="状态；active / disabled",
-    )
-    create_time: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.utcnow,
-        comment="创建时间",
-    )
-    update_time: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
-        comment="更新时间",
-    )
-    delete_flag: Mapped[str] = mapped_column(
-        CHAR(1),
-        nullable=False,
-        default="1",
-        comment="逻辑删除标记；1=有效 0=删除",
-    )
-
-
-class AiProfileRadarPendingChange(Base):
-    """
-    【六维图差量重算】待处理字段改动与受影响维度状态表。
-
-    作用：
-    1. 只记录“自上一版六维图生成以后”待处理的字段改动。
-    2. 只在用户已经有旧六维图结果时启用。
-    3. 供首页生成 / 档案页更新六维图时判断走 full 还是 partial。
-    """
-
-    __tablename__ = "ai_profile_radar_pending_changes"
-
-    pending_id: Mapped[int] = mapped_column(
-        BigInteger,
-        primary_key=True,
-        autoincrement=True,
-        comment="主键ID",
+        comment="涓婚敭ID",
     )
     session_id: Mapped[str] = mapped_column(
         String(64),
@@ -680,7 +522,261 @@ class AiProfileRadarPendingChange(Base):
         CHAR(36),
         ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"),
         nullable=False,
-        comment="学生ID",
+        comment="瀛︾敓ID锛涚洿鎺ュ鐢?users.id",
+    )
+    biz_domain: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        comment="涓氬姟鍩燂紱褰撳墠涓昏涓?student_profile_build",
+    )
+    result_status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="generated",
+        comment="缁撴灉鐘舵€侊紱渚嬪 generated / saved / failed",
+    )
+    profile_json: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        comment="鏈€缁堢粨鏋勫寲寤烘。 JSON",
+    )
+    radar_scores_json: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="鍏淮鍥惧垎鏁?JSON",
+    )
+    summary_text: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="缁欏墠绔睍绀虹殑涓枃鎬荤粨",
+    )
+    db_payload_json: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="鏈嶅姟绔浆鎹㈠悗鐨勬爣鍑嗗叆搴?payload",
+    )
+    insert_sql_text: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="最终生成的 SQL 文本",
+    )
+    save_error_message: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="鍏ュ簱澶辫触鍘熷洜",
+    )
+    create_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        comment="鍒涘缓鏃堕棿",
+    )
+    update_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="鏇存柊鏃堕棿",
+    )
+    delete_flag: Mapped[str] = mapped_column(
+        CHAR(1),
+        nullable=False,
+        default="1",
+        comment="閫昏緫鍒犻櫎鏍囪锛?=鏈夋晥锛?=閫昏緫鍒犻櫎",
+    )
+
+    session: Mapped["AiChatSession"] = relationship(
+        back_populates="profile_result",
+        lazy="select",
+    )
+
+
+class AiChatProfileDraft(Base):
+    """
+    鏅鸿兘寤烘。 AI 瀵硅瘽闃舵鐨勭粨鏋勫寲 draft 琛ㄣ€?
+    浣滅敤锛?
+    1. 鎵胯浇姣忎釜 session 鐨勬渶鏂?draft_json銆?
+    2. 璁板綍鏈€杩戜竴娆?patch锛屼究浜庤皟璇曞綋鍓?draft 閾捐矾銆?    3. 涓庢寮忎笟鍔¤〃鍒嗙锛岄伩鍏嶆薄鏌撳綋鍓嶆寮忔。妗堟祦绋嬨€?
+    """
+
+    __tablename__ = "ai_chat_profile_drafts"
+
+    draft_id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+        comment="鑽夌涓婚敭ID",
+    )
+    session_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("ai_chat_sessions.session_id", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False,
+        unique=True,
+        comment="会话ID",
+    )
+    student_id: Mapped[str] = mapped_column(
+        CHAR(36),
+        ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False,
+        comment="瀛︾敓ID",
+    )
+    biz_domain: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        comment="业务域",
+    )
+    draft_json: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        comment="鏅鸿兘寤烘。褰撳墠鏈€鏂扮粨鏋勫寲 draft",
+    )
+    last_patch_json: Mapped[dict | list | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="鏅鸿兘寤烘。鏈€杩戜竴娆″閲?patch",
+    )
+    source_round: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="鑽夌鏇存柊鍒扮殑浼氳瘽杞",
+    )
+    version_no: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        comment="鑽夌鐗堟湰鍙凤紱姣忔鏇存柊閫掑",
+    )
+    create_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        comment="鍒涘缓鏃堕棿",
+    )
+    update_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="鏇存柊鏃堕棿",
+    )
+    delete_flag: Mapped[str] = mapped_column(
+        CHAR(1),
+        nullable=False,
+        default="1",
+        comment="逻辑删除标记",
+    )
+class AiProfileRadarFieldImpactRule(Base):
+    """
+    銆愬叚缁村浘宸噺閲嶇畻銆戞寮忔。妗堝瓧娈典笌鍏淮缁村害褰卞搷瑙勫垯琛ㄣ€?
+
+    浣滅敤锛?
+    1. 鎶娾€滃摢涓〃鐨勫摢涓瓧娈典細褰卞搷鍝簺缁村害鈥濅粠浠ｇ爜涓娊绂诲埌鏁版嵁搴撱€?
+    2. 妗ｆ椤典繚瀛樹笌 AI 瀵硅瘽 patch 閮藉叡鐢ㄨ繖寮犺〃璁＄畻 affected_dimensions銆?
+    3. 鏀寔绮剧‘瀛楁鍖归厤鍜?`*` 鏁磋〃閫氶厤銆?
+    """
+
+    __tablename__ = "ai_profile_radar_field_impact_rules"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+        comment="涓婚敭ID",
+    )
+    biz_domain: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="涓氬姟鍩燂紱渚嬪 student_profile_build",
+    )
+    table_name: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        comment="姝ｅ紡妗ｆ琛ㄥ悕",
+    )
+    field_name: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        comment="瀛楁鍚嶏紱鏀寔 * 浣滀负鏁磋〃閫氶厤",
+    )
+    affects_radar: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        comment="是否影响六维图",
+    )
+    affected_dimensions_json: Mapped[list | dict] = mapped_column(
+        JSON,
+        nullable=False,
+        comment="受影响维度数组",
+    )
+    remark: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="瑙勫垯璇存槑",
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=100,
+        comment="鎺掑簭鍙凤紱鍊艰秺灏忎紭鍏堢骇瓒婇珮",
+    )
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="active",
+        comment="鐘舵€侊紱active / disabled",
+    )
+    create_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        comment="鍒涘缓鏃堕棿",
+    )
+    update_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="鏇存柊鏃堕棿",
+    )
+    delete_flag: Mapped[str] = mapped_column(
+        CHAR(1),
+        nullable=False,
+        default="1",
+        comment="閫昏緫鍒犻櫎鏍囪锛?=鏈夋晥 0=鍒犻櫎",
+    )
+
+
+class AiProfileRadarPendingChange(Base):
+    """
+    銆愬叚缁村浘宸噺閲嶇畻銆戝緟澶勭悊瀛楁鏀瑰姩涓庡彈褰卞搷缁村害鐘舵€佽〃銆?
+
+    浣滅敤锛?
+    1. 鍙褰曗€滆嚜涓婁竴鐗堝叚缁村浘鐢熸垚浠ュ悗鈥濆緟澶勭悊鐨勫瓧娈垫敼鍔ㄣ€?
+    2. 鍙湪鐢ㄦ埛宸茬粡鏈夋棫鍏淮鍥剧粨鏋滄椂鍚敤銆?
+    3. 渚涢椤电敓鎴?/ 妗ｆ椤垫洿鏂板叚缁村浘鏃跺垽鏂蛋 full 杩樻槸 partial銆?
+    """
+
+    __tablename__ = "ai_profile_radar_pending_changes"
+
+    pending_id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+        comment="涓婚敭ID",
+    )
+    session_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("ai_chat_sessions.session_id", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False,
+        comment="浼氳瘽ID",
+    )
+    student_id: Mapped[str] = mapped_column(
+        CHAR(36),
+        ForeignKey("users.id", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False,
+        comment="瀛︾敓ID",
     )
     biz_domain: Mapped[str] = mapped_column(
         String(100),
@@ -691,7 +787,7 @@ class AiProfileRadarPendingChange(Base):
         BigInteger,
         ForeignKey("ai_chat_profile_results.id", ondelete="SET NULL", onupdate="CASCADE"),
         nullable=True,
-        comment="上一版六维图结果ID；作为差量重算基线",
+        comment="上一版六维图结果ID",
     )
     pending_changed_fields_json: Mapped[list | None] = mapped_column(
         JSON,
@@ -703,12 +799,12 @@ class AiProfileRadarPendingChange(Base):
         JSON,
         nullable=False,
         default=list,
-        comment="待处理受影响维度列表",
+        comment="寰呭鐞嗗彈褰卞搷缁村害鍒楄〃",
     )
     last_change_source: Mapped[str | None] = mapped_column(
         String(50),
         nullable=True,
-        comment="最近一次改动来源；例如 archive_form / ai_dialogue_patch",
+        comment="鏈€杩戜竴娆℃敼鍔ㄦ潵婧愶紱渚嬪 archive_form / ai_dialogue_patch",
     )
     last_change_remark: Mapped[str | None] = mapped_column(
         String(255),
@@ -719,24 +815,24 @@ class AiProfileRadarPendingChange(Base):
         Integer,
         nullable=False,
         default=1,
-        comment="版本号；每次累计改动递增",
+        comment="鐗堟湰鍙凤紱姣忔绱鏀瑰姩閫掑",
     )
     create_time: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         default=datetime.utcnow,
-        comment="创建时间",
+        comment="鍒涘缓鏃堕棿",
     )
     update_time: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
-        comment="更新时间",
+        comment="鏇存柊鏃堕棿",
     )
     delete_flag: Mapped[str] = mapped_column(
         CHAR(1),
         nullable=False,
         default="1",
-        comment="逻辑删除标记；1=有效 0=删除",
+        comment="閫昏緫鍒犻櫎鏍囪锛?=鏈夋晥 0=鍒犻櫎",
     )

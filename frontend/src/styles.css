@@ -593,31 +593,48 @@ footer {
 
 .admin-top-nav {
   display: none;
-  align-items: center;
-  gap: 4px;
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
 }
 
 .admin-nav-button {
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 92px;
-  padding: 10px 14px;
-  border: none;
-  border-radius: 12px;
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 14px 16px 14px 18px;
+  border: 1px solid transparent;
+  border-radius: 16px;
   cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.admin-nav-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-nav-title {
+  color: inherit;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.admin-nav-meta {
+  color: #7c879a;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .admin-nav-indicator {
   position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 6px;
-  height: 2px;
+  left: 8px;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
   background: linear-gradient(135deg, #1a2744 0%, #2c4a8a 100%);
   border-radius: 999px;
 }
@@ -642,6 +659,88 @@ footer {
 
 .admin-main {
   padding-top: 64px;
+}
+
+.admin-layout {
+  display: grid;
+  gap: 24px;
+  align-items: start;
+}
+
+.admin-sidebar {
+  padding: 22px;
+}
+
+.admin-sidebar-head {
+  padding-bottom: 18px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid #e8eef8;
+}
+
+.admin-sidebar-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #2c4a8a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-sidebar-title {
+  margin-top: 14px;
+  color: #111827;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.admin-sidebar-subtitle {
+  margin-top: 8px;
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.admin-sidebar-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.admin-sidebar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.admin-sidebar-group-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-sidebar-group-title {
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.admin-sidebar-group-hint {
+  color: #9aa4b2;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.admin-sidebar-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-content {
+  min-width: 0;
 }
 
 .admin-hero {
@@ -1894,10 +1993,6 @@ footer {
     display: inline-flex;
   }
 
-  .admin-top-nav {
-    display: inline-flex;
-  }
-
   .home-user-copy {
     display: block;
   }
@@ -1913,6 +2008,17 @@ footer {
 
   .home-exam-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1100px) {
+  .admin-layout {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+
+  .admin-sidebar {
+    position: sticky;
+    top: 88px;
   }
 }
 
@@ -1961,6 +2067,10 @@ footer {
   .admin-workbench-grid--two,
   .admin-form-grid,
   .admin-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-layout {
     grid-template-columns: 1fr;
   }
 }
@@ -4130,6 +4240,63 @@ footer {
   border: 1px solid #dbe2ef;
   border-radius: 10px;
   background: #fff;
+}
+
+.admin-prompt-row-selected td {
+  background: #eef4ff;
+}
+
+.admin-prompt-row-selected td:first-child {
+  box-shadow: inset 3px 0 0 #2c4a8a;
+}
+
+.admin-section-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.admin-prompt-key-button {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #2c4a8a;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+
+.admin-prompt-key-button:hover {
+  color: #1d3568;
+  text-decoration: underline;
+}
+
+.table tbody tr {
+  transition: background 0.2s ease;
+}
+
+.table tbody tr:hover td {
+  background: #f8fbff;
+}
+
+.table tbody tr {
+  cursor: pointer;
+}
+
+.admin-prompt-readonly-meta {
+  margin-bottom: 18px;
+}
+
+.admin-prompt-textarea {
+  min-height: 320px;
+  resize: vertical;
+}
+
+.admin-prompt-json-textarea,
+.admin-prompt-remark-textarea {
+  min-height: 160px;
+  resize: vertical;
 }
 
 @media (max-width: 1080px) {

@@ -51,7 +51,6 @@ from backend.utils.flow_logging import log_timed_step
 
 
 CONVERSATION_PROMPT_KEY = "student_profile_build.conversation"
-CONVERSATION_WITH_PROGRESS_PROMPT_KEY = "student_profile_build.conversation_with_progress"
 PROGRESS_PROMPT_KEY = "student_profile_build.progress_extraction"
 EXTRACTION_PROMPT_KEY = "student_profile_build.extraction"
 SCORING_PROMPT_KEY = "student_profile_build.scoring"

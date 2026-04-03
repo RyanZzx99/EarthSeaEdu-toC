@@ -26,7 +26,7 @@ import {
   getCurrentAiChatSession,
   regenerateAiChatArchiveRadar,
   saveAiChatArchiveForm,
-  syncAiChatDraftExperimentFromOfficial,
+  syncAiChatDraftFromOfficial,
 } from "../api/aiChat";
 
 const PASSWORD_MIN_LENGTH = 8;
@@ -35,7 +35,6 @@ const BCRYPT_PASSWORD_MAX_BYTES = 72;
 const AI_CHAT_BIZ_DOMAIN = "student_profile_build";
 const AI_CHAT_SESSION_CACHE_KEY = "latest_ai_chat_session_id";
 const AI_CHAT_OPEN_PANEL_KEY = "open_ai_chat_panel";
-const ENABLE_DRAFT_EXPERIMENT_FLOW = true;
 const RADAR_LABELS = {
   academic: "学术成绩",
   language: "语言能力",
@@ -1231,13 +1230,13 @@ export default function ProfilePage() {
   }
 
   async function syncArchiveDraftAfterSave({ suppressError = false } = {}) {
-    if (!ENABLE_DRAFT_EXPERIMENT_FLOW || !archiveSessionId) {
+    if (!archiveSessionId) {
       return;
     }
 
     try {
       setArchiveDraftSyncing(true);
-      await syncAiChatDraftExperimentFromOfficial(archiveSessionId);
+      await syncAiChatDraftFromOfficial(archiveSessionId);
     } catch (error) {
       if (!suppressError) {
         setArchiveErrorMessage(
@@ -1272,12 +1271,10 @@ export default function ProfilePage() {
     setArchiveFormState(normalizedArchiveForm);
     localStorage.setItem(AI_CHAT_SESSION_CACHE_KEY, archiveSessionId);
 
-    if (ENABLE_DRAFT_EXPERIMENT_FLOW) {
-      if (waitForDraftSync) {
-        await syncArchiveDraftAfterSave();
-      } else {
-        void syncArchiveDraftAfterSave({ suppressError: true });
-      }
+    if (waitForDraftSync) {
+      await syncArchiveDraftAfterSave();
+    } else {
+      void syncArchiveDraftAfterSave({ suppressError: true });
     }
 
     if (!silent) {
@@ -1372,8 +1369,8 @@ export default function ProfilePage() {
       if (isArchiveDirty) {
         setArchiveSaving(true);
         await saveArchiveFormSnapshot({ silent: true });
-      } else if (ENABLE_DRAFT_EXPERIMENT_FLOW) {
-        await syncAiChatDraftExperimentFromOfficial(archiveSessionId);
+      } else {
+        await syncAiChatDraftFromOfficial(archiveSessionId);
       }
 
       localStorage.setItem(AI_CHAT_SESSION_CACHE_KEY, archiveSessionId);

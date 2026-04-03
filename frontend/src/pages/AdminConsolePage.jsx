@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from "react";
+﻿import React, { useMemo, useState } from "react";
 import { motion } from "motion/react";
 import {
   BadgeCheck,
+  FileCode2,
   KeyRound,
   Shield,
   Tags,
@@ -15,22 +16,63 @@ import {
   createNicknameWordRule,
   generateInviteCodes,
   issueInviteCode,
+  listAiPromptConfigs,
+  listAiRuntimeConfigs,
   listInviteCodes,
   listNicknameAuditLogs,
   listNicknameContactPatterns,
   listNicknameRuleGroups,
   listNicknameWordRules,
+  updateAiPromptConfig,
+  updateAiRuntimeConfig,
   updateInviteCodeStatus,
   updateNicknameRuleTargetStatus,
   updateUserStatus,
 } from "../api/auth";
 
-const sectionItems = [
-  { key: "overview", label: "工作台", sectionId: "admin-overview" },
-  { key: "invite", label: "邀请码", sectionId: "admin-invite-center" },
-  { key: "nickname", label: "昵称规则", sectionId: "admin-nickname-center" },
-  { key: "audit", label: "审核日志", sectionId: "admin-audit-center" },
-  { key: "system", label: "系统管理", sectionId: "admin-system-center" },
+const sectionGroups = [
+  {
+    key: "workspace",
+    title: "总览",
+    hint: "先查看工作台入口和密钥状态",
+    items: [
+      { key: "overview", label: "工作台概览", meta: "密钥输入与快捷刷新", sectionId: "admin-overview-cards" },
+    ],
+  },
+  {
+    key: "operations",
+    title: "增长运营",
+    hint: "邀请码生成、发放和查询",
+    items: [
+      { key: "invite", label: "邀请码中心", meta: "生成、发放、查询与状态维护", sectionId: "admin-invite-center" },
+    ],
+  },
+  {
+    key: "governance",
+    title: "风控治理",
+    hint: "规则配置和命中回溯",
+    items: [
+      { key: "nickname", label: "昵称规则中心", meta: "分组、词条、联系方式规则", sectionId: "admin-nickname-center" },
+      { key: "audit", label: "审核与回溯", meta: "命中日志与风险观察", sectionId: "admin-audit-center" },
+    ],
+  },
+  {
+    key: "system",
+    title: "系统管理",
+    hint: "账号和权限类基础维护",
+    items: [
+      { key: "system", label: "账号与权限", meta: "用户状态等基础控制", sectionId: "admin-system-center" },
+    ],
+  },
+  {
+    key: "ai-config",
+    title: "AI 配置",
+    hint: "模型运行时和 Prompt 配置",
+    items: [
+      { key: "runtime-config", label: "AI 模型配置", meta: "Base URL、默认模型、密钥与超时", sectionId: "admin-ai-runtime-config-center" },
+      { key: "prompt", label: "AI 提示词中心", meta: "Prompt 配置查看与编辑", sectionId: "admin-ai-prompt-center" },
+    ],
+  },
 ];
 
 const inviteStatusOptions = [
@@ -157,7 +199,10 @@ function SectionNavButton({ item, isActive, onClick }) {
         background: isActive ? "#eef4ff" : "transparent",
       }}
     >
-      <span>{item.label}</span>
+      <span className="admin-nav-copy">
+        <span className="admin-nav-title">{item.label}</span>
+        {item.meta ? <span className="admin-nav-meta">{item.meta}</span> : null}
+      </span>
       {isActive ? (
         <motion.div
           layoutId="admin-nav-indicator"
@@ -214,6 +259,84 @@ function Field({ label, children, hint = null }) {
 
 function DataPlaceholder({ text }) {
   return <div className="admin-empty-state">{text}</div>;
+}
+
+function buildPromptEditorState(item) {
+  if (!item) {
+    return {
+      id: "",
+      prompt_key: "",
+      biz_domain: "",
+      prompt_stage: "",
+      prompt_role: "",
+      prompt_name: "",
+      prompt_version: "",
+      status: "draft",
+      model_name: "",
+      temperature: "",
+      top_p: "",
+      max_tokens: "",
+      output_format: "text",
+      prompt_content: "",
+      remark: "",
+      variables_json_text: "",
+    };
+  }
+  return {
+    id: item.id ?? "",
+    prompt_key: item.prompt_key || "",
+    biz_domain: item.biz_domain || "",
+    prompt_stage: item.prompt_stage || "",
+    prompt_role: item.prompt_role || "",
+    prompt_name: item.prompt_name || "",
+    prompt_version: item.prompt_version || "",
+    status: item.status || "draft",
+    model_name: item.model_name || "",
+    temperature: item.temperature ?? "",
+    top_p: item.top_p ?? "",
+    max_tokens: item.max_tokens ?? "",
+    output_format: item.output_format || "text",
+    prompt_content: item.prompt_content || "",
+    remark: item.remark || "",
+    variables_json_text: item.variables_json == null ? "" : JSON.stringify(item.variables_json, null, 2),
+  };
+}
+
+function buildRuntimeConfigEditorState(item) {
+  if (!item) {
+    return {
+      id: "",
+      config_group: "",
+      config_key: "",
+      config_name: "",
+      config_value: "",
+      effective_value_display: "",
+      default_value_display: "",
+      value_type: "string",
+      is_secret: 0,
+      status: "active",
+      sort_order: 100,
+      remark: "",
+      has_override: false,
+      using_default: true,
+    };
+  }
+  return {
+    id: item.id ?? "",
+    config_group: item.config_group || "",
+    config_key: item.config_key || "",
+    config_name: item.config_name || "",
+    config_value: item.config_value || "",
+    effective_value_display: item.effective_value_display || "",
+    default_value_display: item.default_value_display || "",
+    value_type: item.value_type || "string",
+    is_secret: item.is_secret ? 1 : 0,
+    status: item.status || "active",
+    sort_order: item.sort_order ?? 100,
+    remark: item.remark || "",
+    has_override: Boolean(item.has_override),
+    using_default: Boolean(item.using_default),
+  };
 }
 
 function GroupSelect({
@@ -309,10 +432,17 @@ export default function AdminConsolePage() {
   const [wordRuleList, setWordRuleList] = useState([]);
   const [contactPatternList, setContactPatternList] = useState([]);
   const [auditLogList, setAuditLogList] = useState([]);
+  const [runtimeConfigList, setRuntimeConfigList] = useState([]);
+  const [promptList, setPromptList] = useState([]);
   const [wordRuleTotal, setWordRuleTotal] = useState(0);
   const [contactPatternTotal, setContactPatternTotal] = useState(0);
   const [auditLogTotal, setAuditLogTotal] = useState(0);
+  const [promptTotal, setPromptTotal] = useState(0);
   const [pendingStatusMap, setPendingStatusMap] = useState({});
+  const [runtimeConfigEditor, setRuntimeConfigEditor] = useState(() => buildRuntimeConfigEditorState(null));
+  const [runtimeConfigMessage, setRuntimeConfigMessage] = useState("");
+  const [promptEditor, setPromptEditor] = useState(() => buildPromptEditorState(null));
+  const [promptMessage, setPromptMessage] = useState("");
   const [loadingGenerate, setLoadingGenerate] = useState(false);
   const [loadingIssue, setLoadingIssue] = useState(false);
   const [loadingQuery, setLoadingQuery] = useState(false);
@@ -325,19 +455,13 @@ export default function AdminConsolePage() {
   const [loadingContactList, setLoadingContactList] = useState(false);
   const [loadingRuleStatus, setLoadingRuleStatus] = useState(false);
   const [loadingAuditLogs, setLoadingAuditLogs] = useState(false);
+  const [loadingRuntimeConfigList, setLoadingRuntimeConfigList] = useState(false);
+  const [loadingRuntimeConfigSave, setLoadingRuntimeConfigSave] = useState(false);
+  const [loadingPromptList, setLoadingPromptList] = useState(false);
+  const [loadingPromptSave, setLoadingPromptSave] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
   const generatedSummary = useMemo(() => generatedItems, [generatedItems]);
-  const overviewStats = useMemo(
-    () => [
-      { label: "规则分组", value: groupList.length, hint: "当前已加载的分组" },
-      { label: "词条规则", value: wordRuleTotal, hint: "最近一次查询结果" },
-      { label: "联系方式规则", value: contactPatternTotal, hint: "最近一次查询结果" },
-      { label: "审核日志", value: auditLogTotal, hint: "最近一次查询结果" },
-    ],
-    [auditLogTotal, contactPatternTotal, groupList.length, wordRuleTotal]
-  );
-
   function ensureAdminKey() {
     if (!adminKey.trim()) {
       setErrorMessage("请输入管理员密钥");
@@ -354,6 +478,12 @@ export default function AdminConsolePage() {
     const elementPosition = element.getBoundingClientRect().top;
     const offsetPosition = elementPosition + window.pageYOffset - offset;
     window.scrollTo({ top: offsetPosition, behavior: "smooth" });
+    if (key === "runtime-config" && adminKey.trim()) {
+      handleListAiRuntimeConfigs();
+    }
+    if (key === "prompt" && adminKey.trim()) {
+      handleListAiPrompts();
+    }
   }
 
   function getPendingStatus(code, currentStatus) {
@@ -715,6 +845,163 @@ export default function AdminConsolePage() {
     }
   }
 
+  async function handleListAiRuntimeConfigs() {
+    setErrorMessage("");
+    setRuntimeConfigMessage("");
+    if (!ensureAdminKey()) return;
+    try {
+      setLoadingRuntimeConfigList(true);
+      const response = await listAiRuntimeConfigs(adminKey);
+      const items = response.data.items || [];
+      setRuntimeConfigList(items);
+      setRuntimeConfigEditor((previous) => {
+        if (!previous.config_key) return previous;
+        const current = items.find((item) => item.config_key === previous.config_key);
+        return current ? buildRuntimeConfigEditorState(current) : buildRuntimeConfigEditorState(null);
+      });
+    } catch (error) {
+      setErrorMessage(error?.response?.data?.detail || "AI 运行时配置查询失败");
+    } finally {
+      setLoadingRuntimeConfigList(false);
+    }
+  }
+
+  function handleSelectRuntimeConfig(item) {
+    setRuntimeConfigMessage("");
+    setRuntimeConfigEditor(buildRuntimeConfigEditorState(item));
+  }
+
+  function handleRuntimeConfigEditorChange(field, value) {
+    setRuntimeConfigMessage("");
+    setRuntimeConfigEditor((previous) => ({ ...previous, [field]: value }));
+  }
+
+  async function handleSaveAiRuntimeConfig({ clearOverride = false } = {}) {
+    setErrorMessage("");
+    setRuntimeConfigMessage("");
+    if (!ensureAdminKey()) return;
+    if (!runtimeConfigEditor.config_key) {
+      setErrorMessage("请先选择一条 AI 运行时配置");
+      return;
+    }
+    try {
+      setLoadingRuntimeConfigSave(true);
+      const response = await updateAiRuntimeConfig(
+        runtimeConfigEditor.config_key,
+        {
+          config_value: clearOverride ? null : runtimeConfigEditor.config_value,
+          status: runtimeConfigEditor.status,
+          remark: runtimeConfigEditor.remark.trim() || null,
+          clear_override: clearOverride,
+        },
+        adminKey
+      );
+      const savedItem = response.data;
+      setRuntimeConfigMessage(clearOverride ? "已恢复 .env 默认值" : "运行时配置保存成功");
+      setRuntimeConfigList((previous) =>
+        previous.map((item) => (item.config_key === savedItem.config_key ? savedItem : item))
+      );
+      setRuntimeConfigEditor(buildRuntimeConfigEditorState(savedItem));
+    } catch (error) {
+      setErrorMessage(error?.response?.data?.detail || "AI 运行时配置保存失败");
+    } finally {
+      setLoadingRuntimeConfigSave(false);
+    }
+  }
+
+  async function handleListAiPrompts() {
+    setErrorMessage("");
+    setPromptMessage("");
+    if (!ensureAdminKey()) return;
+    try {
+      setLoadingPromptList(true);
+      const response = await listAiPromptConfigs({ limit: 200 }, adminKey);
+      const items = response.data.items || [];
+      setPromptList(items);
+      setPromptTotal(response.data.total || items.length);
+      setPromptEditor((previous) => {
+        if (!previous.id) return previous;
+        const current = items.find((item) => String(item.id) === String(previous.id));
+        return current ? buildPromptEditorState(current) : buildPromptEditorState(null);
+      });
+    } catch (error) {
+      setErrorMessage(error?.response?.data?.detail || "Prompt 配置查询失败");
+    } finally {
+      setLoadingPromptList(false);
+    }
+  }
+
+  function handleSelectPrompt(item) {
+    setPromptMessage("");
+    setPromptEditor(buildPromptEditorState(item));
+  }
+
+  function handlePromptEditorChange(field, value) {
+    setPromptMessage("");
+    setPromptEditor((previous) => ({ ...previous, [field]: value }));
+  }
+
+  async function handleSaveAiPrompt() {
+    setErrorMessage("");
+    setPromptMessage("");
+    if (!ensureAdminKey()) return;
+    if (!promptEditor.id) {
+      setErrorMessage("请先选择一条 Prompt 配置");
+      return;
+    }
+    if (!promptEditor.prompt_name.trim()) {
+      setErrorMessage("Prompt 名称不能为空");
+      return;
+    }
+    if (!promptEditor.prompt_version.trim()) {
+      setErrorMessage("Prompt 版本不能为空");
+      return;
+    }
+    if (!promptEditor.prompt_content.trim()) {
+      setErrorMessage("Prompt 正文不能为空");
+      return;
+    }
+
+    let parsedVariablesJson = null;
+    if (promptEditor.variables_json_text.trim()) {
+      try {
+        parsedVariablesJson = JSON.parse(promptEditor.variables_json_text);
+      } catch {
+        setErrorMessage("variables_json 不是合法 JSON");
+        return;
+      }
+    }
+
+    try {
+      setLoadingPromptSave(true);
+      const response = await updateAiPromptConfig(
+        promptEditor.id,
+        {
+          prompt_name: promptEditor.prompt_name.trim(),
+          prompt_content: promptEditor.prompt_content,
+          prompt_version: promptEditor.prompt_version.trim(),
+          status: promptEditor.status,
+          output_format: promptEditor.output_format.trim() || "text",
+          model_name: promptEditor.model_name.trim() || null,
+          temperature: promptEditor.temperature === "" ? null : Number(promptEditor.temperature),
+          top_p: promptEditor.top_p === "" ? null : Number(promptEditor.top_p),
+          max_tokens: promptEditor.max_tokens === "" ? null : Number(promptEditor.max_tokens),
+          variables_json: parsedVariablesJson,
+          remark: promptEditor.remark.trim() || null,
+        },
+        adminKey
+      );
+      const savedItem = response.data;
+      setPromptMessage("Prompt 保存成功");
+      setPromptList((previous) => previous.map((item) => (item.id === savedItem.id ? savedItem : item)));
+      setPromptEditor(buildPromptEditorState(savedItem));
+    } catch (error) {
+      setErrorMessage(error?.response?.data?.detail || "Prompt 保存失败");
+    } finally {
+      setLoadingPromptSave(false);
+    }
+  }
+
   return (
     <div className="admin-shell">
       <motion.header
@@ -728,16 +1015,6 @@ export default function AdminConsolePage() {
             <div className="home-brand-mark">控</div>
             <div className="home-brand-text">管理员控制台</div>
           </div>
-          <nav className="admin-top-nav">
-            {sectionItems.map((item) => (
-              <SectionNavButton
-                key={item.key}
-                item={item}
-                isActive={activeSection === item.key}
-                onClick={() => scrollToSection(item.sectionId, item.key)}
-              />
-            ))}
-          </nav>
           <div className="admin-top-status">
             <span className="admin-top-badge">运营后台</span>
           </div>
@@ -745,61 +1022,44 @@ export default function AdminConsolePage() {
       </motion.header>
 
       <main className="admin-main">
-        <motion.section
-          className="admin-hero"
-          id="admin-overview"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.55 }}
-        >
-          <div className="home-hero-bg admin-hero-bg" />
-          <div className="home-hero-orb home-hero-orb-left" />
-          <div className="home-hero-orb home-hero-orb-right" />
-          <div className="home-hero-content">
-            <h1 className="home-hero-title">
-              后台运营控制台
-              <br />
-              <span className="home-hero-title-accent">邀请码、昵称风控、审核回溯统一入口</span>
-            </h1>
-            <p className="home-hero-subtitle">
-              把分散的管理动作收敛成可运营工作台。先输入管理员密钥，再进入对应分区执行操作。
-            </p>
-            <div className="admin-hero-actions">
-              <button
-                type="button"
-                className="home-primary-button"
-                onClick={() => scrollToSection("admin-nickname-center", "nickname")}
-              >
-                进入昵称规则中心
-              </button>
-              <button
-                type="button"
-                className="home-secondary-button"
-                onClick={() => scrollToSection("admin-audit-center", "audit")}
-              >
-                查看审核日志
-              </button>
-            </div>
-            <div className="home-hero-stats admin-hero-stats">
-              {overviewStats.map((item) => (
-                <div key={item.label} className="home-stat">
-                  <div className="home-stat-number">{item.value}</div>
-                  <div className="home-stat-label">{item.label}</div>
-                  <div className="admin-stat-hint">{item.hint}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </motion.section>
-
         <div className="home-content-wrap">
           {errorMessage ? <div className="error-box admin-global-alert">{errorMessage}</div> : null}
+          <div className="admin-layout">
+            <aside className="home-card admin-sidebar">
+              <div className="admin-sidebar-head">
+                <div className="admin-sidebar-eyebrow">后台导航</div>
+                <h1 className="admin-sidebar-title">管理员控制台</h1>
+                <p className="admin-sidebar-subtitle">按功能分区查看运营、风控、系统和 AI 配置能力。</p>
+              </div>
+              <div className="admin-sidebar-groups">
+                {sectionGroups.map((group) => (
+                  <div key={group.key} className="admin-sidebar-group">
+                    <div className="admin-sidebar-group-head">
+                      <div className="admin-sidebar-group-title">{group.title}</div>
+                      <div className="admin-sidebar-group-hint">{group.hint}</div>
+                    </div>
+                    <div className="admin-sidebar-links">
+                      {group.items.map((item) => (
+                        <SectionNavButton
+                          key={item.key}
+                          item={item}
+                          isActive={activeSection === item.key}
+                          onClick={() => scrollToSection(item.sectionId, item.key)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </aside>
+
+            <div className="admin-content">
 
           <AdminSection
             id="admin-overview-cards"
             icon={Waves}
             title="工作台概览"
-            subtitle="先完成密钥加载和基础数据刷新，再进入对应业务分区。"
+            subtitle="先完成管理员密钥输入和基础数据刷新，再进入对应业务分区。"
           >
             <div className="admin-summary-grid">
               <div className="home-card admin-summary-card">
@@ -817,7 +1077,7 @@ export default function AdminConsolePage() {
               <div className="home-card admin-summary-card">
                 <div className="admin-summary-icon"><Shield size={20} /></div>
                 <h3>快捷刷新</h3>
-                <p>刷新常用基础数据，便于后续下拉选择和概览统计更新。</p>
+                <p>刷新常用基础数据，便于后续下拉选择和编辑。</p>
                 <div className="admin-button-row">
                   <button type="button" className="primary-btn" disabled={loadingGroupList} onClick={handleListGroups}>
                     {loadingGroupList ? "刷新中..." : "刷新规则分组"}
@@ -829,13 +1089,15 @@ export default function AdminConsolePage() {
               </div>
               <div className="home-card admin-summary-card">
                 <div className="admin-summary-icon"><BadgeCheck size={20} /></div>
-                <h3>最近结果</h3>
-                <p>最近一次查询结果的数量概览，用来判断后台当前工作面。</p>
-                <div className="admin-metric-stack">
-                  <span>邀请码查询：{queryTotal}</span>
-                  <span>词条规则：{wordRuleTotal}</span>
-                  <span>联系方式规则：{contactPatternTotal}</span>
-                  <span>审核日志：{auditLogTotal}</span>
+                <h3>快捷入口</h3>
+                <p>常用操作直接跳转到对应分区。</p>
+                <div className="admin-button-row">
+                  <button type="button" className="primary-btn" onClick={() => scrollToSection("admin-nickname-center", "nickname")}>
+                    进入昵称规则中心
+                  </button>
+                  <button type="button" className="secondary-btn" onClick={() => scrollToSection("admin-ai-prompt-center", "prompt")}>
+                    进入 AI 提示词中心
+                  </button>
                 </div>
               </div>
             </div>
@@ -921,7 +1183,7 @@ export default function AdminConsolePage() {
                                 <select className="inline-select" value={getPendingStatus(item.code, item.status)} onChange={(event) => setPendingStatus(item.code, event.target.value)}>
                                   {inviteStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                                 </select>
-                                <button type="button" className="inline-btn" onClick={() => handleUpdateInviteStatus(item)}>保存</button>
+                                <button type="button" className="inline-action" onClick={() => handleUpdateInviteStatus(item)}>更新</button>
                               </div>
                             </td>
                           </tr>
@@ -1164,6 +1426,170 @@ export default function AdminConsolePage() {
             </div>
           </AdminSection>
 
+          <AdminSection
+            id="admin-ai-runtime-config-center"
+            icon={Waves}
+            title="AI 模型配置"
+            subtitle="集中维护 Base URL、默认模型、超时和运行时密钥。"
+            actions={<button type="button" className="secondary-btn" disabled={loadingRuntimeConfigList} onClick={handleListAiRuntimeConfigs}>{loadingRuntimeConfigList ? "加载中..." : "刷新配置列表"}</button>}
+          >
+            <div className="admin-section-stack">
+              <AdminPanel title="运行时配置列表" description="点击某个配置键后，在下方展开编辑界面。敏感值只展示掩码。">
+                {runtimeConfigList.length ? (
+                  <div className="table-wrap">
+                    <div className="result-box">共 {runtimeConfigList.length} 项</div>
+                    <table className="table">
+                      <thead><tr><th>配置键</th><th>配置名称</th><th>当前值</th><th>状态</th><th>来源</th></tr></thead>
+                      <tbody>
+                        {runtimeConfigList.map((item) => (
+                          <tr key={item.config_key} className={runtimeConfigEditor.config_key === item.config_key ? "admin-prompt-row-selected" : ""}>
+                            <td><button type="button" className="admin-prompt-key-button" onClick={() => handleSelectRuntimeConfig(item)}>{item.config_key}</button></td>
+                            <td>{item.config_name}</td>
+                            <td>{item.effective_value_display || "-"}</td>
+                            <td>{item.status}</td>
+                            <td>{item.using_default ? ".env 默认值" : "数据库覆盖"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : <DataPlaceholder text={adminKey.trim() ? "还没有运行时配置数据，点右上角刷新列表。" : "先输入管理员密钥，再点右上角刷新列表。"} />}
+              </AdminPanel>
+
+              {runtimeConfigEditor.config_key ? (
+                <AdminPanel
+                  title={`编辑 ${runtimeConfigEditor.config_key}`}
+                  description="数据库有值时优先使用数据库；清空后自动回退 .env 默认值。"
+                  aside={runtimeConfigMessage ? <span className="check-success">{runtimeConfigMessage}</span> : null}
+                >
+                  <div className="admin-detail-list admin-prompt-readonly-meta">
+                    <div><strong>配置组：</strong>{runtimeConfigEditor.config_group}</div>
+                    <div><strong>值类型：</strong>{runtimeConfigEditor.value_type}</div>
+                    <div><strong>当前来源：</strong>{runtimeConfigEditor.using_default ? ".env 默认值" : "数据库覆盖"}</div>
+                    <div><strong>默认值：</strong>{runtimeConfigEditor.default_value_display || "-"}</div>
+                    <div><strong>当前生效值：</strong>{runtimeConfigEditor.effective_value_display || "-"}</div>
+                  </div>
+                  <div className="admin-form-grid">
+                    <Field label="配置名称"><input className="input" value={runtimeConfigEditor.config_name} disabled /></Field>
+                    <Field label="状态">
+                      <select className="input" value={runtimeConfigEditor.status} onChange={(event) => handleRuntimeConfigEditorChange("status", event.target.value)}>
+                        <option value="active">active</option>
+                        <option value="disabled">disabled</option>
+                      </select>
+                    </Field>
+                    <Field
+                      label="数据库覆盖值"
+                      hint={runtimeConfigEditor.is_secret ? "敏感值不会回显。留空保存表示保持现状；输入新值后保存会覆盖当前数据库值。" : "留空保存表示保持现状；点恢复按钮可清空数据库覆盖并回退到 .env。"}
+                    >
+                      <input
+                        className="input"
+                        type={runtimeConfigEditor.is_secret ? "password" : "text"}
+                        value={runtimeConfigEditor.config_value}
+                        onChange={(event) => handleRuntimeConfigEditorChange("config_value", event.target.value)}
+                        placeholder={runtimeConfigEditor.is_secret ? "输入新的密钥覆盖当前值" : "输入新的数据库覆盖值"}
+                      />
+                    </Field>
+                    <Field label="备注">
+                      <input className="input" value={runtimeConfigEditor.remark} onChange={(event) => handleRuntimeConfigEditorChange("remark", event.target.value)} placeholder="记录用途或变更说明" />
+                    </Field>
+                  </div>
+                  <div className="admin-button-row">
+                    <button type="button" className="primary-btn" disabled={loadingRuntimeConfigSave} onClick={() => handleSaveAiRuntimeConfig()}>{loadingRuntimeConfigSave ? "保存中..." : "保存运行时配置"}</button>
+                    <button type="button" className="secondary-btn" disabled={loadingRuntimeConfigSave} onClick={() => handleSaveAiRuntimeConfig({ clearOverride: true })}>恢复 .env 默认值</button>
+                  </div>
+                </AdminPanel>
+              ) : null}
+            </div>
+          </AdminSection>
+
+          <AdminSection
+            id="admin-ai-prompt-center"
+            icon={FileCode2}
+            title="AI 提示词中心"
+            subtitle="直接查看 Prompt 列表，点击某个 prompt_key 在下方展开编辑。"
+            actions={<button type="button" className="secondary-btn" disabled={loadingPromptList} onClick={handleListAiPrompts}>{loadingPromptList ? "加载中..." : "刷新 Prompt 列表"}</button>}
+          >
+            <div className="admin-section-stack">
+              <AdminPanel title="Prompt 列表" description="这里展示当前已加载的 Prompt，点击某一项即可编辑。">
+                {promptList.length ? (
+                  <div className="table-wrap">
+                    <div className="result-box">共 {promptTotal} 条</div>
+                    <table className="table">
+                      <thead><tr><th>ID</th><th>Prompt Key</th><th>名称</th><th>阶段</th><th>状态</th><th>模型</th><th>版本</th></tr></thead>
+                      <tbody>
+                        {promptList.map((item) => (
+                          <tr key={item.id} className={String(promptEditor.id) === String(item.id) ? "admin-prompt-row-selected" : ""}>
+                            <td>{item.id}</td>
+                            <td><button type="button" className="admin-prompt-key-button" onClick={() => handleSelectPrompt(item)}>{item.prompt_key}</button></td>
+                            <td>{item.prompt_name}</td>
+                            <td>{item.prompt_stage}</td>
+                            <td>{item.status}</td>
+                            <td>{item.model_name || "-"}</td>
+                            <td>{item.prompt_version}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : <DataPlaceholder text={adminKey.trim() ? "还没有 Prompt 数据，点右上角刷新列表。" : "先输入管理员密钥，再点右上角刷新列表。"} />}
+              </AdminPanel>
+
+              {promptEditor.id ? (
+                <AdminPanel
+                  title={`编辑 ${promptEditor.prompt_key}`}
+                  description="修改后会直接更新 ai_prompt_configs，请谨慎操作。"
+                  aside={promptMessage ? <span className="check-success">{promptMessage}</span> : null}
+                >
+                  <div className="admin-detail-list admin-prompt-readonly-meta">
+                    <div><strong>业务域：</strong>{promptEditor.biz_domain || "-"}</div>
+                    <div><strong>阶段：</strong>{promptEditor.prompt_stage || "-"}</div>
+                    <div><strong>角色：</strong>{promptEditor.prompt_role || "-"}</div>
+                    <div><strong>Prompt Key：</strong>{promptEditor.prompt_key}</div>
+                    <div><strong>ID：</strong>{promptEditor.id}</div>
+                  </div>
+                  <div className="admin-form-grid">
+                    <Field label="Prompt 名称"><input className="input" value={promptEditor.prompt_name} onChange={(event) => handlePromptEditorChange("prompt_name", event.target.value)} /></Field>
+                    <Field label="Prompt 版本"><input className="input" value={promptEditor.prompt_version} onChange={(event) => handlePromptEditorChange("prompt_version", event.target.value)} /></Field>
+                    <Field label="状态">
+                      <select className="input" value={promptEditor.status} onChange={(event) => handlePromptEditorChange("status", event.target.value)}>
+                        <option value="draft">草稿</option>
+                        <option value="active">启用</option>
+                        <option value="disabled">停用</option>
+                        <option value="archived">归档</option>
+                      </select>
+                    </Field>
+                    <Field label="输出格式">
+                      <select className="input" value={promptEditor.output_format} onChange={(event) => handlePromptEditorChange("output_format", event.target.value)}>
+                        <option value="text">text</option>
+                        <option value="json">json</option>
+                      </select>
+                    </Field>
+                    <Field label="模型名称"><input className="input" value={promptEditor.model_name} onChange={(event) => handlePromptEditorChange("model_name", event.target.value)} placeholder="例如 deepseek-chat / gpt-4.1-mini" /></Field>
+                    <Field label="Temperature"><input className="input" type="number" step="0.1" value={promptEditor.temperature} onChange={(event) => handlePromptEditorChange("temperature", event.target.value)} /></Field>
+                    <Field label="Top P"><input className="input" type="number" step="0.1" value={promptEditor.top_p} onChange={(event) => handlePromptEditorChange("top_p", event.target.value)} /></Field>
+                    <Field label="Max Tokens"><input className="input" type="number" min="1" value={promptEditor.max_tokens} onChange={(event) => handlePromptEditorChange("max_tokens", event.target.value)} /></Field>
+                  </div>
+                  <div className="admin-form-grid">
+                    <Field label="Prompt 正文">
+                      <textarea className="input admin-prompt-textarea" value={promptEditor.prompt_content} onChange={(event) => handlePromptEditorChange("prompt_content", event.target.value)} placeholder="请输入 Prompt 正文" />
+                    </Field>
+                  </div>
+                  <div className="admin-form-grid">
+                    <Field label="variables_json" hint='使用 JSON 字符串，例如 {"profile_json":"当前档案快照"}'>
+                      <textarea className="input admin-prompt-json-textarea" value={promptEditor.variables_json_text} onChange={(event) => handlePromptEditorChange("variables_json_text", event.target.value)} placeholder='{"profile_json":"当前档案快照"}' />
+                    </Field>
+                    <Field label="备注">
+                      <textarea className="input admin-prompt-remark-textarea" value={promptEditor.remark} onChange={(event) => handlePromptEditorChange("remark", event.target.value)} placeholder="例如：用于档案页局部重算" />
+                    </Field>
+                  </div>
+                  <div className="admin-button-row">
+                    <button type="button" className="primary-btn" disabled={loadingPromptSave} onClick={handleSaveAiPrompt}>{loadingPromptSave ? "保存中..." : "保存 Prompt 修改"}</button>
+                  </div>
+                </AdminPanel>
+              ) : null}
+            </div>
+          </AdminSection>
+
           <AdminSection id="admin-system-center" icon={UserCog} title="账号与权限" subtitle="管理员日常维护入口，主要处理用户状态等基础控制能力。">
             <div className="admin-workbench-grid admin-workbench-grid--two">
               <AdminPanel title="用户状态管理" description="支持按用户 ID 或手机号更新账号状态。">
@@ -1188,6 +1614,8 @@ export default function AdminConsolePage() {
               </AdminPanel>
             </div>
           </AdminSection>
+            </div>
+          </div>
         </div>
       </main>
     </div>

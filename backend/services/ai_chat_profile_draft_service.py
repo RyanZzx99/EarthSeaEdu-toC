@@ -1,10 +1,10 @@
 """
-【草稿建档实验】独立 draft 链路服务。
+智能建档 draft 链路服务。
 
 设计目标：
 1. 不修改现有首页 / 档案页接口行为。
 2. 通过一套新接口单独验证 draft 方案。
-3. 让实验链路的命名、日志、返回都带统一标记，方便后续识别和回滚。
+3. 统一 draft 链路的命名、日志和返回结构，方便后续维护。
 """
 
 from __future__ import annotations
@@ -47,18 +47,18 @@ from backend.utils.flow_logging import log_timed_step
 
 logger = logging.getLogger(__name__)
 
-DRAFT_EXPERIMENT_MARK = "【草稿建档实验】"
-DRAFT_EXPERIMENT_PROMPT_KEY = "student_profile_build.draft_patch_extraction"
-DRAFT_EXPERIMENT_ALLOWED_PROMPT_STATUSES = ("active", "draft")
-DRAFT_EXPERIMENT_SCORING_PROMPT_KEY = "student_profile_build.scoring"
-DRAFT_EXPERIMENT_CONTEXT_MESSAGE_LIMIT = 8
-DRAFT_EXPERIMENT_INTERNAL_KEYS = {"_action", "_match_key"}
-DRAFT_EXPERIMENT_MULTI_TABLES_WITH_STUDENT_ID = set(MULTI_ROW_TABLES) - {"student_project_outputs"}
-DRAFT_EXPERIMENT_SINGLE_TABLES_WITH_STUDENT_ID = set(SINGLE_ROW_TABLES)
-DRAFT_EXPERIMENT_TABLE_COLUMNS_CACHE: dict[str, set[str]] = {}
+PROFILE_DRAFT_FLOW_NAME = "智能建档"
+PROFILE_DRAFT_PROMPT_KEY = "student_profile_build.draft_patch_extraction"
+PROFILE_DRAFT_ALLOWED_PROMPT_STATUSES = ("active", "draft")
+PROFILE_DRAFT_SCORING_PROMPT_KEY = "student_profile_build.scoring"
+PROFILE_DRAFT_CONTEXT_MESSAGE_LIMIT = 8
+PROFILE_DRAFT_INTERNAL_KEYS = {"_action", "_match_key"}
+PROFILE_DRAFT_MULTI_TABLES_WITH_STUDENT_ID = set(MULTI_ROW_TABLES) - {"student_project_outputs"}
+PROFILE_DRAFT_SINGLE_TABLES_WITH_STUDENT_ID = set(SINGLE_ROW_TABLES)
+PROFILE_DRAFT_TABLE_COLUMNS_CACHE: dict[str, set[str]] = {}
 
 
-def get_ai_chat_profile_draft_experiment_detail(
+def get_ai_chat_profile_draft_detail(
     db: Session,
     *,
     student_id: str,
@@ -83,7 +83,6 @@ def get_ai_chat_profile_draft_experiment_detail(
             student_id=student_id,
         )
         return {
-            "experiment_tag": DRAFT_EXPERIMENT_MARK,
             "session_id": session_id,
             "student_id": student_id,
             "biz_domain": biz_domain,
@@ -99,7 +98,7 @@ def get_ai_chat_profile_draft_experiment_detail(
     return _serialize_profile_draft_row(draft_row)
 
 
-def sync_ai_chat_profile_draft_experiment_from_official_snapshot(
+def sync_ai_chat_profile_draft_from_official_snapshot(
     db: Session,
     *,
     student_id: str,
@@ -116,7 +115,7 @@ def sync_ai_chat_profile_draft_experiment_from_official_snapshot(
 
     with log_timed_step(
         logger,
-        flow_name="草稿建档实验",
+        flow_name=PROFILE_DRAFT_FLOW_NAME,
         step_name="正式表快照覆盖 draft",
         student_id=student_id,
         session_id=session_id,
@@ -127,7 +126,7 @@ def sync_ai_chat_profile_draft_experiment_from_official_snapshot(
         )
         last_patch_json = {
             "sync_source": "official_snapshot",
-            "remark": f"{DRAFT_EXPERIMENT_MARK} 正式表快照覆盖 draft",
+            "remark": f"{PROFILE_DRAFT_FLOW_NAME} 正式表快照覆盖 draft",
         }
         draft_row = _upsert_profile_draft_row(
             db,
@@ -153,7 +152,7 @@ def sync_ai_chat_profile_draft_experiment_from_official_snapshot(
         return _serialize_profile_draft_row(draft_row)
 
 
-def extract_latest_patch_into_ai_chat_profile_draft_experiment(
+def extract_latest_patch_into_ai_chat_profile_draft(
     db: Session,
     *,
     student_id: str,
@@ -183,16 +182,16 @@ def extract_latest_patch_into_ai_chat_profile_draft_experiment(
 
     with log_timed_step(
         logger,
-        flow_name="草稿建档实验",
+        flow_name=PROFILE_DRAFT_FLOW_NAME,
         step_name="提取最新 draft patch",
         student_id=student_id,
         session_id=session_id,
     ):
         runtime_result = execute_prompt_with_context_by_statuses(
             db,
-            prompt_key=DRAFT_EXPERIMENT_PROMPT_KEY,
+            prompt_key=PROFILE_DRAFT_PROMPT_KEY,
             context=draft_context,
-            allowed_statuses=DRAFT_EXPERIMENT_ALLOWED_PROMPT_STATUSES,
+            allowed_statuses=PROFILE_DRAFT_ALLOWED_PROMPT_STATUSES,
         )
         patch_json = _parse_json_object(
             raw_text=runtime_result.content,
@@ -220,15 +219,14 @@ def extract_latest_patch_into_ai_chat_profile_draft_experiment(
             biz_domain=biz_domain,
             changed_fields=changed_fields,
             change_source="ai_dialogue_patch",
-            change_remark=f"{DRAFT_EXPERIMENT_MARK} 对话 patch 已并入 draft",
+            change_remark=f"{PROFILE_DRAFT_FLOW_NAME} 对话 patch 已并入 draft",
         )
         return {
-            "experiment_tag": DRAFT_EXPERIMENT_MARK,
             "session_id": session_id,
             "student_id": student_id,
             "biz_domain": biz_domain,
-            "prompt_key": DRAFT_EXPERIMENT_PROMPT_KEY,
-            "prompt_allowed_statuses": list(DRAFT_EXPERIMENT_ALLOWED_PROMPT_STATUSES),
+            "prompt_key": PROFILE_DRAFT_PROMPT_KEY,
+            "prompt_allowed_statuses": list(PROFILE_DRAFT_ALLOWED_PROMPT_STATUSES),
             "patch_json": patch_json,
             "draft_json": deepcopy(draft_row.draft_json),
             "source_round": draft_row.source_round,
@@ -240,7 +238,7 @@ def extract_latest_patch_into_ai_chat_profile_draft_experiment(
         }
 
 
-def regenerate_profile_result_from_ai_chat_profile_draft_experiment(
+def regenerate_profile_result_from_ai_chat_profile_draft(
     db: Session,
     *,
     student_id: str,
@@ -252,10 +250,10 @@ def regenerate_profile_result_from_ai_chat_profile_draft_experiment(
 
     说明：
     1. 这里故意不再跑 extraction。
-    2. 这条实验链路会把结果回写到 ai_chat_profile_results，便于后续接前端联调。
+    2. 这条正式 draft 链路会把结果回写到 ai_chat_profile_results，便于首页和档案页统一读取。
     """
 
-    draft_detail = get_ai_chat_profile_draft_experiment_detail(
+    draft_detail = get_ai_chat_profile_draft_detail(
         db,
         student_id=student_id,
         session_id=session_id,
@@ -282,7 +280,7 @@ def regenerate_profile_result_from_ai_chat_profile_draft_experiment(
 
     with log_timed_step(
         logger,
-        flow_name="草稿建档实验",
+        flow_name=PROFILE_DRAFT_FLOW_NAME,
         step_name="基于 draft 重算六维图",
         student_id=student_id,
         session_id=session_id,
@@ -295,22 +293,22 @@ def regenerate_profile_result_from_ai_chat_profile_draft_experiment(
         else:
             log_flow_info(
                 logger,
-                flow_name="草稿建档实验",
+                flow_name=PROFILE_DRAFT_FLOW_NAME,
                 step_name="基于 draft 重算六维图",
                 student_id=student_id,
                 session_id=session_id,
-                prompt_key=DRAFT_EXPERIMENT_SCORING_PROMPT_KEY,
-                message=f"{DRAFT_EXPERIMENT_MARK} 传给 scoring 的上下文={json.dumps(scoring_context, ensure_ascii=False)}",
+                prompt_key=PROFILE_DRAFT_SCORING_PROMPT_KEY,
+                message=f"{PROFILE_DRAFT_FLOW_NAME} 传给 scoring 的上下文={json.dumps(scoring_context, ensure_ascii=False)}",
             )
             scoring_runtime_result = execute_prompt_with_context_by_statuses(
                 db,
-                prompt_key=DRAFT_EXPERIMENT_SCORING_PROMPT_KEY,
+                prompt_key=PROFILE_DRAFT_SCORING_PROMPT_KEY,
                 context=scoring_context,
                 allowed_statuses=("active",),
             )
             scoring_json = _parse_json_object(
                 raw_text=scoring_runtime_result.content,
-                scene_name="draft_experiment_scoring",
+                scene_name="draft_scoring",
             )
             scoring_json = merge_partial_scoring_result(
                 strategy=strategy,
@@ -319,7 +317,7 @@ def regenerate_profile_result_from_ai_chat_profile_draft_experiment(
 
         with log_timed_step(
             logger,
-            flow_name="草稿建档实验",
+            flow_name=PROFILE_DRAFT_FLOW_NAME,
             step_name="草稿同步正式业务表",
             student_id=student_id,
             session_id=session_id,
@@ -345,7 +343,7 @@ def regenerate_profile_result_from_ai_chat_profile_draft_experiment(
             db_payload_json=persistence_result.db_payload,
             save_error_message=None,
             session_stage="build_ready",
-            session_remark=f"{DRAFT_EXPERIMENT_MARK} 基于 draft 重新生成六维图",
+            session_remark=f"{PROFILE_DRAFT_FLOW_NAME} 基于 draft 重新生成六维图",
         )
         reset_pending_radar_changes(
             db,
@@ -355,7 +353,6 @@ def regenerate_profile_result_from_ai_chat_profile_draft_experiment(
             last_profile_result_id=saved_result.profile_result_id,
         )
         return {
-            "experiment_tag": DRAFT_EXPERIMENT_MARK,
             "session_id": session_id,
             "student_id": student_id,
             "biz_domain": biz_domain,
@@ -380,7 +377,7 @@ def _build_draft_patch_extraction_context(
     latest_round_messages = get_visible_messages(
         db,
         session_id=session_id,
-        limit=DRAFT_EXPERIMENT_CONTEXT_MESSAGE_LIMIT,
+        limit=PROFILE_DRAFT_CONTEXT_MESSAGE_LIMIT,
     )
     current_progress_json = get_latest_progress_state(
         db,
@@ -497,7 +494,6 @@ def _upsert_profile_draft_row(
 
 def _serialize_profile_draft_row(draft_row: AiChatProfileDraft) -> dict[str, Any]:
     return {
-        "experiment_tag": DRAFT_EXPERIMENT_MARK,
         "session_id": draft_row.session_id,
         "student_id": draft_row.student_id,
         "biz_domain": draft_row.biz_domain,
@@ -518,7 +514,7 @@ def _prepare_draft_for_official_persistence(
     student_id: str,
 ) -> dict[str, Any]:
     """
-    【草稿建档实验】把 draft 文档转换成正式业务表可接受的 profile_json。
+    把 draft 文档转换成正式业务表可接受的 profile_json。
 
     说明：
     1. draft prompt 允许在 student_basic_info 中保留 raw 语义字段，如 target_country / major_interest。
@@ -572,7 +568,7 @@ def _filter_profile_json_to_existing_columns(
     profile_json: dict[str, Any],
 ) -> dict[str, Any]:
     filtered_payload: dict[str, Any] = {}
-    table_columns_map = _get_draft_experiment_table_columns_map(db)
+    table_columns_map = _get_profile_draft_table_columns_map(db)
 
     for table_name in SINGLE_ROW_TABLES:
         table_value = profile_json.get(table_name)
@@ -606,9 +602,9 @@ def _filter_profile_json_to_existing_columns(
     return filtered_payload
 
 
-def _get_draft_experiment_table_columns_map(db: Session) -> dict[str, set[str]]:
+def _get_profile_draft_table_columns_map(db: Session) -> dict[str, set[str]]:
     target_tables = tuple(SINGLE_ROW_TABLES + MULTI_ROW_TABLES)
-    missing_tables = [table_name for table_name in target_tables if table_name not in DRAFT_EXPERIMENT_TABLE_COLUMNS_CACHE]
+    missing_tables = [table_name for table_name in target_tables if table_name not in PROFILE_DRAFT_TABLE_COLUMNS_CACHE]
     if missing_tables:
         query_params = {f"table_{index}": table_name for index, table_name in enumerate(missing_tables)}
         placeholders = ", ".join(f":{param_name}" for param_name in query_params)
@@ -624,12 +620,12 @@ def _get_draft_experiment_table_columns_map(db: Session) -> dict[str, set[str]]:
             query_params,
         ).mappings().all()
         for table_name in missing_tables:
-            DRAFT_EXPERIMENT_TABLE_COLUMNS_CACHE[table_name] = set()
+            PROFILE_DRAFT_TABLE_COLUMNS_CACHE[table_name] = set()
         for row in rows:
-            DRAFT_EXPERIMENT_TABLE_COLUMNS_CACHE.setdefault(row["TABLE_NAME"], set()).add(row["COLUMN_NAME"])
+            PROFILE_DRAFT_TABLE_COLUMNS_CACHE.setdefault(row["TABLE_NAME"], set()).add(row["COLUMN_NAME"])
 
     return {
-        table_name: set(DRAFT_EXPERIMENT_TABLE_COLUMNS_CACHE.get(table_name, set()))
+        table_name: set(PROFILE_DRAFT_TABLE_COLUMNS_CACHE.get(table_name, set()))
         for table_name in target_tables
     }
 
@@ -744,13 +740,13 @@ def _merge_single_row_patch(
 ) -> dict[str, Any]:
     merged_row = deepcopy(current_row)
     for field_name, field_value in patch_row.items():
-        if field_name in DRAFT_EXPERIMENT_INTERNAL_KEYS:
+        if field_name in PROFILE_DRAFT_INTERNAL_KEYS:
             continue
         if field_value is None:
             continue
         merged_row[field_name] = deepcopy(field_value)
 
-    if table_name in DRAFT_EXPERIMENT_SINGLE_TABLES_WITH_STUDENT_ID:
+    if table_name in PROFILE_DRAFT_SINGLE_TABLES_WITH_STUDENT_ID:
         merged_row["student_id"] = student_id
     return merged_row
 
@@ -778,7 +774,7 @@ def _merge_multi_row_patch(
         clean_patch_row = {
             field_name: deepcopy(field_value)
             for field_name, field_value in raw_patch_row.items()
-            if field_name not in DRAFT_EXPERIMENT_INTERNAL_KEYS
+            if field_name not in PROFILE_DRAFT_INTERNAL_KEYS
         }
         if not _is_meaningful_patch_row(
             clean_patch_row,
@@ -786,7 +782,7 @@ def _merge_multi_row_patch(
         ):
             continue
 
-        if table_name in DRAFT_EXPERIMENT_MULTI_TABLES_WITH_STUDENT_ID:
+        if table_name in PROFILE_DRAFT_MULTI_TABLES_WITH_STUDENT_ID:
             clean_patch_row["student_id"] = student_id
 
         if action == "update" and match_key:
@@ -821,7 +817,7 @@ def _merge_multi_row_values(
             continue
         merged_row[field_name] = deepcopy(field_value)
 
-    if table_name in DRAFT_EXPERIMENT_MULTI_TABLES_WITH_STUDENT_ID:
+    if table_name in PROFILE_DRAFT_MULTI_TABLES_WITH_STUDENT_ID:
         merged_row["student_id"] = student_id
     return merged_row
 

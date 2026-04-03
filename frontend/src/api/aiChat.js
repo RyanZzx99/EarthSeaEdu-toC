@@ -87,9 +87,9 @@ export function regenerateAiChatArchiveRadar(sessionId) {
   );
 }
 
-export function syncAiChatDraftExperimentFromOfficial(sessionId) {
+export function syncAiChatDraftFromOfficial(sessionId) {
   return aiChatRequest.post(
-    `/api/v1/ai-chat-draft-experiment/sessions/${sessionId}/draft/sync-from-official`,
+    `/api/v1/ai-chat/sessions/${sessionId}/draft/sync-from-official`,
     null,
     {
       timeout: 180000,
@@ -97,9 +97,9 @@ export function syncAiChatDraftExperimentFromOfficial(sessionId) {
   );
 }
 
-export function regenerateAiChatDraftExperimentRadar(sessionId) {
+export function regenerateAiChatDraftRadar(sessionId) {
   return aiChatRequest.post(
-    `/api/v1/ai-chat-draft-experiment/sessions/${sessionId}/draft/regenerate-radar`,
+    `/api/v1/ai-chat/sessions/${sessionId}/draft/regenerate-radar`,
     null,
     {
       timeout: 180000,
@@ -109,12 +109,6 @@ export function regenerateAiChatDraftExperimentRadar(sessionId) {
 
 export function getAiChatRadar(sessionId) {
   return aiChatRequest.get(`/api/v1/ai-chat/sessions/${sessionId}/radar`);
-}
-
-export function buildAiChatProfile(sessionId) {
-  return aiChatRequest.post(`/api/v1/ai-chat/sessions/${sessionId}/build-profile`, null, {
-    timeout: 180000,
-  });
 }
 
 export function buildAiChatWsUrl() {
@@ -131,20 +125,4 @@ export function buildAiChatWsUrl() {
   }
 
   return `${protocol}://${window.location.host}/ws/ai-chat`;
-}
-
-export function buildAiChatDraftExperimentWsUrl() {
-  const explicitBaseUrl = import.meta.env.VITE_AI_CHAT_WS_BASE_URL;
-
-  if (explicitBaseUrl) {
-    return `${explicitBaseUrl.replace(/\/$/, "")}/ws/ai-chat-draft-experiment`;
-  }
-
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-
-  if (import.meta.env.DEV) {
-    return `${protocol}://${window.location.hostname}:8000/ws/ai-chat-draft-experiment`;
-  }
-
-  return `${protocol}://${window.location.host}/ws/ai-chat-draft-experiment`;
 }

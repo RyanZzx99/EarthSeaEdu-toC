@@ -63,6 +63,8 @@ from backend.schemas.auth import CreateNicknameWordRuleRequest
 from backend.schemas.auth import CreateNicknameContactPatternRequest
 from backend.schemas.auth import UpdateNicknameRuleTargetStatusRequest
 from backend.schemas.auth import UpdateInviteCodeStatusRequest
+from backend.schemas.auth import UpdateAiPromptConfigRequest
+from backend.schemas.auth import UpdateAiRuntimeConfigRequest
 from backend.schemas.auth import UpdateUserStatusRequest
 from backend.schemas.auth import UserProfileResponse
 from backend.schemas.auth import WechatBindInviteRequirementCheckRequest
@@ -99,6 +101,10 @@ from backend.services.nickname_guard_service import list_nickname_contact_patter
 from backend.services.nickname_guard_service import list_nickname_rule_groups
 from backend.services.nickname_guard_service import list_nickname_word_rules
 from backend.services.nickname_guard_service import update_nickname_rule_target_status
+from backend.services.ai_prompt_admin_service import list_ai_prompt_configs
+from backend.services.ai_prompt_admin_service import update_ai_prompt_config
+from backend.services.ai_runtime_config_service import list_ai_runtime_configs
+from backend.services.ai_runtime_config_service import update_ai_runtime_config
 
 # 导入微信服务
 from backend.services.wechat_service import build_wechat_qr_authorize_url
@@ -1373,3 +1379,148 @@ def list_nickname_audit_logs_api(
             for row in rows
         ],
     }
+
+
+@router.get("/ai-prompts")
+def list_ai_prompts_api(
+    biz_domain: str | None = Query(default=None, description="业务域筛选"),
+    prompt_stage: str | None = Query(default=None, description="阶段筛选"),
+    status: str | None = Query(default=None, description="状态筛选"),
+    keyword: str | None = Query(default=None, description="Prompt Key / 名称 / 版本关键字"),
+    limit: int = Query(default=50, ge=1, le=200, description="返回数量上限"),
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    查询 AI Prompt 配置列表接口（管理员）。
+    """
+    verify_invite_admin_key(x_admin_key)
+
+    rows, total = list_ai_prompt_configs(
+        db=db,
+        biz_domain=biz_domain,
+        prompt_stage=prompt_stage,
+        status=status,
+        keyword=keyword,
+        limit=limit,
+    )
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": row.id,
+                "prompt_key": row.prompt_key,
+                "prompt_name": row.prompt_name,
+                "biz_domain": row.biz_domain,
+                "prompt_role": row.prompt_role,
+                "prompt_stage": row.prompt_stage,
+                "prompt_content": row.prompt_content,
+                "prompt_version": row.prompt_version,
+                "status": row.status,
+                "model_name": row.model_name,
+                "temperature": row.temperature,
+                "top_p": row.top_p,
+                "max_tokens": row.max_tokens,
+                "output_format": row.output_format,
+                "variables_json": row.variables_json,
+                "remark": row.remark,
+                "created_by": row.created_by,
+                "updated_by": row.updated_by,
+                "create_time": row.create_time,
+                "update_time": row.update_time,
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.post("/ai-prompts/{prompt_id}/update")
+def update_ai_prompt_api(
+    prompt_id: int,
+    payload: UpdateAiPromptConfigRequest,
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    更新 AI Prompt 配置接口（管理员）。
+    """
+    verify_invite_admin_key(x_admin_key)
+
+    try:
+        row = update_ai_prompt_config(
+            db=db,
+            prompt_id=prompt_id,
+            prompt_name=payload.prompt_name,
+            prompt_content=payload.prompt_content,
+            prompt_version=payload.prompt_version,
+            status=payload.status,
+            output_format=payload.output_format,
+            model_name=payload.model_name,
+            temperature=payload.temperature,
+            top_p=payload.top_p,
+            max_tokens=payload.max_tokens,
+            variables_json=payload.variables_json,
+            remark=payload.remark,
+        )
+        return {
+            "id": row.id,
+            "prompt_key": row.prompt_key,
+            "prompt_name": row.prompt_name,
+            "biz_domain": row.biz_domain,
+            "prompt_role": row.prompt_role,
+            "prompt_stage": row.prompt_stage,
+            "prompt_content": row.prompt_content,
+            "prompt_version": row.prompt_version,
+            "status": row.status,
+            "model_name": row.model_name,
+            "temperature": row.temperature,
+            "top_p": row.top_p,
+            "max_tokens": row.max_tokens,
+            "output_format": row.output_format,
+            "variables_json": row.variables_json,
+            "remark": row.remark,
+            "updated_by": row.updated_by,
+            "update_time": row.update_time,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/ai-runtime-configs")
+def list_ai_runtime_configs_api(
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    查询 AI 运行时配置列表接口（管理员）。
+    """
+    verify_invite_admin_key(x_admin_key)
+    return {
+        "items": list_ai_runtime_configs(db),
+    }
+
+
+@router.post("/ai-runtime-configs/{config_key}/update")
+def update_ai_runtime_config_api(
+    config_key: str,
+    payload: UpdateAiRuntimeConfigRequest,
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    更新 AI 运行时配置接口（管理员）。
+    """
+    verify_invite_admin_key(x_admin_key)
+
+    try:
+        item = update_ai_runtime_config(
+            db=db,
+            config_key=config_key,
+            config_value=payload.config_value,
+            status=payload.status,
+            remark=payload.remark,
+            clear_override=payload.clear_override,
+        )
+        return item
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

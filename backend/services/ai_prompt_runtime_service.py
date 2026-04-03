@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from backend.config.db_conf import settings
 from backend.models.ai_chat_models import AiPromptConfig
+from backend.services.ai_runtime_config_service import get_effective_ai_runtime_config_map
 from backend.utils.flow_logging import build_flow_prefix
 from backend.utils.flow_logging import log_flow_info
 
@@ -135,7 +136,7 @@ def get_prompt_config_by_statuses(
 
     作用：
     1. 旧链路仍然只读 active Prompt。
-    2. 新的实验链路允许读取 draft Prompt，方便先落代码再单独启用。
+    2. draft 链路允许读取 draft 状态的 Prompt，方便新 Prompt 先入库再启用。
     """
 
     normalized_statuses = tuple(
@@ -188,10 +189,11 @@ def execute_prompt_with_context(
         db,
         prompt_key=prompt_key,
     )
-    model_name = _resolve_model_name(prompt)
+    runtime_config = get_effective_ai_runtime_config_map(db)
+    model_name = _resolve_model_name(prompt, runtime_config)
     safe_context = _to_json_safe(context)
     context_length = _measure_context_length(safe_context)
-    timeout_config = _build_timeout_config(stream=False)
+    timeout_config = _build_timeout_config(runtime_config, stream=False)
     timeout_summary = _format_timeout_config(timeout_config, stream=False)
     log_flow_info(
         logger,
@@ -210,12 +212,14 @@ def execute_prompt_with_context(
         prompt=prompt,
         context=safe_context,
         model_name=model_name,
+        runtime_config=runtime_config,
         stream=False,
     )
     start_time = perf_counter()
     try:
         response_json = _post_chat_completion(
             request_body,
+            runtime_config=runtime_config,
             timeout_config=timeout_config,
             prompt_key=prompt_key,
             student_id=student_id,
@@ -271,7 +275,7 @@ def execute_prompt_with_context_by_statuses(
     按指定状态集合执行 Prompt。
 
     作用：
-    1. 给草稿建档实验链路单独使用。
+    1. 给智能建档 draft 链路单独使用。
     2. 旧 execute_prompt_with_context 保持不动，避免影响现有业务接口。
     """
 
@@ -283,15 +287,16 @@ def execute_prompt_with_context_by_statuses(
         prompt_key=prompt_key,
         allowed_statuses=allowed_statuses,
     )
-    model_name = _resolve_model_name(prompt)
+    runtime_config = get_effective_ai_runtime_config_map(db)
+    model_name = _resolve_model_name(prompt, runtime_config)
     safe_context = _to_json_safe(context)
     context_length = _measure_context_length(safe_context)
-    timeout_config = _build_timeout_config(stream=False)
+    timeout_config = _build_timeout_config(runtime_config, stream=False)
     timeout_summary = _format_timeout_config(timeout_config, stream=False)
     log_flow_info(
         logger,
         flow_name="AI模型",
-        step_name="实验链路非流式模型调用",
+        step_name="多状态 Prompt 非流式调用",
         student_id=student_id,
         session_id=session_id,
         prompt_key=prompt_key,
@@ -306,12 +311,14 @@ def execute_prompt_with_context_by_statuses(
         prompt=prompt,
         context=safe_context,
         model_name=model_name,
+        runtime_config=runtime_config,
         stream=False,
     )
     start_time = perf_counter()
     try:
         response_json = _post_chat_completion(
             request_body,
+            runtime_config=runtime_config,
             timeout_config=timeout_config,
             prompt_key=prompt_key,
             student_id=student_id,
@@ -321,10 +328,10 @@ def execute_prompt_with_context_by_statuses(
     except Exception:
         elapsed_ms = (perf_counter() - start_time) * 1000
         logger.exception(
-            "%s 实验链路模型调用失败，context长度=%s 字符，允许状态=%s，超时配置=%s，实际耗时 %.2f ms",
+            "%s 多状态 Prompt 调用失败，context长度=%s 字符，允许状态=%s，超时配置=%s，实际耗时 %.2f ms",
             build_flow_prefix(
                 flow_name="AI模型",
-                step_name="实验链路非流式模型调用",
+                step_name="多状态 Prompt 非流式调用",
                 student_id=student_id,
                 session_id=session_id,
                 prompt_key=prompt_key,
@@ -339,7 +346,7 @@ def execute_prompt_with_context_by_statuses(
     log_flow_info(
         logger,
         flow_name="AI模型",
-        step_name="实验链路非流式模型调用",
+        step_name="多状态 Prompt 非流式调用",
         student_id=student_id,
         session_id=session_id,
         prompt_key=prompt_key,
@@ -386,10 +393,11 @@ def stream_prompt_with_context(
         db,
         prompt_key=prompt_key,
     )
-    model_name = _resolve_model_name(prompt)
+    runtime_config = get_effective_ai_runtime_config_map(db)
+    model_name = _resolve_model_name(prompt, runtime_config)
     safe_context = _to_json_safe(context)
     context_length = _measure_context_length(safe_context)
-    timeout_config = _build_timeout_config(stream=True)
+    timeout_config = _build_timeout_config(runtime_config, stream=True)
     timeout_summary = _format_timeout_config(timeout_config, stream=True)
     log_flow_info(
         logger,
@@ -408,12 +416,14 @@ def stream_prompt_with_context(
         prompt=prompt,
         context=safe_context,
         model_name=model_name,
+        runtime_config=runtime_config,
         stream=True,
     )
     start_time = perf_counter()
     try:
         response = _open_chat_completion_stream(
             request_body,
+            runtime_config=runtime_config,
             timeout_config=timeout_config,
         )
     except Exception:
@@ -465,6 +475,7 @@ def _build_chat_completion_body(
     prompt: AiPromptConfig,
     context: dict[str, Any],
     model_name: str,
+    runtime_config: dict[str, Any],
     stream: bool,
 ) -> dict[str, Any]:
     """
@@ -505,7 +516,7 @@ def _build_chat_completion_body(
     request_body = {
         "model": model_name,
         "messages": messages,
-        "temperature": _resolve_temperature(prompt),
+        "temperature": _resolve_temperature(prompt, runtime_config),
         "stream": stream,
     }
 
@@ -534,7 +545,6 @@ def _build_runtime_system_control_message(
 
     if prompt_key not in {
         "student_profile_build.conversation",
-        "student_profile_build.conversation_with_progress",
     }:
         return None
 
@@ -637,21 +647,35 @@ def _build_extraction_runtime_control_message() -> str:
     )
 
 
-def _resolve_model_name(prompt: AiPromptConfig) -> str:
+def _resolve_model_name(
+    prompt: AiPromptConfig,
+    runtime_config: dict[str, Any],
+) -> str:
     """决定本次调用使用的模型名称。"""
 
-    model_name = (prompt.model_name or settings.ai_model_default_name or "").strip()
+    model_name = (
+        prompt.model_name
+        or runtime_config.get("AI_MODEL_DEFAULT_NAME")
+        or settings.ai_model_default_name
+        or ""
+    ).strip()
     if not model_name:
         raise PromptRuntimeError("未配置可用的 AI 模型名称")
     return model_name
 
 
-def _resolve_temperature(prompt: AiPromptConfig) -> float:
+def _resolve_temperature(
+    prompt: AiPromptConfig,
+    runtime_config: dict[str, Any],
+) -> float:
     """决定本次调用使用的 temperature。"""
 
     if prompt.temperature is not None:
         return float(prompt.temperature)
-    return float(settings.ai_model_default_temperature)
+    return float(
+        runtime_config.get("AI_MODEL_DEFAULT_TEMPERATURE")
+        or settings.ai_model_default_temperature
+    )
 
 
 def _should_retry_request_exception(exc: requests.RequestException) -> bool:
@@ -681,6 +705,7 @@ def _should_retry_status_code(status_code: int) -> bool:
 def _post_chat_completion(
     request_body: dict[str, Any],
     *,
+    runtime_config: dict[str, Any],
     timeout_config: tuple[float, float],
     prompt_key: str | None = None,
     student_id: str | None = None,
@@ -694,7 +719,7 @@ def _post_chat_completion(
     2. 需要已配置 AI_MODEL_API_KEY。
     """
 
-    url, headers = _build_request_target()
+    url, headers = _build_request_target(runtime_config)
     retry_count = max(int(settings.ai_model_non_stream_retry_count), 0)
     backoff_seconds = max(
         float(settings.ai_model_non_stream_retry_backoff_seconds),
@@ -767,6 +792,7 @@ def _post_chat_completion(
 def _open_chat_completion_stream(
     request_body: dict[str, Any],
     *,
+    runtime_config: dict[str, Any],
     timeout_config: tuple[float, float],
 ) -> requests.Response:
     """
@@ -777,7 +803,7 @@ def _open_chat_completion_stream(
     2. 让“建立流连接”和“解析流内容”两个职责分离，后续更容易定位问题。
     """
 
-    url, headers = _build_request_target()
+    url, headers = _build_request_target(runtime_config)
     try:
         response = requests.post(
             url,
@@ -892,15 +918,25 @@ def _iter_chat_completion_stream(
         response.close()
 
 
-def _build_request_target() -> tuple[str, dict[str, str]]:
+def _build_request_target(
+    runtime_config: dict[str, Any],
+) -> tuple[str, dict[str, str]]:
     """
     构建模型接口地址和请求头。
 
     当前统一走 OpenAI 兼容 `chat/completions`。
     """
 
-    base_url = settings.ai_model_base_url.strip().rstrip("/")
-    api_key = settings.ai_model_api_key.strip()
+    base_url = str(
+        runtime_config.get("AI_MODEL_BASE_URL")
+        or settings.ai_model_base_url
+        or ""
+    ).strip().rstrip("/")
+    api_key = str(
+        runtime_config.get("AI_MODEL_API_KEY")
+        or settings.ai_model_api_key
+        or ""
+    ).strip()
     if not base_url:
         raise PromptRuntimeError("未配置 AI 模型基础地址 ai_model_base_url")
     if not api_key:
@@ -946,15 +982,29 @@ def _to_json_safe(value: Any) -> Any:
     return value
 
 
-def _build_timeout_config(*, stream: bool) -> tuple[float, float]:
+def _build_timeout_config(
+    runtime_config: dict[str, Any],
+    *,
+    stream: bool,
+) -> tuple[float, float]:
     """生成 requests 需要的 (connect_timeout, read_timeout) 配置。"""
 
-    connect_timeout = float(settings.ai_model_connect_timeout_seconds)
-    read_timeout = float(
-        settings.ai_model_stream_read_timeout_seconds
-        if stream
-        else settings.ai_model_read_timeout_seconds
+    connect_timeout = float(
+        runtime_config.get("AI_MODEL_CONNECT_TIMEOUT_SECONDS")
+        or settings.ai_model_connect_timeout_seconds
     )
+    read_timeout_value = (
+        runtime_config.get("AI_MODEL_STREAM_READ_TIMEOUT_SECONDS")
+        if stream
+        else runtime_config.get("AI_MODEL_READ_TIMEOUT_SECONDS")
+    )
+    if read_timeout_value in (None, ""):
+        read_timeout_value = (
+            settings.ai_model_stream_read_timeout_seconds
+            if stream
+            else settings.ai_model_read_timeout_seconds
+        )
+    read_timeout = float(read_timeout_value)
     return connect_timeout, read_timeout
 
 

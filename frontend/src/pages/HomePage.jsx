@@ -26,14 +26,12 @@ import {
 } from "recharts";
 import { getMe } from "../api/auth";
 import {
-  buildAiChatProfile,
-  buildAiChatDraftExperimentWsUrl,
   buildAiChatWsUrl,
   getAiChatMessages,
   getAiChatResult,
   getAiChatSessionDetail,
   getCurrentAiChatSession,
-  regenerateAiChatDraftExperimentRadar,
+  regenerateAiChatDraftRadar,
 } from "../api/aiChat";
 import RankingTool from "../components/RankingTool";
 import ScoreConverter from "../components/ScoreConverter";
@@ -41,8 +39,6 @@ import ScoreConverter from "../components/ScoreConverter";
 const AI_CHAT_BIZ_DOMAIN = "student_profile_build";
 const AI_CHAT_SESSION_CACHE_KEY = "latest_ai_chat_session_id";
 const AI_CHAT_OPEN_PANEL_KEY = "open_ai_chat_panel";
-const ENABLE_DRAFT_EXPERIMENT_FLOW = true;
-const DRAFT_EXPERIMENT_MARK = "【草稿建档实验】";
 
 const examLinks = [
   { name: "托福报名", url: "https://www.ets.org/toefl", accent: "#2c4a8a", badge: "TOEFL" },
@@ -250,7 +246,6 @@ export default function HomePage() {
   const [nextQuestionFocus, setNextQuestionFocus] = useState(null);
   const [pendingProfileData, setPendingProfileData] = useState(null);
   const [profileResultStatus, setProfileResultStatus] = useState(null);
-  const [isDraftExperimentResult, setIsDraftExperimentResult] = useState(false);
   const [saveErrorMessage, setSaveErrorMessage] = useState("");
   const [queuedOutgoingMessages, setQueuedOutgoingMessages] = useState([]);
 
@@ -360,8 +355,7 @@ export default function HomePage() {
 
   const hasGeneratedProfile = Boolean(profileData || pendingProfileData || profileResultStatus);
   const isArchiveCreating =
-    !isDraftExperimentResult &&
-    (currentStage === "profile_saving" || profileResultStatus === "generated");
+    currentStage === "profile_saving" || profileResultStatus === "generated";
   const isConversationReadyForInput =
     currentStage === "conversation" && conversationPhase === "ready_for_input";
   const isConversationStillProcessing =
@@ -575,25 +569,17 @@ export default function HomePage() {
           const resultResponse = await getAiChatResult(targetSessionId);
           const normalizedResult = normalizeProfileResult(resultResponse.data);
           const restoredResultStatus = resultResponse.data?.result_status || null;
-          const restoredIsDraftExperiment = Boolean(
-            ENABLE_DRAFT_EXPERIMENT_FLOW &&
-              String(sessionDetail.remark || "").includes(DRAFT_EXPERIMENT_MARK)
-          );
 
           setPendingProfileData(normalizedResult);
           setProfileData(normalizedResult);
           setProfileResultStatus(restoredResultStatus);
-          setIsDraftExperimentResult(restoredIsDraftExperiment);
           setSaveErrorMessage(resultResponse.data?.save_error_message || "");
           setShowChat(shouldForceOpenChatFromNavigation);
           setShowProfileResult(false);
           setChatEnded(true);
           chatEndedRef.current = true;
 
-          if (
-            !restoredIsDraftExperiment &&
-            (restoredResultStatus === "generated" || normalizedStage === "profile_saving")
-          ) {
+          if (restoredResultStatus === "generated" || normalizedStage === "profile_saving") {
             setCreateProfileLoading(true);
             createProfileLoadingRef.current = true;
             setUiHint("六维图结果已恢复，档案正在后台继续创建。");
@@ -605,8 +591,6 @@ export default function HomePage() {
             void waitForProfileGenerationResult(targetSessionId, true);
           } else if (shouldForceOpenChatFromNavigation) {
             setUiHint("可以继续补充信息，我会基于当前会话继续整理档案。");
-          } else if (restoredIsDraftExperiment) {
-            setUiHint("已恢复你上一次基于草稿生成的六维图结果。");
           } else if (restoredResultStatus === "saved") {
             setUiHint("已恢复你上一次生成的六维图结果。");
           } else if (normalizedStage === "build_ready") {
@@ -650,11 +634,7 @@ export default function HomePage() {
     }
 
     connectPromiseRef.current = new Promise((resolve, reject) => {
-      const ws = new WebSocket(
-        ENABLE_DRAFT_EXPERIMENT_FLOW
-          ? buildAiChatDraftExperimentWsUrl()
-          : buildAiChatWsUrl()
-      );
+      const ws = new WebSocket(buildAiChatWsUrl());
       let connectResolved = false;
       let connectRejected = false;
 
@@ -1245,37 +1225,23 @@ export default function HomePage() {
     });
 
     try {
-      if (ENABLE_DRAFT_EXPERIMENT_FLOW) {
-        const response = await regenerateAiChatDraftExperimentRadar(sessionIdRef.current);
-        const normalized = normalizeProfileResult(response.data || {});
-        setPendingProfileData(normalized);
-        setProfileData(normalized);
-        setProfileResultStatus(response.data?.result_status || "generated");
-        setIsDraftExperimentResult(true);
-        setShowProfileResult(true);
-        setShowChat(false);
-        setChatEnded(true);
-        chatEndedRef.current = true;
-        setCurrentStage("build_ready");
-        currentStageRef.current = "build_ready";
-        setUiHint("六维图已基于最新草稿生成。");
-        setConnectionError("");
-        logProfileFlow("草稿实验六维图生成完成", {
-          sessionId: sessionIdRef.current,
-          resultStatus: response.data?.result_status || "generated",
-        });
-        return;
-      }
-
-      const response = await buildAiChatProfile(sessionIdRef.current);
-      const acceptedStage = response.data?.current_stage || "extraction";
-      setCurrentStage(acceptedStage);
-      currentStageRef.current = acceptedStage;
-      logProfileFlow("后台任务已受理", {
+      const response = await regenerateAiChatDraftRadar(sessionIdRef.current);
+      const normalized = normalizeProfileResult(response.data || {});
+      setPendingProfileData(normalized);
+      setProfileData(normalized);
+      setProfileResultStatus(response.data?.result_status || "generated");
+      setShowProfileResult(true);
+      setShowChat(false);
+      setChatEnded(true);
+      chatEndedRef.current = true;
+      setCurrentStage("build_ready");
+      currentStageRef.current = "build_ready";
+      setUiHint("六维图已更新完成。");
+      setConnectionError("");
+      logProfileFlow("六维图生成完成", {
         sessionId: sessionIdRef.current,
-        currentStage: acceptedStage,
+        resultStatus: response.data?.result_status || "generated",
       });
-      await waitForProfileGenerationResult(sessionIdRef.current, hadProfileBefore);
     } catch (error) {
       const backendMessage = error?.response?.data?.detail;
       if (error?.response?.status === 409) {
@@ -1691,9 +1657,7 @@ export default function HomePage() {
                       <h3 className="home-radar-title">你的六维建档结果</h3>
                       <p className="home-radar-subtitle">{getProfileStatusText(profileResultStatus)}</p>
                       <p className="home-radar-subtitle home-radar-subtitle-secondary">
-                        {isDraftExperimentResult
-                          ? "当前结果来源：草稿档案"
-                          : `当前档案状态：${getArchiveStatusText(profileResultStatus)}`}
+                        {`当前档案状态：${getArchiveStatusText(profileResultStatus)}`}
                       </p>
                     </div>
 
