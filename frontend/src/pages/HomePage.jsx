@@ -565,6 +565,15 @@ export default function HomePage() {
     });
   }
 
+  function handleHomeEntryAction(sectionId, key) {
+    if (key === "mock") {
+      navigate("/mockexam");
+      return;
+    }
+
+    scrollToSection(sectionId, key);
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1455,7 +1464,7 @@ export default function HomePage() {
                 key={item.key}
                 item={item}
                 isActive={activeSection === item.key}
-                onClick={() => scrollToSection(item.sectionId, item.key)}
+                onClick={() => handleHomeEntryAction(item.sectionId, item.key)}
               />
             ))}
           </nav>
@@ -1921,7 +1930,7 @@ export default function HomePage() {
                   key={item.key}
                   item={item}
                   index={index}
-                  onClick={() => scrollToSection(item.sectionId, item.key)}
+                  onClick={() => handleHomeEntryAction(item.sectionId, item.key)}
                 />
               ))}
             </div>
@@ -1949,9 +1958,18 @@ export default function HomePage() {
                 <span className="home-mock-panel-tag">即将上线</span>
                 <h3 className="home-mock-panel-title">模拟考试入口已加入首页导航</h3>
                 <p className="home-mock-panel-text">
-                  当前先提供统一卡片入口，后续可以直接在这里接入真实模考、限时练习和成绩记录模块。
+                  现在已经接入独立 `/mockexam` 页面，可按考试类别、考试内容和题库文件直接进入真实模考。
                 </p>
               </div>
+              <motion.button
+                type="button"
+                className="home-secondary-button"
+                onClick={() => navigate("/mockexam")}
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                进入模拟考试
+              </motion.button>
             </div>
           </motion.section>
 

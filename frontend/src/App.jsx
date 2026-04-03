@@ -4,6 +4,8 @@ import { getMe } from "./api/auth";
 import AdminConsolePage from "./pages/AdminConsolePage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
+import MockExamPage from "./pages/MockExamPage";
+import MockExamRunnerPage from "./pages/MockExamRunnerPage";
 import ProfilePage from "./pages/ProfilePage";
 
 function useResolvedAuthState() {
@@ -114,6 +116,22 @@ export default function App() {
         element={
           <RequireAuth authState={authState}>
             <ProfilePage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam/run/:questionBankId"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamRunnerPage />
           </RequireAuth>
         }
       />
