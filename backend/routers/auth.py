@@ -19,11 +19,16 @@
 
 # 导入 FastAPI 路由相关对象
 from fastapi import APIRouter
+from fastapi import File
 from fastapi import Depends
+from fastapi import Form
 from fastapi import Header
 from fastapi import HTTPException
 from fastapi import Query
 from fastapi import Request
+from fastapi import UploadFile
+from fastapi.responses import RedirectResponse
+from urllib.parse import urlencode
 
 # 导入重定向响应
 from fastapi.responses import RedirectResponse
@@ -34,6 +39,7 @@ from urllib.parse import urlparse
 
 # 导入数据库 Session
 from sqlalchemy.orm import Session
+from backend.config.db_conf import get_db
 
 # 导入数据库依赖
 from backend.config.db_conf import get_db
@@ -65,6 +71,7 @@ from backend.schemas.auth import UpdateNicknameRuleTargetStatusRequest
 from backend.schemas.auth import UpdateInviteCodeStatusRequest
 from backend.schemas.auth import UpdateAiPromptConfigRequest
 from backend.schemas.auth import UpdateAiRuntimeConfigRequest
+from backend.schemas.auth import QuestionBankListResponse
 from backend.schemas.auth import UpdateUserStatusRequest
 from backend.schemas.auth import UserProfileResponse
 from backend.schemas.auth import WechatBindInviteRequirementCheckRequest
@@ -72,6 +79,7 @@ from backend.schemas.auth import WechatBindMobileRequest
 from backend.schemas.auth import WechatLoginRequest
 
 # 导入 service 层方法
+from backend.services.auth_service import bind_mobile_for_wechat_user
 from backend.services.auth_service import bind_mobile_for_wechat_user
 from backend.services.auth_service import check_sms_login_invite_requirement
 from backend.services.auth_service import check_wechat_bind_invite_requirement
@@ -105,6 +113,8 @@ from backend.services.ai_prompt_admin_service import list_ai_prompt_configs
 from backend.services.ai_prompt_admin_service import update_ai_prompt_config
 from backend.services.ai_runtime_config_service import list_ai_runtime_configs
 from backend.services.ai_runtime_config_service import update_ai_runtime_config
+from backend.services.question_bank_service import create_question_bank
+from backend.services.question_bank_service import list_question_banks
 
 # 导入微信服务
 from backend.services.wechat_service import build_wechat_qr_authorize_url
@@ -1524,3 +1534,71 @@ def update_ai_runtime_config_api(
         return item
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/question-banks/upload")
+async def upload_question_bank_api(
+    file_name: str | None = Form(default=None),
+    exam_category: str = Form(...),
+    exam_content: str = Form(...),
+    file: UploadFile = File(...),
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    verify_invite_admin_key(x_admin_key)
+
+    raw_bytes = await file.read()
+
+    try:
+        row = create_question_bank(
+            db=db,
+            title=file_name,
+            upload_file_name=file.filename or "",
+            exam_category=exam_category,
+            exam_content=exam_content,
+            file_bytes=raw_bytes,
+        )
+        return {
+            "id": row.id,
+            "file_name": row.file_name,
+            "exam_category": row.exam_category,
+            "exam_content": row.exam_content,
+            "status": row.status,
+            "create_time": row.create_time,
+            "update_time": row.update_time,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/question-banks", response_model=QuestionBankListResponse)
+def list_question_banks_api(
+    page: int = Query(default=1, ge=1, description="页码"),
+    page_size: int = Query(default=10, ge=1, le=100, description="每页条数"),
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    verify_invite_admin_key(x_admin_key)
+
+    rows, total = list_question_banks(
+        db=db,
+        page=page,
+        page_size=page_size,
+    )
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": [
+            {
+                "id": row.id,
+                "file_name": row.file_name,
+                "exam_category": row.exam_category,
+                "exam_content": row.exam_content,
+                "status": row.status,
+                "create_time": row.create_time,
+                "update_time": row.update_time,
+            }
+            for row in rows
+        ],
+    }

@@ -697,3 +697,20 @@ class UpdateAiRuntimeConfigRequest(BaseModel):
     status: str = Field(default="active", min_length=1, max_length=20, description="????")
     remark: Optional[str] = Field(default=None, max_length=500, description="??")
     clear_override: bool = Field(default=False, description="????????????? .env")
+
+
+class QuestionBankItem(BaseModel):
+    id: int = Field(..., description="题库ID")
+    file_name: str = Field(..., description="标题或文件名")
+    exam_category: str = Field(..., description="考试类别")
+    exam_content: str = Field(..., description="考试内容")
+    status: str = Field(..., description="状态")
+    create_time: datetime = Field(..., description="创建时间")
+    update_time: datetime = Field(..., description="更新时间")
+
+
+class QuestionBankListResponse(BaseModel):
+    total: int = Field(..., description="总数")
+    page: int = Field(..., description="当前页")
+    page_size: int = Field(..., description="每页条数")
+    items: list[QuestionBankItem] = Field(default_factory=list, description="题库列表")

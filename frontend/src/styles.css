@@ -1175,6 +1175,97 @@ footer {
   padding: 48px 16px 72px;
 }
 
+.home-shortcut-strip {
+  margin-bottom: 40px;
+}
+
+.home-shortcut-track {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding: 4px 0 10px;
+  scrollbar-width: none;
+}
+
+.home-shortcut-track::-webkit-scrollbar {
+  display: none;
+}
+
+.home-shortcut-card {
+  position: relative;
+  flex: 0 0 248px;
+  min-height: 156px;
+  border: 1px solid var(--shortcut-border);
+  border-radius: 24px;
+  padding: 22px;
+  background: linear-gradient(135deg, var(--shortcut-start) 0%, var(--shortcut-end) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 16px 34px rgba(15, 23, 42, 0.12);
+  color: #ffffff;
+  cursor: pointer;
+  text-align: left;
+  appearance: none;
+  overflow: hidden;
+}
+
+.home-shortcut-card-glow {
+  position: absolute;
+  right: -24px;
+  bottom: -28px;
+  width: 124px;
+  height: 124px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, var(--shortcut-glow) 0%, rgba(255, 255, 255, 0) 72%);
+  pointer-events: none;
+}
+
+.home-shortcut-card-head {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 28px;
+}
+
+.home-shortcut-card-badge {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--shortcut-badge);
+  color: var(--shortcut-icon);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.home-shortcut-card-arrow {
+  color: rgba(255, 255, 255, 0.72);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.home-shortcut-card-copy {
+  position: relative;
+  z-index: 1;
+}
+
+.home-shortcut-card-copy h3 {
+  color: #ffffff;
+  font-size: 27px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.home-shortcut-card-copy p {
+  color: rgba(226, 232, 240, 0.82);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
 .home-section {
   margin-bottom: 56px;
 }
@@ -1217,6 +1308,58 @@ footer {
   border-radius: 18px;
   padding: 28px;
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
+}
+
+.home-mock-panel {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(250, 204, 21, 0.12), transparent 34%),
+    linear-gradient(135deg, rgba(44, 74, 138, 0.05), rgba(15, 23, 42, 0.02));
+  border-color: rgba(44, 74, 138, 0.12);
+}
+
+.home-mock-panel-badge {
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(250, 204, 21, 0.16);
+  color: #a16207;
+  flex-shrink: 0;
+}
+
+.home-mock-panel-copy {
+  min-width: 0;
+}
+
+.home-mock-panel-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 9999px;
+  background: rgba(250, 204, 21, 0.14);
+  color: #a16207;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.home-mock-panel-title {
+  color: #111827;
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.home-mock-panel-text {
+  color: #4b5563;
+  font-size: 15px;
+  line-height: 1.75;
 }
 
 /* 中文注释：Hero 区新增的 AI 建档对话框与六维图结果区样式。
@@ -2006,6 +2149,11 @@ footer {
     justify-content: center;
   }
 
+  .home-shortcut-card {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
   .home-exam-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2039,6 +2187,14 @@ footer {
 
   .home-card {
     padding: 20px;
+  }
+
+  .home-shortcut-card-copy h3 {
+    font-size: 23px;
+  }
+
+  .home-mock-panel {
+    flex-direction: column;
   }
 
   .home-ai-shell,
@@ -4254,6 +4410,20 @@ footer {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.admin-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.admin-pagination-copy {
+  color: #64748b;
+  font-size: 14px;
 }
 
 .admin-prompt-key-button {

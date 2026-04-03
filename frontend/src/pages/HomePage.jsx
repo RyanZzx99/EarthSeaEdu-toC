@@ -50,9 +50,73 @@ const examLinks = [
 
 const sectionItems = [
   { key: "hero", label: "首页介绍", sectionId: "home-hero", icon: Home },
+  { key: "mock", label: "模拟考试", sectionId: "home-mock-exam", icon: GraduationCap },
   { key: "tools", label: "快捷小工具", sectionId: "home-tools", icon: Calculator },
   { key: "exam", label: "考试报名", sectionId: "home-exams", icon: BookOpen },
   { key: "ranking", label: "大学排名", sectionId: "home-ranking", icon: TrendingUp },
+];
+
+const shortcutCards = [
+  {
+    key: "mock",
+    title: "模拟考试",
+    description: "全真练习与后续成绩回看入口",
+    sectionId: "home-mock-exam",
+    icon: GraduationCap,
+    palette: {
+      start: "#2f270b",
+      end: "#4d4012",
+      border: "rgba(250, 204, 21, 0.18)",
+      badge: "rgba(250, 204, 21, 0.18)",
+      icon: "#fde047",
+      glow: "rgba(250, 204, 21, 0.16)",
+    },
+  },
+  {
+    key: "tools",
+    title: "快捷小工具",
+    description: "成绩换算与申请基础判断",
+    sectionId: "home-tools",
+    icon: Calculator,
+    palette: {
+      start: "#062e35",
+      end: "#083a42",
+      border: "rgba(34, 211, 238, 0.18)",
+      badge: "rgba(34, 211, 238, 0.18)",
+      icon: "#22d3ee",
+      glow: "rgba(34, 211, 238, 0.16)",
+    },
+  },
+  {
+    key: "exam",
+    title: "考试报名链接",
+    description: "快速直达主流考试官网入口",
+    sectionId: "home-exams",
+    icon: Link2,
+    palette: {
+      start: "#0d2f20",
+      end: "#11412b",
+      border: "rgba(74, 222, 128, 0.18)",
+      badge: "rgba(74, 222, 128, 0.18)",
+      icon: "#4ade80",
+      glow: "rgba(74, 222, 128, 0.14)",
+    },
+  },
+  {
+    key: "ranking",
+    title: "大学排名查询",
+    description: "根据地区和 QS 区间快速筛选",
+    sectionId: "home-ranking",
+    icon: TrendingUp,
+    palette: {
+      start: "#241a3f",
+      end: "#37215f",
+      border: "rgba(192, 132, 252, 0.18)",
+      badge: "rgba(192, 132, 252, 0.18)",
+      icon: "#c084fc",
+      glow: "rgba(192, 132, 252, 0.16)",
+    },
+  },
 ];
 
 const RADAR_LABELS = {
@@ -153,6 +217,46 @@ function TopActionButton({ label, children }) {
       aria-label={label}
     >
       {children}
+    </motion.button>
+  );
+}
+
+function ShortcutNavCard({ item, index, onClick }) {
+  const Icon = item.icon;
+
+  return (
+    <motion.button
+      type="button"
+      className="home-shortcut-card"
+      onClick={onClick}
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.42, delay: 0.54 + index * 0.06 }}
+      whileHover={{ y: -6, scale: 1.01 }}
+      whileTap={{ scale: 0.985 }}
+      style={{
+        "--shortcut-start": item.palette.start,
+        "--shortcut-end": item.palette.end,
+        "--shortcut-border": item.palette.border,
+        "--shortcut-badge": item.palette.badge,
+        "--shortcut-icon": item.palette.icon,
+        "--shortcut-glow": item.palette.glow,
+      }}
+    >
+      <span className="home-shortcut-card-glow" aria-hidden="true" />
+      <div className="home-shortcut-card-head">
+        <span className="home-shortcut-card-badge">
+          <Icon size={20} strokeWidth={2.1} />
+        </span>
+        <span className="home-shortcut-card-arrow" aria-hidden="true">
+          <ArrowRight size={18} strokeWidth={2.1} />
+        </span>
+      </div>
+
+      <div className="home-shortcut-card-copy">
+        <h3>{item.title}</h3>
+        <p>{item.description}</p>
+      </div>
     </motion.button>
   );
 }
@@ -1810,6 +1914,47 @@ export default function HomePage() {
         </motion.section>
 
         <div className="home-content-wrap">
+          <section className="home-shortcut-strip" aria-label="首页功能导航">
+            <div className="home-shortcut-track">
+              {shortcutCards.map((item, index) => (
+                <ShortcutNavCard
+                  key={item.key}
+                  item={item}
+                  index={index}
+                  onClick={() => scrollToSection(item.sectionId, item.key)}
+                />
+              ))}
+            </div>
+          </section>
+
+          <motion.section
+            className="home-section"
+            id="home-mock-exam"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.48 }}
+          >
+            <div className="home-section-head">
+              <div className="home-section-icon"><GraduationCap size={24} strokeWidth={2.1} /></div>
+              <div>
+                <h2 className="home-section-title">模拟考试</h2>
+                <p className="home-section-subtitle">为后续在线模考、阶段练习和成绩回看预留统一入口。</p>
+              </div>
+            </div>
+            <div className="home-card home-mock-panel">
+              <div className="home-mock-panel-badge">
+                <GraduationCap size={22} strokeWidth={2.1} />
+              </div>
+              <div className="home-mock-panel-copy">
+                <span className="home-mock-panel-tag">即将上线</span>
+                <h3 className="home-mock-panel-title">模拟考试入口已加入首页导航</h3>
+                <p className="home-mock-panel-text">
+                  当前先提供统一卡片入口，后续可以直接在这里接入真实模考、限时练习和成绩记录模块。
+                </p>
+              </div>
+            </div>
+          </motion.section>
+
           <motion.section
             className="home-section"
             id="home-tools"

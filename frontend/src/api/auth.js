@@ -432,3 +432,20 @@ export function updateAiRuntimeConfig(configKey, data, adminKey) {
     },
   });
 }
+
+export function uploadQuestionBank(formData, adminKey) {
+  return request.post("/api/v1/auth/question-banks/upload", formData, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
+
+export function listQuestionBanks(params, adminKey) {
+  return request.get("/api/v1/auth/question-banks", {
+    params,
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}

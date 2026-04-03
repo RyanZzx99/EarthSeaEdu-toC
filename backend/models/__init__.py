@@ -21,3 +21,4 @@ from backend.models.nickname_guard_models import NicknameContactPattern
 from backend.models.nickname_guard_models import NicknameRulePublishLog
 from backend.models.nickname_guard_models import NicknameAuditLog
 from backend.models.nickname_guard_models import NicknameRuleOperationLog
+from backend.models.question_bank_models import QuestionBank
