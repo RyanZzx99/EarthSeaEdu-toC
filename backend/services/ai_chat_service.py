@@ -36,6 +36,7 @@ from backend.utils.flow_logging import log_timed_step
 DEFAULT_BIZ_DOMAIN = "student_profile_build"
 DEFAULT_SESSION_STATUS = "active"
 DEFAULT_STAGE = "conversation"
+INITIAL_STAGE = "idle"
 
 VISIBLE_MESSAGE_TYPE = "visible_text"
 INTERNAL_STATE_MESSAGE_TYPE = "internal_state"
@@ -984,7 +985,7 @@ def _create_session(
         student_id=student_id,
         biz_domain=biz_domain,
         session_status=DEFAULT_SESSION_STATUS,
-        current_stage=DEFAULT_STAGE,
+        current_stage=INITIAL_STAGE,
         current_round=0,
         collected_slots_json={},
         missing_dimensions_json=[],

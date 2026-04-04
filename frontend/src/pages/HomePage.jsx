@@ -298,6 +298,30 @@ function getStageDisplayLabel(stage) {
   return stageLabelMap[stage] || stage;
 }
 
+function normalizeAiSessionStage({
+  currentStage,
+  currentRound = 0,
+  finalProfileId = null,
+  visibleMessageCount = 0,
+}) {
+  const normalizedStage = currentStage || "idle";
+
+  // 中文注释：
+  // 历史上有一类“刚创建但还没有开始对话”的空会话，
+  // 数据库里会落成 conversation + round=0。
+  // 这种状态不应该被前端当成“上一轮还在处理中”，统一按 idle 处理。
+  if (
+    normalizedStage === "conversation" &&
+    Number(currentRound || 0) <= 0 &&
+    !finalProfileId &&
+    Number(visibleMessageCount || 0) === 0
+  ) {
+    return "idle";
+  }
+
+  return normalizedStage;
+}
+
 function getProfileStatusText(resultStatus) {
   if (resultStatus === "generated") {
     return "六维图已生成";
@@ -661,7 +685,12 @@ export default function HomePage() {
         sessionDetail.final_profile_id &&
         (sessionDetail.current_stage === "completed" || sessionDetail.current_stage === "failed")
           ? "build_ready"
-          : sessionDetail.current_stage || "idle";
+          : normalizeAiSessionStage({
+              currentStage: sessionDetail.current_stage,
+              currentRound: sessionDetail.current_round,
+              finalProfileId: sessionDetail.final_profile_id,
+              visibleMessageCount: restoredMessages.length,
+            });
 
       setAiSessionId(sessionDetail.session_id);
       sessionIdRef.current = sessionDetail.session_id;
@@ -788,9 +817,15 @@ export default function HomePage() {
           setAiSessionId(data.session_id);
           sessionIdRef.current = data.session_id;
           localStorage.setItem(AI_CHAT_SESSION_CACHE_KEY, data.session_id);
-          const stage = data.payload?.current_stage || "conversation";
+          const stage = normalizeAiSessionStage({
+            currentStage: data.payload?.current_stage,
+            currentRound: data.payload?.current_round,
+            visibleMessageCount: messages.length,
+          });
           setCurrentStage(stage);
           currentStageRef.current = stage;
+          setConversationPhase(null);
+          conversationPhaseRef.current = null;
           setUiHint("AI 建档助手已连接，可以开始对话。");
           resolve(data.session_id);
           return;
