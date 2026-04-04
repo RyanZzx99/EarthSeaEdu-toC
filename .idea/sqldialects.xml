@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="SqlDialectMappings">
+    <file url="file://$PROJECT_DIR$/sql/20260402_add_maj_interest_text_to_student_basic_info.sql" dialect="GenericSQL" />
+  </component>
+</project>
