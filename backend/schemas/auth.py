@@ -126,6 +126,34 @@ class PasswordLoginRequest(BaseModel):
     )
 
 
+class TempRegisterLoginRequest(BaseModel):
+    """
+    手机号 + 密码 + 邀请码的临时注册登录请求体
+    """
+
+    mobile: str = Field(
+        ...,
+        description="手机号",
+        examples=["13800138000"],
+    )
+
+    password: str = Field(
+        ...,
+        min_length=8,
+        max_length=24,
+        description="登录密码",
+        examples=["Abc12345!"],
+    )
+
+    invite_code: str = Field(
+        ...,
+        min_length=1,
+        max_length=32,
+        description="邀请码",
+        examples=["INVITE2026"],
+    )
+
+
 class SmsLoginRequest(BaseModel):
     """
     手机验证码登录请求体

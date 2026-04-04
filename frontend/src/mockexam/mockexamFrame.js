@@ -17,12 +17,25 @@ function serializeInline(value) {
     .replaceAll("&", "\\u0026");
 }
 
-export function buildMockExamIeltsSrcDoc({ email, questionBankId, fileName, payload }) {
+export function buildMockExamIeltsSrcDoc({
+  email,
+  sourceType = "question-bank",
+  sourceId = null,
+  questionBankId = null,
+  fileName,
+  payload,
+  submitUrl = "",
+  inlinePayload = null,
+}) {
   const bootstrapScript = `<script>window.QUIZ_BOOTSTRAP = ${serializeInline({
     items: payload,
-    questionBankId,
+    sourceType,
+    sourceId,
+    questionBankId: questionBankId || (sourceType === "question-bank" ? sourceId : null),
     fileName,
     email,
+    submitUrl,
+    inlinePayload,
   })};</script><script>${quizIeltsScript}</script>`;
 
   return quizIeltsHtml

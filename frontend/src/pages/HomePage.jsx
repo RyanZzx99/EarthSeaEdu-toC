@@ -64,12 +64,12 @@ const shortcutCards = [
     sectionId: "home-mock-exam",
     icon: GraduationCap,
     palette: {
-      start: "#2f270b",
-      end: "#4d4012",
-      border: "rgba(250, 204, 21, 0.18)",
-      badge: "rgba(250, 204, 21, 0.18)",
-      icon: "#fde047",
-      glow: "rgba(250, 204, 21, 0.16)",
+      start: "#f7f1e2",
+      end: "#ece3cc",
+      border: "rgba(152, 125, 58, 0.18)",
+      badge: "rgba(181, 150, 73, 0.14)",
+      icon: "#8f7430",
+      glow: "rgba(204, 183, 128, 0.34)",
     },
   },
   {
@@ -79,12 +79,12 @@ const shortcutCards = [
     sectionId: "home-tools",
     icon: Calculator,
     palette: {
-      start: "#062e35",
-      end: "#083a42",
-      border: "rgba(34, 211, 238, 0.18)",
-      badge: "rgba(34, 211, 238, 0.18)",
-      icon: "#22d3ee",
-      glow: "rgba(34, 211, 238, 0.16)",
+      start: "#edf5f8",
+      end: "#dfeaf1",
+      border: "rgba(84, 117, 141, 0.16)",
+      badge: "rgba(107, 143, 168, 0.14)",
+      icon: "#4f6f87",
+      glow: "rgba(153, 184, 205, 0.28)",
     },
   },
   {
@@ -94,12 +94,12 @@ const shortcutCards = [
     sectionId: "home-exams",
     icon: Link2,
     palette: {
-      start: "#0d2f20",
-      end: "#11412b",
-      border: "rgba(74, 222, 128, 0.18)",
-      badge: "rgba(74, 222, 128, 0.18)",
-      icon: "#4ade80",
-      glow: "rgba(74, 222, 128, 0.14)",
+      start: "#edf5ef",
+      end: "#e1eee4",
+      border: "rgba(90, 128, 101, 0.16)",
+      badge: "rgba(101, 145, 114, 0.13)",
+      icon: "#567966",
+      glow: "rgba(154, 191, 166, 0.28)",
     },
   },
   {
@@ -109,12 +109,12 @@ const shortcutCards = [
     sectionId: "home-ranking",
     icon: TrendingUp,
     palette: {
-      start: "#241a3f",
-      end: "#37215f",
-      border: "rgba(192, 132, 252, 0.18)",
-      badge: "rgba(192, 132, 252, 0.18)",
-      icon: "#c084fc",
-      glow: "rgba(192, 132, 252, 0.16)",
+      start: "#eef2f7",
+      end: "#e0e8f2",
+      border: "rgba(92, 114, 142, 0.16)",
+      badge: "rgba(113, 136, 170, 0.13)",
+      icon: "#546983",
+      glow: "rgba(157, 176, 202, 0.28)",
     },
   },
 ];
@@ -232,7 +232,7 @@ function ShortcutNavCard({ item, index, onClick }) {
       initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.42, delay: 0.54 + index * 0.06 }}
-      whileHover={{ y: -6, scale: 1.01 }}
+      whileHover={{ y: -10, scale: 1.016, rotate: index % 2 === 0 ? -0.45 : 0.45 }}
       whileTap={{ scale: 0.985 }}
       style={{
         "--shortcut-start": item.palette.start,
@@ -1582,16 +1582,13 @@ export default function HomePage() {
                 <motion.div
                   key="chat-shell"
                   className="home-ai-shell"
-                  layout
-                  initial={{ opacity: 0, y: 24, scale: 0.97, height: 0 }}
-                  animate={{ opacity: 1, y: 0, scale: 1, height: "auto" }}
-                  exit={{ opacity: 0, y: -10, scale: 0.985, height: 0, marginTop: 0 }}
+                  initial={{ opacity: 0, y: 24, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -10, scale: 0.985 }}
                   transition={{
                     opacity: { duration: 0.2, ease: "easeOut" },
                     scale: { duration: 0.24, ease: "easeOut" },
                     y: { duration: 0.26, ease: "easeOut" },
-                    height: { type: "spring", stiffness: 140, damping: 22 },
-                    layout: { type: "spring", stiffness: 110, damping: 20, mass: 0.9 },
                   }}
                 >
                   <div className="home-ai-header">
@@ -1676,11 +1673,13 @@ export default function HomePage() {
                       ) : null}
                     </div>
 
-                    {uiHint ? <p className="home-ai-hint">{uiHint}</p> : null}
-                    {connectionError ? <p className="home-ai-error">{connectionError}</p> : null}
-                    {saveErrorMessage && profileResultStatus !== "saved" ? (
-                      <p className="home-ai-error">建档保存异常：{saveErrorMessage}</p>
-                    ) : null}
+                    <div className="home-ai-feedback-slot">
+                      {uiHint ? <p className="home-ai-hint">{uiHint}</p> : null}
+                      {connectionError ? <p className="home-ai-error">{connectionError}</p> : null}
+                      {saveErrorMessage && profileResultStatus !== "saved" ? (
+                        <p className="home-ai-error">建档保存异常：{saveErrorMessage}</p>
+                      ) : null}
+                    </div>
 
                     {isRoundProcessing ? (
                       <div className="home-ai-processing-row">
@@ -1935,43 +1934,6 @@ export default function HomePage() {
               ))}
             </div>
           </section>
-
-          <motion.section
-            className="home-section"
-            id="home-mock-exam"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.48 }}
-          >
-            <div className="home-section-head">
-              <div className="home-section-icon"><GraduationCap size={24} strokeWidth={2.1} /></div>
-              <div>
-                <h2 className="home-section-title">模拟考试</h2>
-                <p className="home-section-subtitle">为后续在线模考、阶段练习和成绩回看预留统一入口。</p>
-              </div>
-            </div>
-            <div className="home-card home-mock-panel">
-              <div className="home-mock-panel-badge">
-                <GraduationCap size={22} strokeWidth={2.1} />
-              </div>
-              <div className="home-mock-panel-copy">
-                <span className="home-mock-panel-tag">即将上线</span>
-                <h3 className="home-mock-panel-title">模拟考试入口已加入首页导航</h3>
-                <p className="home-mock-panel-text">
-                  现在已经接入独立 `/mockexam` 页面，可按考试类别、考试内容和题库文件直接进入真实模考。
-                </p>
-              </div>
-              <motion.button
-                type="button"
-                className="home-secondary-button"
-                onClick={() => navigate("/mockexam")}
-                whileHover={{ scale: 1.04 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                进入模拟考试
-              </motion.button>
-            </div>
-          </motion.section>
 
           <motion.section
             className="home-section"

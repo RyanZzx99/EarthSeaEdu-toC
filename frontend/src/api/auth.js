@@ -128,6 +128,13 @@ export function passwordLogin(data) {
 }
 
 /**
+ * 手机号 + 密码 + 邀请码临时注册并登录
+ */
+export function tempRegisterLogin(data) {
+  return request.post("/api/v1/auth/login/temp-register", data);
+}
+
+/**
  * 手机验证码登录
  */
 export function smsLogin(data) {

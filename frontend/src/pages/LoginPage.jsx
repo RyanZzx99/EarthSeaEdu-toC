@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { useNavigate } from "react-router-dom";
 import {
   checkSmsInviteRequired,
   checkWechatBindInviteRequired,
@@ -8,9 +7,11 @@ import {
   passwordLogin,
   sendSmsCode,
   smsLogin,
+  tempRegisterLogin,
   wechatBindMobile,
   wechatLogin,
 } from "../api/auth";
+import { validatePasswordRule } from "../utils/passwordValidation";
 
 function Particle({ x, y, size, duration, delay }) {
   return (
@@ -92,6 +93,7 @@ const particles = [
 const tabs = [
   { key: "password", label: "密码登录" },
   { key: "sms", label: "验证码登录" },
+  { key: "temp_register", label: "临时注册入口" },
   { key: "wechat", label: "微信扫码" },
 ];
 
@@ -156,13 +158,15 @@ function MessageBlock({ errorMessage, successMessage }) {
 }
 
 export default function LoginPage() {
-  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("password");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [smsPhone, setSmsPhone] = useState("");
   const [smsCode, setSmsCode] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [tempRegisterPhone, setTempRegisterPhone] = useState("");
+  const [tempRegisterPassword, setTempRegisterPassword] = useState("");
+  const [tempRegisterInviteCode, setTempRegisterInviteCode] = useState("");
   const [bindPhone, setBindPhone] = useState("");
   const [bindCode, setBindCode] = useState("");
   const [bindInviteCode, setBindInviteCode] = useState("");
@@ -179,12 +183,17 @@ export default function LoginPage() {
   const [bindToken, setBindToken] = useState("");
   const [smsNeedInvite, setSmsNeedInvite] = useState(null);
   const [bindNeedInvite, setBindNeedInvite] = useState(null);
+  const [tempRegisterPasswordCheckMessage, setTempRegisterPasswordCheckMessage] = useState("");
+  const [tempRegisterPasswordCheckAvailable, setTempRegisterPasswordCheckAvailable] = useState(false);
   const [hoveredPanel, setHoveredPanel] = useState(null);
   const [phoneFocused, setPhoneFocused] = useState(false);
   const [passFocused, setPassFocused] = useState(false);
   const [smsPhoneFocused, setSmsPhoneFocused] = useState(false);
   const [codeFocused, setCodeFocused] = useState(false);
   const [inviteFocused, setInviteFocused] = useState(false);
+  const [tempRegisterPhoneFocused, setTempRegisterPhoneFocused] = useState(false);
+  const [tempRegisterPasswordFocused, setTempRegisterPasswordFocused] = useState(false);
+  const [tempRegisterInviteFocused, setTempRegisterInviteFocused] = useState(false);
   const [bindPhoneFocused, setBindPhoneFocused] = useState(false);
   const [bindCodeFocused, setBindCodeFocused] = useState(false);
   const [bindInviteFocused, setBindInviteFocused] = useState(false);
@@ -209,12 +218,17 @@ export default function LoginPage() {
   }, []);
 
   const panelTitle = useMemo(
-    () => (activeTab === "bind_mobile" ? "绑定手机号" : "欢迎回来"),
+    () => {
+      if (activeTab === "bind_mobile") return "绑定手机号";
+      if (activeTab === "temp_register") return "临时注册入口";
+      return "欢迎回来";
+    },
     [activeTab]
   );
 
   const panelDescription = useMemo(() => {
     if (activeTab === "bind_mobile") return "完成手机号绑定后即可进入系统";
+    if (activeTab === "temp_register") return "通过手机号、密码和邀请码快速完成注册并直接登录";
     return "登录您的学习账户，继续探索之旅";
   }, [activeTab]);
 
@@ -243,6 +257,11 @@ export default function LoginPage() {
     // 中文注释：微信绑定手机号场景同样需要在手机号变化时清空旧判断结果，避免误把别的手机号状态带过来。
     setBindNeedInvite(null);
     setBindInviteCode("");
+  }
+
+  function resetTempRegisterPasswordCheckResult() {
+    setTempRegisterPasswordCheckMessage("");
+    setTempRegisterPasswordCheckAvailable(false);
   }
 
   async function ensureSmsInviteRequirement(targetMobile = smsPhone, options = {}) {
@@ -310,6 +329,11 @@ export default function LoginPage() {
     if (!rememberLogin) sessionStorage.setItem("access_token_shadow", token);
   }
 
+  function finishLogin(token) {
+    saveAccessToken(token);
+    window.location.replace("/");
+  }
+
   function clearLoginQueryParams() {
     window.history.replaceState({}, document.title, "/login");
   }
@@ -330,6 +354,13 @@ export default function LoginPage() {
       replaceLoginQueryParams((searchParams) => {
         searchParams.delete("mode");
       });
+      return;
+    }
+    if (mode === "temp-register" || mode === "temp_register") {
+      setActiveTab("temp_register");
+      replaceLoginQueryParams((searchParams) => {
+        searchParams.delete("mode");
+      });
     }
   }
 
@@ -340,6 +371,14 @@ export default function LoginPage() {
       setSmsPhone(prefilledMobile.replace(/\D/g, "").slice(0, 11));
     }
     setActiveTab("sms");
+  }
+
+  function switchToTempRegister(prefilledMobile = "") {
+    clearMessages();
+    if (prefilledMobile) {
+      setTempRegisterPhone(prefilledMobile.replace(/\D/g, "").slice(0, 11));
+    }
+    setActiveTab("temp_register");
   }
 
   function handleSessionExpiredTip() {
@@ -359,8 +398,7 @@ export default function LoginPage() {
     try {
       setLoading(true);
       const response = await passwordLogin({ mobile: phone, password });
-      saveAccessToken(response.data.access_token);
-      navigate("/");
+      finishLogin(response.data.access_token);
     } catch (error) {
       setErrorMessage(error?.response?.data?.detail || "登录失败，请稍后重试");
     } finally {
@@ -405,13 +443,53 @@ export default function LoginPage() {
       }
 
       const response = await smsLogin(requestPayload);
-      saveAccessToken(response.data.access_token);
-      navigate("/");
+      finishLogin(response.data.access_token);
     } catch (error) {
       setErrorMessage(error?.response?.data?.detail || "登录失败，请稍后重试");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleTempRegisterLogin() {
+    clearMessages();
+    if (!validateMobile(tempRegisterPhone)) return setErrorMessage("请输入正确的手机号");
+    if (!tempRegisterPassword) return setErrorMessage("请输入密码");
+    if (!tempRegisterInviteCode.trim()) return setErrorMessage("请输入邀请码");
+    const passwordValidationMessage = validatePasswordRule(tempRegisterPassword);
+    if (passwordValidationMessage) return setErrorMessage(passwordValidationMessage);
+
+    try {
+      setLoading(true);
+      const response = await tempRegisterLogin({
+        mobile: tempRegisterPhone,
+        password: tempRegisterPassword,
+        invite_code: tempRegisterInviteCode.trim(),
+      });
+      finishLogin(response.data.access_token);
+    } catch (error) {
+      setErrorMessage(error?.response?.data?.detail || "注册失败，请稍后重试");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleCheckTempRegisterPassword() {
+    resetTempRegisterPasswordCheckResult();
+
+    if (!tempRegisterPassword) {
+      setTempRegisterPasswordCheckMessage("请输入密码");
+      return;
+    }
+
+    const passwordValidationMessage = validatePasswordRule(tempRegisterPassword);
+    if (passwordValidationMessage) {
+      setTempRegisterPasswordCheckMessage(passwordValidationMessage);
+      return;
+    }
+
+    setTempRegisterPasswordCheckAvailable(true);
+    setTempRegisterPasswordCheckMessage("该密码可以使用");
   }
 
   async function handleWechatAuthorize() {
@@ -466,8 +544,7 @@ export default function LoginPage() {
       }
 
       const response = await wechatBindMobile(requestPayload);
-      saveAccessToken(response.data.access_token);
-      navigate("/");
+      finishLogin(response.data.access_token);
     } catch (error) {
       setErrorMessage(error?.response?.data?.detail || "绑定失败，请稍后重试");
     } finally {
@@ -490,9 +567,7 @@ export default function LoginPage() {
       setLoading(true);
       const response = await wechatLogin({ code, state });
       if (response.data.access_token) {
-        saveAccessToken(response.data.access_token);
-        clearLoginQueryParams();
-        navigate("/");
+        finishLogin(response.data.access_token);
         return;
       }
       if (response.data.next_step === "bind_mobile") {
@@ -576,7 +651,7 @@ export default function LoginPage() {
           </motion.div>
         </div>
         <motion.div className="relative z-10 flex gap-10" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.45 }}>
-          <AnimatedStat target="3" label="登录方式" delay={0.55} />
+          <AnimatedStat target="4" label="登录方式" delay={0.55} />
           <AnimatedStat target="24h" label="随时访问" delay={0.65} />
           <AnimatedStat target="1站式" label="留学工具包" delay={0.75} />
         </motion.div>
@@ -733,6 +808,83 @@ export default function LoginPage() {
               </motion.div>
             ) : null}
 
+            {activeTab === "temp_register" ? (
+              <motion.div key="temp_register" variants={formVariants} initial="initial" animate="animate" exit="exit" transition={{ duration: 0.22, ease: "easeInOut" }} className="flex flex-col gap-4 login-form-panel">
+                <div className="flex flex-col gap-1.5">
+                  <label className="login-field-label">手机号</label>
+                  <AnimatedInput focused={tempRegisterPhoneFocused}>
+                    <MobilePrefix />
+                    <input
+                      type="tel"
+                      placeholder="请输入手机号"
+                      maxLength={11}
+                      value={tempRegisterPhone}
+                      onChange={(event) => setTempRegisterPhone(event.target.value.replace(/\D/g, ""))}
+                      onFocus={() => setTempRegisterPhoneFocused(true)}
+                      onBlur={() => setTempRegisterPhoneFocused(false)}
+                      className="login-plain-input flex-1 outline-none bg-transparent"
+                    />
+                  </AnimatedInput>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="login-field-label">密码</label>
+                  <div className="flex gap-3">
+                    <AnimatedInput focused={tempRegisterPasswordFocused}>
+                      <PasswordIcon />
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        placeholder="请输入密码"
+                        value={tempRegisterPassword}
+                        onChange={(event) => {
+                          setTempRegisterPassword(event.target.value);
+                          resetTempRegisterPasswordCheckResult();
+                        }}
+                        onFocus={() => setTempRegisterPasswordFocused(true)}
+                        onBlur={() => setTempRegisterPasswordFocused(false)}
+                        className="login-plain-input flex-1 outline-none bg-transparent"
+                      />
+                      <button type="button" onClick={() => setShowPassword((value) => !value)} className="login-inline-button">
+                        <EyeIcon />
+                      </button>
+                    </AnimatedInput>
+                    <motion.button type="button" onClick={handleCheckTempRegisterPassword} className="login-code-button rounded-2xl px-4 whitespace-nowrap" style={{ cursor: !tempRegisterPassword ? "not-allowed" : "pointer" }}>
+                      检查是否可用
+                    </motion.button>
+                  </div>
+                </div>
+
+                {tempRegisterPasswordCheckMessage ? (
+                  <p className={`check-message ${tempRegisterPasswordCheckAvailable ? "check-success" : "check-error"}`}>
+                    {tempRegisterPasswordCheckMessage}
+                  </p>
+                ) : null}
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="login-field-label">邀请码</label>
+                  <AnimatedInput focused={tempRegisterInviteFocused}>
+                    <input
+                      type="text"
+                      placeholder="请输入邀请码"
+                      value={tempRegisterInviteCode}
+                      onChange={(event) => setTempRegisterInviteCode(event.target.value)}
+                      onFocus={() => setTempRegisterInviteFocused(true)}
+                      onBlur={() => setTempRegisterInviteFocused(false)}
+                      className="login-plain-input flex-1 outline-none bg-transparent"
+                    />
+                  </AnimatedInput>
+                </div>
+
+                <p className="login-helper-text">
+                  仅限未注册手机号使用，提交后会直接完成注册并登录。密码需满足 8-24 位且至少包含两类字符。
+                </p>
+
+                <motion.button type="button" onClick={handleTempRegisterLogin} className="login-submit-button w-full py-3 rounded-2xl mt-1" style={{ cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }} whileHover={!loading ? { scale: 1.015, boxShadow: "0 6px 20px rgba(26,39,68,0.35)" } : {}} whileTap={!loading ? { scale: 0.98 } : {}}>
+                  {loading ? "提交中..." : "注册并登录"}
+                </motion.button>
+              </motion.div>
+            ) : null}
+
             {activeTab === "wechat" ? (
               <motion.div key="wechat" variants={formVariants} initial="initial" animate="animate" exit="exit" transition={{ duration: 0.22, ease: "easeInOut" }} className="flex flex-col items-center gap-5 login-form-panel">
                 <motion.div className="login-wechat-placeholder-wrap relative overflow-hidden">
@@ -857,7 +1009,7 @@ export default function LoginPage() {
           <div className="mt-6 pt-6 text-center login-register-row">
             <p className="login-register-text">
               还没有账号？{" "}
-              <button type="button" onClick={() => setActiveTab("sms")} className="login-register-button">
+              <button type="button" onClick={() => switchToTempRegister(phone || smsPhone)} className="login-register-button">
                 免费注册
               </button>
             </p>

@@ -28,10 +28,7 @@ import {
   saveAiChatArchiveForm,
   syncAiChatDraftFromOfficial,
 } from "../api/aiChat";
-
-const PASSWORD_MIN_LENGTH = 8;
-const PASSWORD_MAX_LENGTH = 24;
-const BCRYPT_PASSWORD_MAX_BYTES = 72;
+import { validatePasswordRule } from "../utils/passwordValidation";
 const AI_CHAT_BIZ_DOMAIN = "student_profile_build";
 const AI_CHAT_SESSION_CACHE_KEY = "latest_ai_chat_session_id";
 const AI_CHAT_OPEN_PANEL_KEY = "open_ai_chat_panel";
@@ -1030,10 +1027,6 @@ export default function ProfilePage() {
     setSearchParams(nextSearchParams);
   }
 
-  function getUtf8ByteLength(value) {
-    return new TextEncoder().encode(value).length;
-  }
-
   function getDisplayInitial(nickname, mobile) {
     const source = (nickname || mobile || "U").trim();
     return source.charAt(0).toUpperCase();
@@ -1050,23 +1043,7 @@ export default function ProfilePage() {
   }
 
   function validatePassword(value) {
-    if (value.length < PASSWORD_MIN_LENGTH || value.length > PASSWORD_MAX_LENGTH) {
-      return "密码长度需为 8-24 位";
-    }
-    if (/\s/.test(value)) {
-      return "密码不能包含空格";
-    }
-    const hasLetter = /[A-Za-z]/.test(value);
-    const hasDigit = /\d/.test(value);
-    const hasSpecial = /[^A-Za-z0-9]/.test(value);
-    const categoryCount = [hasLetter, hasDigit, hasSpecial].filter(Boolean).length;
-    if (categoryCount < 2) {
-      return "密码至少需要包含字母、数字、特殊字符中的 2 种";
-    }
-    if (getUtf8ByteLength(value) > BCRYPT_PASSWORD_MAX_BYTES) {
-      return "密码字节长度不能超过 72 bytes";
-    }
-    return "";
+    return validatePasswordRule(value);
   }
 
   async function fetchProfile() {

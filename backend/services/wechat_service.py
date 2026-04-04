@@ -15,13 +15,52 @@
 """
 
 # 导入 requests，用于发 HTTP 请求
+import ipaddress
 import requests
 
 # 导入 quote，用于 URL 编码 redirect_uri
 from urllib.parse import quote
+from urllib.parse import urlparse
 
 # 导入项目配置
 from backend.config.db_conf import settings
+
+
+def validate_wechat_oauth_config() -> None:
+    """
+    校验微信开放平台扫码登录配置是否满足最基本要求。
+
+    当前重点兜底：
+    1. appid / redirect_uri 不能为空
+    2. redirect_uri 必须是完整 URL
+    3. redirect_uri 不能使用 localhost
+    4. redirect_uri 不能使用 IP 地址，必须使用微信开放平台后台已配置的合法域名
+    """
+
+    app_id = (settings.wechat_open_app_id or "").strip()
+    redirect_uri = (settings.wechat_open_redirect_uri or "").strip()
+
+    if not app_id:
+        raise ValueError("微信登录未配置 WECHAT_OPEN_APP_ID")
+    if not redirect_uri:
+        raise ValueError("微信登录未配置 WECHAT_OPEN_REDIRECT_URI")
+
+    parsed = urlparse(redirect_uri)
+    if not parsed.scheme or not parsed.netloc:
+        raise ValueError("WECHAT_OPEN_REDIRECT_URI 必须是完整的 http(s) URL")
+
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        raise ValueError("WECHAT_OPEN_REDIRECT_URI 缺少合法域名")
+    if host in {"localhost", "127.0.0.1"}:
+        raise ValueError("微信登录回调地址不能使用 localhost，请改成微信开放平台已配置的公网域名")
+
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return
+
+    raise ValueError("微信登录回调地址不能使用 IP，请改成微信开放平台已配置的公网域名")
 
 
 def build_wechat_qr_authorize_url(state: str) -> str:
@@ -40,6 +79,8 @@ def build_wechat_qr_authorize_url(state: str) -> str:
     3. 前端拿到该地址后，浏览器直接跳转过去
     4. 用户扫码并确认后，微信会回调到你配置的 redirect_uri
     """
+
+    validate_wechat_oauth_config()
 
     # 对回调地址做 URL 编码
     # 因为 redirect_uri 是 URL 参数的一部分，必须编码

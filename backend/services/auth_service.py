@@ -725,6 +725,65 @@ def login_by_password(db: Session, mobile: str, password: str) -> dict:
     }
 
 
+def register_and_login_by_invite_password(
+    db: Session,
+    mobile: str,
+    password: str,
+    invite_code: str,
+) -> dict:
+    """
+    通过手机号 + 密码 + 邀请码直接注册并登录
+
+    业务规则：
+    1. 仅允许未注册手机号使用该入口
+    2. 必须校验密码强度
+    3. 必须成功核销邀请码
+    4. 注册成功后直接签发 access token
+    """
+    existing_user = get_active_user_by_mobile(db, mobile)
+
+    if existing_user:
+        if existing_user.status != "active":
+            raise ValueError("该手机号对应账号已被禁用")
+        raise ValueError("该手机号已注册，请直接使用密码登录或短信登录")
+
+    validate_password_strength(password)
+
+    invite_row = consume_invite_code_for_register(
+        db=db,
+        code=invite_code,
+        register_mobile=mobile,
+    )
+
+    user = User(
+        mobile=mobile,
+        mobile_verified=0,
+        password_hash=hash_password(password),
+        nickname=None,
+        avatar_url=None,
+        status="active",
+        is_temp_wechat_user=0,
+        delete_flag="1",
+    )
+
+    db.add(user)
+    db.flush()
+
+    invite_row.used_by_user_id = user.id
+
+    db.commit()
+    db.refresh(user)
+
+    access_token = create_access_token({"sub": str(user.id)})
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": user.id,
+        "mobile": user.mobile,
+    }
+
+
 def login_by_sms(db: Session, mobile: str, code: str, invite_code: str | None = None) -> dict:
     """
     手机验证码登录

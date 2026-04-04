@@ -61,6 +61,7 @@ from backend.schemas.auth import SetPasswordRequest
 from backend.schemas.auth import ResetPasswordBySmsRequest
 from backend.schemas.auth import SmsInviteRequirementCheckRequest
 from backend.schemas.auth import SmsLoginRequest
+from backend.schemas.auth import TempRegisterLoginRequest
 from backend.schemas.auth import GenerateInviteCodesRequest
 from backend.schemas.auth import IssueInviteCodeRequest
 from backend.schemas.auth import UpdateNicknameRequest
@@ -87,6 +88,7 @@ from backend.services.auth_service import create_login_log
 from backend.services.auth_service import create_wechat_state
 from backend.services.auth_service import get_user_profile
 from backend.services.auth_service import login_by_password
+from backend.services.auth_service import register_and_login_by_invite_password
 from backend.services.auth_service import login_by_sms
 from backend.services.auth_service import login_by_wechat
 from backend.services.auth_service import send_and_save_sms_code
@@ -266,7 +268,10 @@ def get_wechat_authorize_url(db: Session = Depends(get_db)):
     state = create_wechat_state(db)
 
     # 构造微信扫码地址
-    authorize_url = build_wechat_qr_authorize_url(state)
+    try:
+        authorize_url = build_wechat_qr_authorize_url(state)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # 返回扫码地址给前端
     return {
@@ -474,6 +479,48 @@ def password_login_api(
         )
 
         # 返回业务错误
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/login/temp-register", response_model=LoginResponse)
+def temp_register_login_api(
+    payload: TempRegisterLoginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    手机号 + 密码 + 邀请码的临时注册登录接口
+    """
+    try:
+        result = register_and_login_by_invite_password(
+            db=db,
+            mobile=payload.mobile,
+            password=payload.password,
+            invite_code=payload.invite_code,
+        )
+
+        create_login_log(
+            db=db,
+            login_type="temp_register",
+            login_identifier=payload.mobile,
+            success=True,
+            user_id=result["user_id"],
+            ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+
+        return result
+
+    except ValueError as e:
+        create_login_log(
+            db=db,
+            login_type="temp_register",
+            login_identifier=payload.mobile,
+            success=False,
+            failure_reason=str(e),
+            ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
         raise HTTPException(status_code=400, detail=str(e))
 
 

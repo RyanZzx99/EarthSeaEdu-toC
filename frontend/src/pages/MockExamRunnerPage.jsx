@@ -2,8 +2,9 @@ import React, { useEffect, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { getMe } from "../api/auth";
-import { getMockExamQuestionBank } from "../api/mockexam";
+import { getMockExamExamSet, getMockExamQuestionBank } from "../api/mockexam";
 import { buildMockExamIeltsSrcDoc } from "../mockexam/mockexamFrame";
+import { loadQuickPracticePayload } from "../mockexam/mockexamStorage";
 import "../mockexam/mockexam.css";
 
 function toUserDisplayName(profile) {
@@ -11,7 +12,7 @@ function toUserDisplayName(profile) {
 }
 
 export default function MockExamRunnerPage() {
-  const { questionBankId } = useParams();
+  const { sourceType, sourceId } = useParams();
   const [frameSrcDoc, setFrameSrcDoc] = useState("");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -21,28 +22,65 @@ export default function MockExamRunnerPage() {
 
     async function bootstrapRunner() {
       try {
-        const [profileResponse, questionBankResponse] = await Promise.all([
-          getMe(),
-          getMockExamQuestionBank(questionBankId),
-        ]);
+        const profileResponse = await getMe();
         if (!active) {
           return;
         }
 
         const profile = profileResponse.data || null;
-        const questionBank = questionBankResponse.data || {};
+        let examCategory = "";
+        let title = "";
+        let payload = null;
+        let submitUrl = "";
+        let inlinePayload = null;
+        let currentSourceType = sourceType || "question-bank";
 
-        if (questionBank.exam_category !== "IELTS") {
-          setMessage(`${questionBank.exam_category || "该考试"} 模考正在等待更新`);
+        if (currentSourceType === "question-bank") {
+          const questionBankResponse = await getMockExamQuestionBank(sourceId);
+          if (!active) {
+            return;
+          }
+          const questionBank = questionBankResponse.data || {};
+          examCategory = questionBank.exam_category || "";
+          title = questionBank.file_name || "";
+          payload = questionBank.payload;
+          submitUrl = `/api/v1/mockexam/question-banks/${questionBank.id}/submit`;
+        } else if (currentSourceType === "exam-set") {
+          const examSetResponse = await getMockExamExamSet(sourceId);
+          if (!active) {
+            return;
+          }
+          const examSet = examSetResponse.data || {};
+          examCategory = examSet.exam_category || "";
+          title = examSet.name || "";
+          payload = examSet.payload;
+          submitUrl = `/api/v1/mockexam/exam-sets/${examSet.exam_sets_id}/submit`;
+        } else if (currentSourceType === "quick-practice") {
+          const quickPractice = loadQuickPracticePayload(sourceId);
+          if (!quickPractice) {
+            setMessage("随堂小练数据已失效，请返回上一页重新生成。");
+            return;
+          }
+          examCategory = quickPractice.exam_category || "";
+          title = quickPractice.label || "随堂小练";
+          payload = quickPractice.payload;
+          submitUrl = "/api/v1/mockexam/evaluate";
+          inlinePayload = quickPractice.payload;
+        } else {
+          setMessage("不支持的模考来源。");
           return;
         }
 
         setFrameSrcDoc(
           buildMockExamIeltsSrcDoc({
             email: toUserDisplayName(profile),
-            questionBankId: questionBank.id,
-            fileName: questionBank.file_name,
-            payload: questionBank.payload,
+            sourceType: currentSourceType,
+            sourceId,
+            questionBankId: currentSourceType === "question-bank" ? sourceId : null,
+            fileName: title,
+            payload,
+            submitUrl,
+            inlinePayload,
           })
         );
       } catch (error) {
@@ -62,7 +100,7 @@ export default function MockExamRunnerPage() {
     return () => {
       active = false;
     };
-  }, [questionBankId]);
+  }, [sourceId, sourceType]);
 
   if (loading) {
     return (
@@ -85,11 +123,7 @@ export default function MockExamRunnerPage() {
 
   return (
     <div className="mockexam-runner">
-      <iframe
-        title="模拟考试"
-        className="mockexam-runner-frame"
-        srcDoc={frameSrcDoc}
-      />
+      <iframe title="模拟考试" className="mockexam-runner-frame" srcDoc={frameSrcDoc} />
     </div>
   );
 }

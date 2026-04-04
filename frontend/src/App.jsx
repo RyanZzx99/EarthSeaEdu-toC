@@ -131,6 +131,14 @@ export default function App() {
         path="/mockexam/run/:questionBankId"
         element={
           <RequireAuth authState={authState}>
+            <Navigate to="/mockexam" replace />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam/run/:sourceType/:sourceId"
+        element={
+          <RequireAuth authState={authState}>
             <MockExamRunnerPage />
           </RequireAuth>
         }

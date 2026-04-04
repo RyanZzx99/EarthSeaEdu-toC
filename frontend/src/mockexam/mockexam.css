@@ -153,6 +153,273 @@
   box-shadow: 0 20px 34px rgba(29, 78, 216, 0.22);
 }
 
+.mockexam-input {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 16px;
+  border: 1px solid rgba(19, 35, 62, 0.12);
+  background: #fff;
+  padding: 0 14px;
+  font-size: 15px;
+  color: #13233e;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.mockexam-input:focus {
+  border-color: rgba(29, 78, 216, 0.52);
+  box-shadow: 0 0 0 4px rgba(29, 78, 216, 0.12);
+}
+
+.mockexam-management-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.mockexam-manage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.mockexam-segmented {
+  display: inline-flex;
+  gap: 10px;
+  padding: 6px;
+  border-radius: 20px;
+  background: rgba(232, 239, 250, 0.7);
+  border: 1px solid rgba(19, 35, 62, 0.08);
+  margin-bottom: 18px;
+}
+
+.mockexam-segmented-button {
+  min-height: 42px;
+  padding: 0 18px;
+  border-radius: 14px;
+  border: none;
+  background: transparent;
+  color: #52627d;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.mockexam-segmented-button.active {
+  background: #fff;
+  color: #13233e;
+  box-shadow: 0 12px 24px rgba(19, 35, 62, 0.08);
+}
+
+.mockexam-select-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 286px;
+  margin-top: 16px;
+  padding: 14px;
+  overflow: auto;
+  border-radius: 22px;
+  border: 1px solid rgba(19, 35, 62, 0.1);
+  background: rgba(247, 250, 255, 0.82);
+}
+
+.mockexam-select-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 0 14px;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid rgba(19, 35, 62, 0.08);
+  color: #22324d;
+  font-size: 14px;
+}
+
+.mockexam-select-item input {
+  width: 16px;
+  height: 16px;
+}
+
+.mockexam-select-item em {
+  color: #60708b;
+  font-style: normal;
+  font-size: 13px;
+}
+
+.mockexam-random-builder {
+  margin-top: 16px;
+}
+
+.mockexam-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.mockexam-chip-button {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(19, 35, 62, 0.12);
+  background: #fff;
+  color: #44546d;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.mockexam-chip-button.active {
+  border-color: rgba(29, 78, 216, 0.28);
+  background: rgba(29, 78, 216, 0.1);
+  color: #1d4ed8;
+}
+
+.mockexam-inline-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 18px;
+}
+
+.mockexam-secondary-button {
+  min-height: 46px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #0f766e, #1d4ed8);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 18px 32px rgba(15, 118, 110, 0.18);
+}
+
+.mockexam-secondary-button:disabled,
+.mockexam-action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.mockexam-inline-note {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(248, 250, 255, 0.94);
+  border: 1px solid rgba(19, 35, 62, 0.08);
+  color: #52627d;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mockexam-set-list {
+  display: grid;
+  gap: 14px;
+}
+
+.mockexam-set-card {
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(19, 35, 62, 0.1);
+  background: rgba(248, 251, 255, 0.86);
+}
+
+.mockexam-set-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.mockexam-set-head h4 {
+  margin: 0;
+  font-size: 18px;
+  color: #13233e;
+}
+
+.mockexam-set-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.mockexam-set-meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(19, 35, 62, 0.08);
+  color: #4b5b75;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mockexam-status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 68px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.16);
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mockexam-status-chip.active {
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+}
+
+.mockexam-set-files {
+  margin-top: 14px;
+  color: #5d6d87;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.mockexam-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.mockexam-action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(19, 35, 62, 0.1);
+  background: #fff;
+  color: #22324d;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mockexam-action-button.primary {
+  border: none;
+  background: linear-gradient(135deg, #0f172a, #1d4ed8);
+  color: #fff;
+}
+
+.mockexam-action-button.danger {
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.16);
+  background: rgba(254, 242, 242, 0.9);
+}
+
 .mockexam-meta-row {
   display: flex;
   flex-wrap: wrap;
@@ -293,6 +560,11 @@
   .mockexam-form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .mockexam-management-grid,
+  .mockexam-manage-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -308,6 +580,16 @@
 
   .mockexam-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .mockexam-segmented {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .mockexam-set-head {
+    flex-direction: column;
   }
 
   .mockexam-frame {

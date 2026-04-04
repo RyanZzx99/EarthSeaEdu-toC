@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import copy
 import json
 import re
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import load_only
+from sqlalchemy.orm import selectinload
 
+from backend.models.exam_set_models import ExamSet
+from backend.models.exam_set_models import ExamSetPart
 from backend.models.question_bank_models import QuestionBank
 
 
@@ -17,7 +22,63 @@ MOCKEXAM_CONTENT_OPTIONS: dict[str, list[str]] = {
     "TOEFL": ["Listening", "Reading", "Speaking", "Writing"],
 }
 
-SUPPORTED_MOCKEXAM_CATEGORIES = ("IELTS",)
+SUPPORTED_MOCKEXAM_CATEGORIES = tuple(MOCKEXAM_CONTENT_OPTIONS.keys())
+
+
+def clamp_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(parsed, maximum))
+
+
+def dedupe_int_list(values: list[int]) -> list[int]:
+    result: list[int] = []
+    seen: set[int] = set()
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
+def dedupe_str_list(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = (value or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return result
+
+
+def normalize_exam_category(value: str | None, *, allow_empty: bool = False) -> str:
+    normalized = (value or "").strip().upper()
+    if not normalized and allow_empty:
+        return ""
+    if normalized not in MOCKEXAM_CONTENT_OPTIONS:
+        raise ValueError("考试类别不合法")
+    return normalized
+
+
+def normalize_exam_content(value: str | None, *, exam_category: str, allow_empty: bool = False) -> str:
+    normalized = (value or "").strip()
+    if not normalized and allow_empty:
+        return ""
+    if normalized not in MOCKEXAM_CONTENT_OPTIONS.get(exam_category, []):
+        raise ValueError("考试内容与考试类别不匹配")
+    return normalized
+
+
+def normalize_exam_contents(values: list[str] | None, *, exam_category: str) -> list[str]:
+    result: list[str] = []
+    for value in dedupe_str_list(values or []):
+        result.append(normalize_exam_content(value, exam_category=exam_category))
+    return result
 
 
 def get_mockexam_options() -> dict[str, Any]:
@@ -40,11 +101,18 @@ def list_mockexam_question_banks(
         .filter(QuestionBank.status == "1")
     )
 
-    normalized_exam_category = (exam_category or "").strip().upper()
-    normalized_exam_content = (exam_content or "").strip()
-
+    normalized_exam_category = normalize_exam_category(exam_category, allow_empty=True)
+    normalized_exam_content = ""
     if normalized_exam_category:
         query = query.filter(QuestionBank.exam_category == normalized_exam_category)
+        normalized_exam_content = normalize_exam_content(
+            exam_content,
+            exam_category=normalized_exam_category,
+            allow_empty=True,
+        )
+    elif exam_content:
+        raise ValueError("筛选考试内容前请先选择考试类别")
+
     if normalized_exam_content:
         query = query.filter(QuestionBank.exam_content == normalized_exam_content)
 
@@ -95,6 +163,452 @@ def load_mockexam_payload(db: Session, *, question_bank_id: int) -> tuple[Questi
     return row, payload
 
 
+def normalize_exam_set_rule(raw_rule: Any, *, exam_category: str) -> dict[str, Any]:
+    source = raw_rule if isinstance(raw_rule, dict) else {}
+    exam_contents = normalize_exam_contents(source.get("exam_contents"), exam_category=exam_category)
+    per_content = clamp_int(source.get("per_content"), default=1, minimum=0, maximum=20)
+    extra_count = clamp_int(source.get("extra_count"), default=0, minimum=0, maximum=20)
+    total_count = clamp_int(source.get("total_count"), default=3, minimum=1, maximum=50)
+
+    return {
+        "exam_contents": exam_contents,
+        "per_content": per_content,
+        "extra_count": extra_count,
+        "total_count": total_count,
+    }
+
+
+def get_exam_set_question_banks(exam_set: ExamSet) -> list[QuestionBank]:
+    active_parts = [
+        part
+        for part in sorted(exam_set.parts or [], key=lambda item: (item.sort_order, item.paper_set_parts_id))
+        if part.delete_flag == "1"
+        and part.question_bank is not None
+        and part.question_bank.delete_flag == "1"
+        and part.question_bank.status == "1"
+    ]
+    return [part.question_bank for part in active_parts]
+
+
+def build_exam_set_summary(exam_set: ExamSet) -> tuple[str, list[str]]:
+    if exam_set.mode == "manual":
+        question_banks = get_exam_set_question_banks(exam_set)
+        question_bank_names = [row.file_name for row in question_banks]
+        contents = dedupe_str_list([row.exam_content for row in question_banks])
+        if contents:
+            return " / ".join(contents), question_bank_names
+        if question_bank_names:
+            return "已关联题库", question_bank_names
+        return "暂无有效题库", []
+
+    rule = normalize_exam_set_rule(exam_set.rule_json, exam_category=exam_set.exam_category or "")
+    exam_contents = rule["exam_contents"]
+    if exam_contents and rule["extra_count"] > 0:
+        return f"{' / '.join(exam_contents)} + 随机补齐", []
+    if exam_contents:
+        return " / ".join(exam_contents), []
+    return "随机内容", []
+
+
+def serialize_exam_set_item(exam_set: ExamSet) -> dict[str, Any]:
+    content_summary, question_bank_names = build_exam_set_summary(exam_set)
+    return {
+        "exam_sets_id": exam_set.exam_sets_id,
+        "name": exam_set.name,
+        "mode": exam_set.mode,
+        "exam_category": exam_set.exam_category,
+        "part_count": exam_set.part_count,
+        "status": exam_set.status,
+        "content_summary": content_summary,
+        "question_bank_names": question_bank_names,
+        "create_time": exam_set.create_time,
+        "update_time": exam_set.update_time,
+    }
+
+
+def exam_set_matches_content_filter(exam_set: ExamSet, *, exam_content: str) -> bool:
+    if not exam_content:
+        return True
+    if exam_set.mode == "manual":
+        contents = {row.exam_content for row in get_exam_set_question_banks(exam_set)}
+        return exam_content in contents
+
+    rule = normalize_exam_set_rule(exam_set.rule_json, exam_category=exam_set.exam_category or "")
+    if not rule["exam_contents"]:
+        return True
+    return exam_content in set(rule["exam_contents"])
+
+
+def list_mockexam_exam_sets(
+    db: Session,
+    *,
+    exam_category: str | None = None,
+    exam_content: str | None = None,
+    status: str | None = None,
+) -> list[ExamSet]:
+    query = (
+        db.query(ExamSet)
+        .options(selectinload(ExamSet.parts).selectinload(ExamSetPart.question_bank))
+        .filter(ExamSet.delete_flag == "1")
+    )
+
+    normalized_exam_category = normalize_exam_category(exam_category, allow_empty=True)
+    normalized_exam_content = ""
+    if normalized_exam_category:
+        query = query.filter(ExamSet.exam_category == normalized_exam_category)
+        normalized_exam_content = normalize_exam_content(
+            exam_content,
+            exam_category=normalized_exam_category,
+            allow_empty=True,
+        )
+    elif exam_content:
+        raise ValueError("筛选考试内容前请先选择考试类别")
+
+    normalized_status = (status or "").strip()
+    if normalized_status in {"0", "1"}:
+        query = query.filter(ExamSet.status == normalized_status)
+
+    rows = query.order_by(ExamSet.create_time.desc(), ExamSet.exam_sets_id.desc()).all()
+    if not normalized_exam_content:
+        return rows
+
+    return [row for row in rows if exam_set_matches_content_filter(row, exam_content=normalized_exam_content)]
+
+
+def get_mockexam_exam_set(
+    db: Session,
+    *,
+    exam_sets_id: int,
+    require_enabled: bool,
+) -> ExamSet:
+    query = (
+        db.query(ExamSet)
+        .options(selectinload(ExamSet.parts).selectinload(ExamSetPart.question_bank))
+        .filter(ExamSet.exam_sets_id == exam_sets_id)
+        .filter(ExamSet.delete_flag == "1")
+    )
+    if require_enabled:
+        query = query.filter(ExamSet.status == "1")
+
+    row = query.first()
+    if not row:
+        raise LookupError("组合试卷不存在或已停用")
+    return row
+
+
+def compose_payload_from_question_banks(question_banks: list[QuestionBank], title: str) -> Any:
+    if not question_banks:
+        raise ValueError("未选择任何题库")
+
+    payloads = [parse_mockexam_question_bank_payload(row) for row in question_banks]
+    if len(payloads) == 1:
+        return payloads[0]
+
+    merged = {
+        "module": title or "Mixed Practice",
+        "passages": [],
+    }
+
+    for bank_index, payload in enumerate(payloads, start=1):
+        normalized = normalize_payload_for_merge(payload, f"Part {bank_index}")
+        if not normalized:
+            continue
+
+        passages = normalized.get("passages") or []
+        for passage_index, passage in enumerate(passages, start=1):
+            if not isinstance(passage, dict):
+                continue
+            cloned = copy.deepcopy(passage)
+            base_id = cloned.get("id") or f"P{passage_index}"
+            cloned["id"] = f"S{bank_index}-{base_id}"
+            if not cloned.get("title"):
+                cloned["title"] = f"Part {bank_index} Passage {passage_index}"
+            merged["passages"].append(cloned)
+
+    if not merged["passages"]:
+        raise ValueError("无法合并已选择题库，当前 JSON 结构不支持组卷")
+
+    return merged
+
+
+def pick_random_question_banks(
+    db: Session,
+    *,
+    limit: int,
+    exam_category: str | None,
+    exam_content: str | None,
+    exclude_ids: set[int] | None,
+) -> list[QuestionBank]:
+    safe_limit = clamp_int(limit, default=0, minimum=0, maximum=100)
+    if safe_limit <= 0:
+        return []
+
+    query = (
+        db.query(QuestionBank)
+        .filter(QuestionBank.delete_flag == "1")
+        .filter(QuestionBank.status == "1")
+    )
+
+    if exam_category:
+        query = query.filter(QuestionBank.exam_category == exam_category)
+    if exam_content:
+        query = query.filter(QuestionBank.exam_content == exam_content)
+    if exclude_ids:
+        query = query.filter(~QuestionBank.id.in_(list(exclude_ids)))
+
+    return query.order_by(func.rand()).limit(safe_limit).all()
+
+
+def select_question_banks_for_exam_set(db: Session, *, exam_set: ExamSet) -> list[QuestionBank]:
+    if exam_set.mode == "manual":
+        question_banks = get_exam_set_question_banks(exam_set)
+        if not question_banks:
+            raise ValueError("当前组合试卷没有可用题库")
+        return question_banks
+
+    exam_category = normalize_exam_category(exam_set.exam_category)
+    rule = normalize_exam_set_rule(exam_set.rule_json, exam_category=exam_category)
+    selected: list[QuestionBank] = []
+    selected_ids: set[int] = set()
+
+    for exam_content in rule["exam_contents"]:
+        rows = pick_random_question_banks(
+            db,
+            limit=rule["per_content"],
+            exam_category=exam_category,
+            exam_content=exam_content,
+            exclude_ids=selected_ids,
+        )
+        for row in rows:
+            if row.id in selected_ids:
+                continue
+            selected.append(row)
+            selected_ids.add(row.id)
+
+    if rule["extra_count"] > 0:
+        rows = pick_random_question_banks(
+            db,
+            limit=rule["extra_count"],
+            exam_category=exam_category,
+            exam_content=None,
+            exclude_ids=selected_ids,
+        )
+        for row in rows:
+            if row.id in selected_ids:
+                continue
+            selected.append(row)
+            selected_ids.add(row.id)
+
+    if not selected:
+        selected = pick_random_question_banks(
+            db,
+            limit=rule["total_count"],
+            exam_category=exam_category,
+            exam_content=None,
+            exclude_ids=None,
+        )
+
+    if not selected:
+        raise ValueError("当前随机规则下没有可用题库")
+
+    return selected
+
+
+def build_exam_set_payload(db: Session, *, exam_set: ExamSet) -> Any:
+    question_banks = select_question_banks_for_exam_set(db, exam_set=exam_set)
+    return compose_payload_from_question_banks(question_banks, exam_set.name)
+
+
+def load_mockexam_exam_set_payload(db: Session, *, exam_sets_id: int) -> tuple[ExamSet, Any]:
+    exam_set = get_mockexam_exam_set(db, exam_sets_id=exam_sets_id, require_enabled=True)
+    payload = build_exam_set_payload(db, exam_set=exam_set)
+    return exam_set, payload
+
+
+def create_mockexam_exam_set(
+    db: Session,
+    *,
+    name: str,
+    mode: str,
+    exam_category: str,
+    question_bank_ids: list[int] | None,
+    exam_contents: list[str] | None,
+    per_content: int,
+    extra_count: int,
+    total_count: int,
+) -> ExamSet:
+    normalized_name = (name or "").strip()
+    normalized_mode = (mode or "").strip().lower()
+    normalized_exam_category = normalize_exam_category(exam_category)
+
+    if not normalized_name:
+        raise ValueError("请输入组合试卷名称")
+    if len(normalized_name) > 200:
+        raise ValueError("组合试卷名称长度不能超过 200 个字符")
+    if normalized_mode not in {"manual", "random"}:
+        raise ValueError("组卷模式不合法")
+
+    exam_set = ExamSet(
+        name=normalized_name,
+        mode=normalized_mode,
+        exam_category=normalized_exam_category,
+        rule_json=None,
+        part_count=1,
+        status="1",
+        delete_flag="1",
+    )
+    db.add(exam_set)
+    db.flush()
+
+    if normalized_mode == "manual":
+        requested_ids = dedupe_int_list(
+            [question_bank_id for question_bank_id in (question_bank_ids or []) if question_bank_id > 0]
+        )
+        if not requested_ids:
+            raise ValueError("手动组卷至少选择一个题库")
+
+        rows = (
+            db.query(QuestionBank)
+            .filter(QuestionBank.id.in_(requested_ids))
+            .filter(QuestionBank.delete_flag == "1")
+            .filter(QuestionBank.status == "1")
+            .all()
+        )
+        row_map = {row.id: row for row in rows}
+
+        ordered_rows: list[QuestionBank] = []
+        for question_bank_id in requested_ids:
+            row = row_map.get(question_bank_id)
+            if row is None:
+                raise ValueError(f"题库 #{question_bank_id} 不存在或已停用")
+            if row.exam_category != normalized_exam_category:
+                raise ValueError("手动组卷的题库考试类别必须一致")
+            ordered_rows.append(row)
+
+        for index, row in enumerate(ordered_rows):
+            db.add(
+                ExamSetPart(
+                    exam_sets_id=exam_set.exam_sets_id,
+                    question_bank_id=row.id,
+                    sort_order=index,
+                    delete_flag="1",
+                )
+            )
+
+        exam_set.part_count = len(ordered_rows)
+    else:
+        normalized_exam_contents = normalize_exam_contents(exam_contents, exam_category=normalized_exam_category)
+        normalized_per_content = clamp_int(per_content, default=1, minimum=0, maximum=20)
+        normalized_extra_count = clamp_int(extra_count, default=0, minimum=0, maximum=20)
+        normalized_total_count = clamp_int(total_count, default=3, minimum=1, maximum=50)
+        computed_part_count = normalized_per_content * len(normalized_exam_contents) + normalized_extra_count
+        if computed_part_count <= 0:
+            computed_part_count = normalized_total_count
+
+        exam_set.rule_json = {
+            "exam_contents": normalized_exam_contents,
+            "per_content": normalized_per_content,
+            "extra_count": normalized_extra_count,
+            "total_count": normalized_total_count,
+        }
+        exam_set.part_count = computed_part_count
+
+    db.commit()
+    return get_mockexam_exam_set(db, exam_sets_id=exam_set.exam_sets_id, require_enabled=False)
+
+
+def update_mockexam_exam_set_status(
+    db: Session,
+    *,
+    exam_sets_id: int,
+    status: str,
+) -> ExamSet:
+    exam_set = get_mockexam_exam_set(db, exam_sets_id=exam_sets_id, require_enabled=False)
+    normalized_status = (status or "").strip()
+    if normalized_status not in {"0", "1"}:
+        raise ValueError("状态值不合法")
+
+    exam_set.status = normalized_status
+    db.commit()
+    return get_mockexam_exam_set(db, exam_sets_id=exam_sets_id, require_enabled=False)
+
+
+def delete_mockexam_exam_set(db: Session, *, exam_sets_id: int) -> None:
+    exam_set = get_mockexam_exam_set(db, exam_sets_id=exam_sets_id, require_enabled=False)
+    exam_set.delete_flag = "0"
+    for part in exam_set.parts or []:
+        part.delete_flag = "0"
+    db.commit()
+
+
+def build_quick_practice_payload(
+    db: Session,
+    *,
+    exam_category: str,
+    exam_contents: list[str] | None,
+    count: int,
+) -> dict[str, Any]:
+    normalized_exam_category = normalize_exam_category(exam_category)
+    normalized_exam_contents = normalize_exam_contents(
+        exam_contents,
+        exam_category=normalized_exam_category,
+    )
+    safe_count = clamp_int(count, default=3, minimum=1, maximum=20)
+
+    selected: list[QuestionBank] = []
+    selected_ids: set[int] = set()
+
+    if normalized_exam_contents:
+        each = max(1, safe_count // max(1, len(normalized_exam_contents)))
+        for exam_content in normalized_exam_contents:
+            rows = pick_random_question_banks(
+                db,
+                limit=each,
+                exam_category=normalized_exam_category,
+                exam_content=exam_content,
+                exclude_ids=selected_ids,
+            )
+            for row in rows:
+                if row.id in selected_ids:
+                    continue
+                selected.append(row)
+                selected_ids.add(row.id)
+
+    remain = max(0, safe_count - len(selected))
+    if remain > 0:
+        rows = pick_random_question_banks(
+            db,
+            limit=remain,
+            exam_category=normalized_exam_category,
+            exam_content=None,
+            exclude_ids=selected_ids,
+        )
+        for row in rows:
+            if row.id in selected_ids:
+                continue
+            selected.append(row)
+            selected_ids.add(row.id)
+
+    if not selected:
+        raise LookupError("当前筛选条件下没有可用题库")
+
+    payload = compose_payload_from_question_banks(selected, "随堂小练")
+    return {
+        "status": "ok",
+        "exam_category": normalized_exam_category,
+        "label": "随堂小练",
+        "payload": payload,
+        "picked_items": [
+            {
+                "id": row.id,
+                "file_name": row.file_name,
+                "exam_content": row.exam_content,
+            }
+            for row in selected
+        ],
+    }
+
+
 def evaluate_mockexam_submission(
     db: Session,
     *,
@@ -102,10 +616,32 @@ def evaluate_mockexam_submission(
     answers_map: dict[str, Any],
 ) -> dict[str, Any]:
     row, payload = load_mockexam_payload(db, question_bank_id=question_bank_id)
-
     if row.exam_category not in SUPPORTED_MOCKEXAM_CATEGORIES:
         raise ValueError("当前考试类型模考正在等待更新")
 
+    safe_answers_map = answers_map if isinstance(answers_map, dict) else {}
+    return evaluate_quiz_payload(payload, safe_answers_map)
+
+
+def evaluate_mockexam_exam_set_submission(
+    db: Session,
+    *,
+    exam_sets_id: int,
+    answers_map: dict[str, Any],
+) -> dict[str, Any]:
+    exam_set, payload = load_mockexam_exam_set_payload(db, exam_sets_id=exam_sets_id)
+    if exam_set.exam_category not in SUPPORTED_MOCKEXAM_CATEGORIES:
+        raise ValueError("当前考试类型模考正在等待更新")
+
+    safe_answers_map = answers_map if isinstance(answers_map, dict) else {}
+    return evaluate_quiz_payload(payload, safe_answers_map)
+
+
+def evaluate_inline_mockexam_payload(
+    *,
+    payload: Any,
+    answers_map: dict[str, Any],
+) -> dict[str, Any]:
     safe_answers_map = answers_map if isinstance(answers_map, dict) else {}
     return evaluate_quiz_payload(payload, safe_answers_map)
 

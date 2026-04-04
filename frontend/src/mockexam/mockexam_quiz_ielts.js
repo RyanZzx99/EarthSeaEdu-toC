@@ -346,6 +346,10 @@
   var QUIZ_SESSION_ID = bootstrap.sessionId || null;
   var QUIZ_STARTED_AT = bootstrap.sessionCreatedAt || null;
   var QUESTION_BANK_ID = bootstrap.questionBankId || null;
+  var QUIZ_SOURCE_TYPE = bootstrap.sourceType || 'question-bank';
+  var QUIZ_SOURCE_ID = bootstrap.sourceId || QUESTION_BANK_ID || null;
+  var SUBMIT_URL = bootstrap.submitUrl || (QUESTION_BANK_ID ? '/api/v1/mockexam/question-banks/' + QUESTION_BANK_ID + '/submit' : '');
+  var INLINE_PAYLOAD = bootstrap.inlinePayload || null;
   var quizSubmitting = false;
   var quizSubmitted = false;
 
@@ -1174,8 +1178,8 @@
 
    async function submitCurrentSession(){
      if(quizSubmitting){ return; }
-     if(!QUESTION_BANK_ID){
-       alert('缺少题库信息，无法提交。');
+     if(!SUBMIT_URL){
+       alert('缺少试卷信息，无法提交。');
        return;
      }
      if(!window.confirm('确认提交当前作答？提交后将展示本次得分。')){
@@ -1191,14 +1195,18 @@
        if(token){
          headers.Authorization = 'Bearer ' + token;
        }
-       var resp = await fetch('/api/v1/mockexam/question-banks/' + QUESTION_BANK_ID + '/submit', {
+       var submitBody = {
+         answers: answers,
+         marked: marked
+       };
+       if(INLINE_PAYLOAD){
+         submitBody.payload = INLINE_PAYLOAD;
+       }
+       var resp = await fetch(SUBMIT_URL, {
          method: 'POST',
          headers: headers,
          credentials: 'same-origin',
-         body: JSON.stringify({
-           answers: answers,
-           marked: marked
-         })
+         body: JSON.stringify(submitBody)
        });
        var data = {};
        try { data = await resp.json(); } catch(_e) {}
