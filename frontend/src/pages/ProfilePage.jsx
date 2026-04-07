@@ -29,6 +29,7 @@ import {
   saveAiChatArchiveForm,
   syncAiChatDraftFromOfficial,
 } from "../api/aiChat";
+import { clearAccessToken } from "../utils/authStorage";
 import { validatePasswordRule } from "../utils/passwordValidation";
 const AI_CHAT_BIZ_DOMAIN = "student_profile_build";
 const AI_CHAT_SESSION_CACHE_KEY = "latest_ai_chat_session_id";
@@ -1065,7 +1066,7 @@ export default function ProfilePage() {
       const detail = error?.response?.data?.detail || "获取用户信息失败";
       setErrorMessage(detail);
       if (error?.response?.status === 401) {
-        localStorage.removeItem("access_token");
+        clearAccessToken();
         navigate("/login", { replace: true });
       }
     } finally {
@@ -1616,7 +1617,7 @@ export default function ProfilePage() {
     } catch (error) {
       console.error("Logout request failed", error);
     } finally {
-      localStorage.removeItem("access_token");
+      clearAccessToken();
       setLogoutLoading(false);
       navigate("/login", { replace: true });
     }

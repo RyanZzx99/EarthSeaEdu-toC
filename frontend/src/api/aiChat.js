@@ -3,6 +3,7 @@
  */
 
 import axios from "axios";
+import { clearAccessToken, getAccessToken } from "../utils/authStorage";
 
 const aiChatRequest = axios.create({
   baseURL: "",
@@ -11,7 +12,7 @@ const aiChatRequest = axios.create({
 
 aiChatRequest.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("access_token");
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -24,7 +25,7 @@ aiChatRequest.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error?.response?.status === 401) {
-      localStorage.removeItem("access_token");
+      clearAccessToken();
       if (window.location.pathname !== "/login") {
         window.location.href = "/login?session_expired=1";
       }

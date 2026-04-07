@@ -1782,6 +1782,11 @@ footer {
   gap: 16px;
 }
 
+.home-ai-action-row {
+  width: 100%;
+  justify-content: space-between;
+}
+
 .home-ai-build-copy h4 {
   color: #111827;
   font-size: 17px;
@@ -1807,6 +1812,7 @@ footer {
   font-size: 15px;
   font-weight: 700;
   box-shadow: 0 14px 32px rgba(15, 159, 124, 0.26);
+  margin-left: auto;
 }
 
 .home-radar-shell {
@@ -4610,6 +4616,23 @@ footer {
   .home-ai-build-button {
     width: auto;
     align-self: flex-start;
+  }
+
+  .home-ai-action-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .home-ai-action-row .home-ai-send {
+    width: 52px;
+    flex: 0 0 52px;
+  }
+
+  .home-ai-action-row .home-ai-build-button {
+    margin-left: auto;
+    align-self: auto;
   }
 
   .home-ai-bubble {

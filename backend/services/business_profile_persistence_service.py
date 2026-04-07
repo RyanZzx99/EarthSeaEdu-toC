@@ -734,6 +734,22 @@ CLEARABLE_SINGLE_ROW_TABLES: set[str] = {
     "student_projects_experience",
 }
 
+CURRICULUM_SPECIFIC_ACADEMIC_SINGLE_ROW_TABLES_BY_CODE: dict[str, str] = {
+    "A_LEVEL": "student_academic_a_level_profile",
+    "AP": "student_academic_ap_profile",
+    "IB": "student_academic_ib_profile",
+    "CHINESE_HIGH_SCHOOL": "student_academic_chinese_high_school_profile",
+}
+
+CURRICULUM_SPECIFIC_ACADEMIC_MULTI_ROW_TABLES_BY_CODE: dict[str, str] = {
+    "A_LEVEL": "student_academic_a_level_subject",
+    "AP": "student_academic_ap_course",
+    "IB": "student_academic_ib_subject",
+    "CHINESE_HIGH_SCHOOL": "student_academic_chinese_high_school_subject",
+}
+
+RECOGNIZED_CURRICULUM_SYSTEM_CODES = set(CURRICULUM_SPECIFIC_ACADEMIC_SINGLE_ROW_TABLES_BY_CODE.keys())
+
 
 @dataclass(slots=True)
 class BusinessPersistenceResult:
@@ -1004,6 +1020,7 @@ def _normalize_payload_for_persistence(payload: dict[str, Any]) -> None:
     # 1. 先做本地规则补全，只补高置信字段，例如 A-Level 的 stage_code、IB 的 level_code
     # 2. 再做 required_fields 校验，补不齐的行直接跳过，避免撞数据库约束
     _normalize_curriculum_system_primary_flags(payload)
+    prune_academic_payload_by_curriculum_system(payload)
     _apply_academic_subject_local_fill_rules(payload)
     _normalize_academic_subject_payload(payload)
     _normalize_language_payload(payload)
@@ -1011,29 +1028,91 @@ def _normalize_payload_for_persistence(payload: dict[str, Any]) -> None:
     _normalize_experience_payload(payload)
 
 
-def _normalize_curriculum_system_primary_flags(payload: dict[str, Any]) -> None:
+def prune_academic_payload_by_curriculum_system(payload: dict[str, Any]) -> None:
     """
-    课程体系主体系归一化。
+    根据当前课程体系清理不匹配的学术子表。
 
-    规则：
-    1. 只要当前有效课程体系只有一条，就自动把它设为主课程体系。
-    2. 这里不主动改写“多条课程体系”的主体系选择，避免覆盖用户手动判断。
+    目的：
+    1. 当学生把课程体系从 IB 改成普高时，旧的 IB profile / subject 不能继续参与评分。
+    2. 这一步只在已经识别出标准课程体系码值时生效，避免未知自由文本误删数据。
     """
 
     rows = payload.get("student_basic_info_curriculum_system")
     if not isinstance(rows, list):
         return
 
-    meaningful_rows = [
-        row
+    selected_codes = {
+        str(row.get("curriculum_system_code") or "").strip().upper()
         for row in rows
         if isinstance(row, dict) and str(row.get("curriculum_system_code") or "").strip()
-    ]
+    }
+    effective_codes = selected_codes & RECOGNIZED_CURRICULUM_SYSTEM_CODES
+    if not effective_codes:
+        return
+
+    allowed_single_row_tables = {
+        CURRICULUM_SPECIFIC_ACADEMIC_SINGLE_ROW_TABLES_BY_CODE[code]
+        for code in effective_codes
+    }
+    allowed_multi_row_tables = {
+        CURRICULUM_SPECIFIC_ACADEMIC_MULTI_ROW_TABLES_BY_CODE[code]
+        for code in effective_codes
+    }
+
+    for table_name in CURRICULUM_SPECIFIC_ACADEMIC_SINGLE_ROW_TABLES_BY_CODE.values():
+        if table_name not in allowed_single_row_tables:
+            payload[table_name] = {}
+
+    for table_name in CURRICULUM_SPECIFIC_ACADEMIC_MULTI_ROW_TABLES_BY_CODE.values():
+        if table_name not in allowed_multi_row_tables:
+            payload[table_name] = []
+
+
+def _normalize_curriculum_system_primary_flags(payload: dict[str, Any]) -> None:
+    """
+    课程体系主体系归一化。
+
+    规则：
+    1. 先按 curriculum_system_code 去重，避免同一个课程体系被重复写入明细表。
+    2. 只要当前有效课程体系只有一条，就自动把它设为主课程体系。
+    3. 这里不主动改写“多条课程体系”的主体系选择，避免覆盖用户手动判断。
+    """
+
+    rows = payload.get("student_basic_info_curriculum_system")
+    if not isinstance(rows, list):
+        return
+
+    deduped_rows: list[dict[str, Any]] = []
+    row_by_code: dict[str, dict[str, Any]] = {}
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+
+        curriculum_system_code = str(row.get("curriculum_system_code") or "").strip()
+        if not curriculum_system_code:
+            continue
+
+        normalized_key = curriculum_system_code.upper()
+        existing_row = row_by_code.get(normalized_key)
+        if existing_row is None:
+            normalized_row = dict(row)
+            normalized_row["curriculum_system_code"] = curriculum_system_code
+            row_by_code[normalized_key] = normalized_row
+            deduped_rows.append(normalized_row)
+            continue
+
+        if _coerce_int_if_possible(row.get("is_primary")) == 1:
+            existing_row["is_primary"] = 1
+
+    payload["student_basic_info_curriculum_system"] = deduped_rows
+
+    meaningful_rows = deduped_rows
     if len(meaningful_rows) != 1:
         return
 
     only_row = meaningful_rows[0]
-    if only_row.get("is_primary") != 1:
+    if _coerce_int_if_possible(only_row.get("is_primary")) != 1:
         only_row["is_primary"] = 1
 
 

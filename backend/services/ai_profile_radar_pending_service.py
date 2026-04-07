@@ -61,6 +61,15 @@ DIFF_IGNORED_FIELD_NAMES = {
 }
 
 PATCH_INTERNAL_FIELD_NAMES = {"_action", "_match_key"}
+SEMANTIC_CHANGED_FIELD_EXPANSIONS: dict[tuple[str, str], tuple[str, ...]] = {
+    (
+        "student_basic_info",
+        "curriculum_system",
+    ): (
+        "student_basic_info_curriculum_system.curriculum_system_code",
+        "student_basic_info_curriculum_system.is_primary",
+    ),
+}
 
 
 @dataclass(slots=True)
@@ -123,7 +132,11 @@ def extract_changed_fields_from_patch_json(patch_json: dict[str, Any] | None) ->
                     continue
                 if not _has_meaningful_value(field_value):
                     continue
-                changed_fields.add(f"{table_name}.{field_name}")
+                _add_changed_field_with_semantic_expansion(
+                    changed_fields,
+                    table_name=table_name,
+                    field_name=field_name,
+                )
             continue
 
         if isinstance(patch_value, list):
@@ -138,7 +151,11 @@ def extract_changed_fields_from_patch_json(patch_json: dict[str, Any] | None) ->
                         continue
                     row_field_names.add(field_name)
             for field_name in row_field_names:
-                changed_fields.add(f"{table_name}.{field_name}")
+                _add_changed_field_with_semantic_expansion(
+                    changed_fields,
+                    table_name=table_name,
+                    field_name=field_name,
+                )
 
     return sorted(changed_fields)
 
@@ -168,7 +185,11 @@ def extract_changed_fields_from_profile_diff(
                 if _normalize_scalar_for_diff(previous_row.get(field_name)) != _normalize_scalar_for_diff(
                     current_row.get(field_name)
                 ):
-                    changed_fields.add(f"{table_name}.{field_name}")
+                    _add_changed_field_with_semantic_expansion(
+                        changed_fields,
+                        table_name=table_name,
+                        field_name=field_name,
+                    )
             continue
 
         if isinstance(previous_value, list) or isinstance(current_value, list):
@@ -178,7 +199,11 @@ def extract_changed_fields_from_profile_diff(
                 continue
             row_field_names = _collect_multi_row_field_names(previous_rows) | _collect_multi_row_field_names(current_rows)
             for field_name in row_field_names:
-                changed_fields.add(f"{table_name}.{field_name}")
+                _add_changed_field_with_semantic_expansion(
+                    changed_fields,
+                    table_name=table_name,
+                    field_name=field_name,
+                )
             continue
 
         if _normalize_scalar_for_diff(previous_value) != _normalize_scalar_for_diff(current_value):
@@ -530,6 +555,17 @@ def _collect_multi_row_field_names(rows: list[Any]) -> set[str]:
                 continue
             field_names.add(field_name)
     return field_names
+
+
+def _add_changed_field_with_semantic_expansion(
+    changed_fields: set[str],
+    *,
+    table_name: str,
+    field_name: str,
+) -> None:
+    changed_fields.add(f"{table_name}.{field_name}")
+    for expanded_field in SEMANTIC_CHANGED_FIELD_EXPANSIONS.get((table_name, field_name), ()):
+        changed_fields.add(expanded_field)
 
 
 def _should_skip_changed_field(field_name: Any) -> bool:
