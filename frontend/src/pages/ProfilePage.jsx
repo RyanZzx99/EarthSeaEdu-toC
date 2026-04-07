@@ -11,6 +11,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import {
+  bindMyMobile,
   checkMyNickname,
   checkMyPassword,
   checkMyResetPassword,
@@ -853,6 +854,9 @@ export default function ProfilePage() {
   const [passwordCheckAvailable, setPasswordCheckAvailable] = useState(false);
   const [profile, setProfile] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [bindMobileForm, setBindMobileForm] = useState({ mobile: "" });
+  const [bindMobileSaving, setBindMobileSaving] = useState(false);
+  const [bindMobileMessage, setBindMobileMessage] = useState("");
   const [passwordForm, setPasswordForm] = useState({
     current_password: "",
     new_password: "",
@@ -1053,6 +1057,8 @@ export default function ProfilePage() {
       const response = await getMe();
       setProfile(response.data);
       setNicknameForm({ nickname: response.data.nickname || "" });
+      setBindMobileForm({ mobile: response.data.mobile || "" });
+      setBindMobileMessage("");
     } catch (error) {
       const detail = error?.response?.data?.detail || "获取用户信息失败";
       setErrorMessage(detail);
@@ -1396,6 +1402,29 @@ export default function ProfilePage() {
       setErrorMessage(error?.response?.data?.detail || "昵称修改失败");
     } finally {
       setUpdateNicknameLoading(false);
+    }
+  }
+
+  async function handleBindMyMobile() {
+    setErrorMessage("");
+    setBindMobileMessage("");
+
+    const normalizedMobile = bindMobileForm.mobile.trim();
+    if (!/^1\d{10}$/.test(normalizedMobile)) {
+      setErrorMessage("请输入正确的手机号");
+      return;
+    }
+
+    try {
+      setBindMobileSaving(true);
+      const response = await bindMyMobile({ mobile: normalizedMobile });
+      const nextMessage = response?.data?.message || "手机号绑定成功";
+      await fetchProfile();
+      setBindMobileMessage(nextMessage);
+    } catch (error) {
+      setErrorMessage(error?.response?.data?.detail || "手机号绑定失败");
+    } finally {
+      setBindMobileSaving(false);
     }
   }
 
@@ -1787,6 +1816,42 @@ export default function ProfilePage() {
             <div className="profile-account-section">
               <div className="profile-account-section-head">
                 <h2 className="card-title">昵称</h2>
+            <div className="profile-account-section">
+              <div className="profile-account-section-head">
+                <div>
+                  <h2 className="card-title">手机号绑定</h2>
+                  <p className="desc">
+                    {profile.mobile
+                      ? "当前手机号已可用于短信登录；如需密码登录，可在下方设置登录密码。"
+                      : "微信注册用户可在这里直接绑定手机号，当前阶段不校验短信验证码。"}
+                  </p>
+                </div>
+              </div>
+              {profile.mobile ? (
+                <div className="profile-account-current-value">{profile.mobile}</div>
+              ) : (
+                <div className="editor-box">
+                  <input
+                    value={bindMobileForm.mobile}
+                    onChange={(event) => {
+                      setBindMobileForm({ mobile: event.target.value.replace(/\D/g, "").slice(0, 11) });
+                      setBindMobileMessage("");
+                    }}
+                    className="input"
+                    type="tel"
+                    maxLength={11}
+                    placeholder="请输入要绑定的手机号"
+                  />
+                  <div className="inline-actions">
+                    <button type="button" className="primary-btn inline-btn" disabled={bindMobileSaving} onClick={handleBindMyMobile}>
+                      {bindMobileSaving ? "绑定中..." : "绑定手机号"}
+                    </button>
+                  </div>
+                  {bindMobileMessage ? <p className="check-message check-success">{bindMobileMessage}</p> : null}
+                </div>
+              )}
+            </div>
+
                 {!showNicknameEditor ? (
                   <button type="button" className="secondary-btn inline-btn" onClick={() => setShowNicknameEditor(true)}>
                     修改昵称

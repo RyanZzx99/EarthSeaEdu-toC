@@ -185,6 +185,30 @@ def create_bind_token(data: dict) -> str:
     )
 
 
+def create_wechat_register_token(data: dict) -> str:
+    """
+    创建微信扫码后补填邀请码专用 token
+    """
+    to_encode = data.copy()
+
+    expire = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.jwt_bind_token_expire_minutes
+    )
+
+    to_encode.update(
+        {
+            "exp": expire,
+            "token_use": "wechat_register",
+        }
+    )
+
+    return jwt.encode(
+        to_encode,
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
+    )
+
+
 def decode_token(token: str) -> dict:
     """
     标准解码 JWT token
