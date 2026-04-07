@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { CheckCircle2 } from "lucide-react";
@@ -846,6 +846,7 @@ export default function ProfilePage() {
   const [checkNicknameLoading, setCheckNicknameLoading] = useState(false);
   const [checkPasswordLoading, setCheckPasswordLoading] = useState(false);
   const [showNicknameEditor, setShowNicknameEditor] = useState(false);
+  const [showMobileEditor, setShowMobileEditor] = useState(false);
   const [showPasswordEditor, setShowPasswordEditor] = useState(false);
   const [showForgotPasswordDialog, setShowForgotPasswordDialog] = useState(false);
   const [nicknameCheckMessage, setNicknameCheckMessage] = useState("");
@@ -1059,6 +1060,7 @@ export default function ProfilePage() {
       setNicknameForm({ nickname: response.data.nickname || "" });
       setBindMobileForm({ mobile: response.data.mobile || "" });
       setBindMobileMessage("");
+      setShowMobileEditor(!response.data.mobile);
     } catch (error) {
       const detail = error?.response?.data?.detail || "获取用户信息失败";
       setErrorMessage(detail);
@@ -1418,9 +1420,10 @@ export default function ProfilePage() {
     try {
       setBindMobileSaving(true);
       const response = await bindMyMobile({ mobile: normalizedMobile });
-      const nextMessage = response?.data?.message || "手机号绑定成功";
+      const nextMessage = "手机号保存成功";
       await fetchProfile();
       setBindMobileMessage(nextMessage);
+      setShowMobileEditor(false);
     } catch (error) {
       setErrorMessage(error?.response?.data?.detail || "手机号绑定失败");
     } finally {
@@ -1795,39 +1798,24 @@ export default function ProfilePage() {
                 <div className="hero-name">{profile.nickname || "未设置昵称"}</div>
                 <div className="hero-sub">{profile.mobile || "未绑定手机号"}</div>
               </div>
-            </div>
-
-            <div className="profile-account-section">
+            </div>            <div className="profile-account-section">
               <div className="profile-account-section-head">
-                <h2 className="card-title">基础资料</h2>
+                <h2 className="card-title">{"\u624b\u673a\u53f7"}</h2>
+                {profile.mobile && !showMobileEditor ? (
+                  <button
+                    type="button"
+                    className="secondary-btn inline-btn"
+                    onClick={() => {
+                      setShowMobileEditor(true);
+                      setBindMobileForm({ mobile: profile.mobile || "" });
+                      setBindMobileMessage("");
+                    }}
+                  >
+                    {"\u4fee\u6539\u624b\u673a\u53f7"}
+                  </button>
+                ) : null}
               </div>
-              <div className="profile-account-meta-grid">
-                <div className="info-item">
-                  <span className="label">用户 ID</span>
-                  <span className="value">{profile.user_id}</span>
-                </div>
-                <div className="info-item">
-                  <span className="label">手机号</span>
-                  <span className="value">{profile.mobile || "未绑定"}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="profile-account-section">
-              <div className="profile-account-section-head">
-                <h2 className="card-title">昵称</h2>
-            <div className="profile-account-section">
-              <div className="profile-account-section-head">
-                <div>
-                  <h2 className="card-title">手机号绑定</h2>
-                  <p className="desc">
-                    {profile.mobile
-                      ? "当前手机号已可用于短信登录；如需密码登录，可在下方设置登录密码。"
-                      : "微信注册用户可在这里直接绑定手机号，当前阶段不校验短信验证码。"}
-                  </p>
-                </div>
-              </div>
-              {profile.mobile ? (
+              {!showMobileEditor && profile.mobile ? (
                 <div className="profile-account-current-value">{profile.mobile}</div>
               ) : (
                 <div className="editor-box">
@@ -1840,21 +1828,43 @@ export default function ProfilePage() {
                     className="input"
                     type="tel"
                     maxLength={11}
-                    placeholder="请输入要绑定的手机号"
+                    placeholder={"\u8bf7\u8f93\u5165\u624b\u673a\u53f7"}
                   />
                   <div className="inline-actions">
                     <button type="button" className="primary-btn inline-btn" disabled={bindMobileSaving} onClick={handleBindMyMobile}>
-                      {bindMobileSaving ? "绑定中..." : "绑定手机号"}
+                      {bindMobileSaving ? "\u4fdd\u5b58\u4e2d..." : profile.mobile ? "\u4fdd\u5b58\u624b\u673a\u53f7" : "\u7ed1\u5b9a\u624b\u673a\u53f7"}
                     </button>
+                    {profile.mobile ? (
+                      <button
+                        type="button"
+                        className="secondary-btn inline-btn"
+                        disabled={bindMobileSaving}
+                        onClick={() => {
+                          setShowMobileEditor(false);
+                          setBindMobileForm({ mobile: profile.mobile || "" });
+                          setBindMobileMessage("");
+                        }}
+                      >
+                        {"\u53d6\u6d88"}
+                      </button>
+                    ) : null}
                   </div>
                   {bindMobileMessage ? <p className="check-message check-success">{bindMobileMessage}</p> : null}
                 </div>
               )}
             </div>
-
+            <div className="profile-account-section">
+              <div className="profile-account-section-head">
+                <h2 className="card-title">用户 ID</h2>
+              </div>
+              <div className="profile-account-current-value">{profile.user_id || "暂无"}</div>
+            </div>
+            <div className="profile-account-section">
+              <div className="profile-account-section-head">
+                <h2 className="card-title">{"\u6635\u79f0"}</h2>
                 {!showNicknameEditor ? (
                   <button type="button" className="secondary-btn inline-btn" onClick={() => setShowNicknameEditor(true)}>
-                    修改昵称
+                    {"\u4fee\u6539\u6635\u79f0"}
                   </button>
                 ) : null}
               </div>
@@ -2923,3 +2933,4 @@ export default function ProfilePage() {
     </div>
   );
 }
+
