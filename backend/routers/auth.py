@@ -49,6 +49,7 @@ from backend.config.db_conf import settings
 
 # 导入请求/响应 schema
 from backend.schemas.auth import BindMobileRequiredResponse
+from backend.schemas.auth import BindMyMobileRequest
 from backend.schemas.auth import AvailabilityCheckResponse
 from backend.schemas.auth import CheckNicknameAvailabilityRequest
 from backend.schemas.auth import CheckPasswordAvailabilityRequest
@@ -75,12 +76,14 @@ from backend.schemas.auth import UpdateAiRuntimeConfigRequest
 from backend.schemas.auth import QuestionBankListResponse
 from backend.schemas.auth import UpdateUserStatusRequest
 from backend.schemas.auth import UserProfileResponse
+from backend.schemas.auth import WechatInviteRegisterRequest
+from backend.schemas.auth import WechatInviteRegisterRequiredResponse
 from backend.schemas.auth import WechatBindInviteRequirementCheckRequest
 from backend.schemas.auth import WechatBindMobileRequest
 from backend.schemas.auth import WechatLoginRequest
 
 # 导入 service 层方法
-from backend.services.auth_service import bind_mobile_for_wechat_user
+from backend.services.auth_service import bind_mobile_for_current_user
 from backend.services.auth_service import bind_mobile_for_wechat_user
 from backend.services.auth_service import check_sms_login_invite_requirement
 from backend.services.auth_service import check_wechat_bind_invite_requirement
@@ -91,6 +94,7 @@ from backend.services.auth_service import login_by_password
 from backend.services.auth_service import register_and_login_by_invite_password
 from backend.services.auth_service import login_by_sms
 from backend.services.auth_service import login_by_wechat
+from backend.services.auth_service import register_wechat_user_by_invite
 from backend.services.auth_service import send_and_save_sms_code
 from backend.services.auth_service import check_nickname_availability
 from backend.services.auth_service import check_password_availability
@@ -572,7 +576,7 @@ def sms_login_api(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/login/wechat", response_model=LoginResponse | BindMobileRequiredResponse)
+@router.post("/login/wechat", response_model=LoginResponse | WechatInviteRegisterRequiredResponse)
 def wechat_login_api(
     payload: WechatLoginRequest,
     request: Request,
@@ -627,6 +631,58 @@ def wechat_login_api(
         )
 
         # 返回业务异常
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/login/wechat/invite-register", response_model=LoginResponse)
+def wechat_invite_register_api(
+    payload: WechatInviteRegisterRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    寰俊鎵爜鍚庨€氳繃閭€璇风爜瀹屾垚娉ㄥ唽骞剁櫥褰曟帴鍙?
+    """
+    register_payload = decode_token_safe(payload.register_token)
+
+    if not register_payload:
+        raise HTTPException(status_code=401, detail="register_token 鏃犳晥鎴栧凡杩囨湡")
+
+    if register_payload.get("token_use") != "wechat_register":
+        raise HTTPException(status_code=401, detail="register_token 绫诲瀷閿欒")
+
+    register_user_id = register_payload.get("sub")
+    if not register_user_id:
+        raise HTTPException(status_code=401, detail="register_token 缂哄皯鐢ㄦ埛淇℃伅")
+
+    try:
+        result = register_wechat_user_by_invite(
+            db=db,
+            register_user_id=str(register_user_id),
+            invite_code=payload.invite_code,
+        )
+
+        create_login_log(
+            db=db,
+            login_type="wechat_open_register",
+            login_identifier="wechat_openid_hidden",
+            success=True,
+            user_id=result["user_id"],
+            ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+
+        return result
+    except ValueError as e:
+        create_login_log(
+            db=db,
+            login_type="wechat_open_register",
+            login_identifier=None,
+            success=False,
+            failure_reason=str(e),
+            ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -772,6 +828,32 @@ def me_api(
         # 中文注释：前端据此判断密码区域默认显示“设置/修改密码”按钮还是直接展开表单
         "has_password": bool(user.password_hash),
     }
+
+
+@router.post("/me/mobile/bind")
+def bind_my_mobile_api(
+    payload: BindMyMobileRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """
+    褰撳墠鐧诲綍鐢ㄦ埛鍦ㄨ祫鏂欓〉缁戝畾鎵嬫満鍙锋帴鍙?
+    """
+    user_id = get_current_user_id(authorization)
+
+    try:
+        user = bind_mobile_for_current_user(
+            db=db,
+            user_id=user_id,
+            mobile=payload.mobile,
+        )
+        return {
+            "message": "鎵嬫満鍙风粦瀹氭垚鍔?",
+            "user_id": user.id,
+            "mobile": user.mobile,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/me/password/reset-by-sms")

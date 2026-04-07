@@ -207,6 +207,25 @@ class WechatLoginRequest(BaseModel):
     )
 
 
+class WechatInviteRegisterRequest(BaseModel):
+    """
+    微信扫码后通过邀请码完成注册请求体
+    """
+
+    register_token: str = Field(
+        ...,
+        description="微信邀请码注册专用 token",
+    )
+
+    invite_code: str = Field(
+        ...,
+        min_length=1,
+        max_length=32,
+        description="邀请码",
+        examples=["INVITE2026"],
+    )
+
+
 class WechatBindMobileRequest(BaseModel):
     """
     微信登录后绑定手机号请求体
@@ -246,6 +265,20 @@ class WechatBindMobileRequest(BaseModel):
         default=None,
         description="邀请码（仅新手机号注册时必填）",
         examples=["INVITE2026"],
+    )
+
+
+class BindMyMobileRequest(BaseModel):
+    """
+    当前登录用户在用户信息页绑定手机号请求体
+    """
+
+    mobile: str = Field(
+        ...,
+        min_length=11,
+        max_length=11,
+        description="要绑定的手机号",
+        examples=["13800138000"],
     )
 
 
@@ -582,6 +615,27 @@ class BindMobileRequiredResponse(BaseModel):
     message: str = Field(
         default="微信登录成功，请先绑定手机号",
         description="前端展示给用户的提示信息",
+    )
+
+
+class WechatInviteRegisterRequiredResponse(BaseModel):
+    """
+    寰俊鎵爜鍚庨渶瑕侀個璇风爜瀹屾垚娉ㄥ唽鏃剁殑鍝嶅簲浣?
+    """
+
+    next_step: str = Field(
+        default="wechat_invite_register",
+        description="涓嬩竴姝ュ姩浣滄爣璇嗭紝褰撳墠鍥哄畾涓?wechat_invite_register",
+    )
+
+    register_token: str = Field(
+        ...,
+        description="寰俊閭€璇风爜娉ㄥ唽涓撶敤 token",
+    )
+
+    message: str = Field(
+        default="寰俊鎵爜鎴愬姛锛岃鍏堝～鍐欓個璇风爜瀹屾垚娉ㄥ唽",
+        description="鍓嶇灞曠ず缁欑敤鎴风殑鎻愮ず淇℃伅",
     )
 
 

@@ -31,6 +31,7 @@ from backend.models.auth_models import InviteCode
 # 导入安全工具
 from backend.utils.security import create_access_token
 from backend.utils.security import create_bind_token
+from backend.utils.security import create_wechat_register_token
 from backend.utils.security import hash_password
 from backend.utils.security import validate_password_strength
 from backend.utils.security import verify_password
@@ -564,6 +565,48 @@ def consume_invite_code_for_register(
     return row
 
 
+def consume_invite_code_for_wechat_register(
+        db: Session,
+        code: str | None,
+) -> InviteCode:
+    """
+    寰俊鎵爜鍚庝粎閫氳繃閭€璇风爜瀹屾垚娉ㄥ唽鏃剁殑鏍搁攢閫昏緫
+
+    璇存槑锛?
+    1. 褰撳墠娴佺▼涓嶈姹傛墜鏈哄彿锛屽洜姝や笉鍙娇鐢ㄥ凡缁戝畾鍒版煇涓墜鏈哄彿鐨勯個璇风爜
+    2. 鍙厑璁镐娇鐢ㄨ繕鏈牳閿€銆佹湭杩囨湡鐨勯個璇风爜
+    """
+    if not code or not code.strip():
+        raise ValueError("璇峰～鍐欓個璇风爜")
+
+    normalized_code = code.strip().upper()
+
+    row = (
+        db.query(InviteCode)
+        .filter(
+            InviteCode.code == normalized_code,
+            InviteCode.delete_flag == "1",
+        )
+        .first()
+    )
+
+    if not row:
+        raise ValueError("閭€璇风爜涓嶅瓨鍦?")
+
+    if row.status != "1":
+        raise ValueError("閭€璇风爜宸蹭娇鐢ㄦ垨宸插け鏁?")
+
+    if row.expires_time and row.expires_time < now_utc():
+        raise ValueError("閭€璇风爜宸茶繃鏈?")
+
+    if row.issued_to_mobile:
+        raise ValueError("璇ラ個璇风爜宸茬粦瀹氭墜鏈哄彿锛岃浣跨敤鏈彂鏀炬墜鏈哄彿鐨勯個璇风爜")
+
+    row.status = "2"
+    row.used_time = now_utc()
+    return row
+
+
 def precheck_invite_code_for_register(
         db: Session,
         code: str | None,
@@ -946,7 +989,7 @@ def login_by_wechat(db: Session, code: str, state: str) -> dict:
         raise ValueError("用户已被禁用")
 
     # 如果用户已经绑定手机号，则直接登录
-    if user.mobile:
+    if user.is_temp_wechat_user != 1:
         access_token = create_access_token({"sub": str(user.id)})
 
         return {
@@ -957,7 +1000,7 @@ def login_by_wechat(db: Session, code: str, state: str) -> dict:
         }
 
     # 如果没有绑定手机号，则签发 bind_token
-    bind_token = create_bind_token(
+    register_token = create_wechat_register_token(
         {
             "sub": str(user.id),
             "openid": openid,
@@ -965,10 +1008,92 @@ def login_by_wechat(db: Session, code: str, state: str) -> dict:
     )
 
     return {
-        "next_step": "bind_mobile",
-        "bind_token": bind_token,
-        "message": "微信登录成功，请先绑定手机号",
+        "next_step": "wechat_invite_register",
+        "register_token": register_token,
+        "message": "寰俊鎵爜鎴愬姛锛岃鍏堝～鍐欓個璇风爜瀹屾垚娉ㄥ唽",
     }
+
+def register_wechat_user_by_invite(
+        db: Session,
+        register_user_id: str,
+        invite_code: str,
+) -> dict:
+    """
+    寰俊鎵爜鍚庝粎閫氳繃閭€璇风爜瀹屾垚娉ㄥ唽骞剁櫥褰?
+    """
+    user = get_active_user_by_id(db, register_user_id)
+
+    if not user:
+        raise ValueError("寰俊鐢ㄦ埛涓嶅瓨鍦?")
+
+    if user.status != "active":
+        raise ValueError("鐢ㄦ埛宸茶绂佺敤")
+
+    if user.is_temp_wechat_user != 1:
+        access_token = create_access_token({"sub": str(user.id)})
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user_id": user.id,
+            "mobile": user.mobile,
+        }
+
+    current_identity = get_active_wechat_identity_by_user_id(db, user.id)
+    if not current_identity:
+        raise ValueError("褰撳墠寰俊韬唤涓嶅瓨鍦?")
+
+    invite_row = consume_invite_code_for_wechat_register(
+        db=db,
+        code=invite_code,
+    )
+
+    user.is_temp_wechat_user = 0
+    invite_row.used_by_user_id = user.id
+
+    db.commit()
+    db.refresh(user)
+
+    access_token = create_access_token({"sub": str(user.id)})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": user.id,
+        "mobile": user.mobile,
+    }
+
+
+def bind_mobile_for_current_user(
+        db: Session,
+        user_id: str,
+        mobile: str,
+) -> User:
+    """
+    褰撳墠鐧诲綍鐢ㄦ埛鍦ㄨ祫鏂欓〉缁戝畾鎵嬫満鍙凤紝鏆傛椂涓嶈蛋鐭俊楠岃瘉鐮?
+    """
+    user = get_active_user_by_id(db, user_id)
+    if not user:
+        raise ValueError("鐢ㄦ埛涓嶅瓨鍦?")
+
+    if user.status != "active":
+        raise ValueError("鐢ㄦ埛宸茶绂佺敤")
+
+    if not mobile or len(mobile) != 11 or not mobile.isdigit() or not mobile.startswith("1"):
+        raise ValueError("璇疯緭鍏ユ纭殑鎵嬫満鍙?")
+
+    if user.mobile:
+        raise ValueError("褰撳墠璐﹀彿宸茬粦瀹氭墜鏈哄彿")
+
+    existing_user = get_active_user_by_mobile(db, mobile)
+    if existing_user and existing_user.id != user.id:
+        raise ValueError("璇ユ墜鏈哄彿宸茶鍏朵粬璐﹀彿浣跨敤")
+
+    user.mobile = mobile
+    user.mobile_verified = 1
+    user.is_temp_wechat_user = 0
+
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 def bind_mobile_for_wechat_user(

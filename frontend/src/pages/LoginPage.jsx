@@ -8,6 +8,7 @@ import {
   sendSmsCode,
   smsLogin,
   tempRegisterLogin,
+  wechatInviteRegister,
   wechatBindMobile,
   wechatLogin,
 } from "../api/auth";
@@ -167,6 +168,8 @@ export default function LoginPage() {
   const [tempRegisterPhone, setTempRegisterPhone] = useState("");
   const [tempRegisterPassword, setTempRegisterPassword] = useState("");
   const [tempRegisterInviteCode, setTempRegisterInviteCode] = useState("");
+  const [wechatRegisterInviteCode, setWechatRegisterInviteCode] = useState("");
+  const [registerToken, setRegisterToken] = useState("");
   const [bindPhone, setBindPhone] = useState("");
   const [bindCode, setBindCode] = useState("");
   const [bindInviteCode, setBindInviteCode] = useState("");
@@ -194,6 +197,7 @@ export default function LoginPage() {
   const [tempRegisterPhoneFocused, setTempRegisterPhoneFocused] = useState(false);
   const [tempRegisterPasswordFocused, setTempRegisterPasswordFocused] = useState(false);
   const [tempRegisterInviteFocused, setTempRegisterInviteFocused] = useState(false);
+  const [wechatRegisterInviteFocused, setWechatRegisterInviteFocused] = useState(false);
   const [bindPhoneFocused, setBindPhoneFocused] = useState(false);
   const [bindCodeFocused, setBindCodeFocused] = useState(false);
   const [bindInviteFocused, setBindInviteFocused] = useState(false);
@@ -227,6 +231,20 @@ export default function LoginPage() {
   );
 
   const panelDescription = useMemo(() => {
+    if (activeTab === "bind_mobile") return "完成手机号绑定后即可进入系统";
+    if (activeTab === "temp_register") return "通过手机号、密码和邀请码快速完成注册并直接登录";
+    return "登录您的学习账户，继续探索之旅";
+  }, [activeTab]);
+
+  const resolvedPanelTitle = useMemo(() => {
+    if (activeTab === "wechat_invite_register") return "邀请码注册";
+    if (activeTab === "bind_mobile") return "绑定手机号";
+    if (activeTab === "temp_register") return "临时注册入口";
+    return "欢迎回来";
+  }, [activeTab]);
+
+  const resolvedPanelDescription = useMemo(() => {
+    if (activeTab === "wechat_invite_register") return "首次微信扫码请填写邀请码完成注册，成功后会直接登录";
     if (activeTab === "bind_mobile") return "完成手机号绑定后即可进入系统";
     if (activeTab === "temp_register") return "通过手机号、密码和邀请码快速完成注册并直接登录";
     return "登录您的学习账户，继续探索之旅";
@@ -505,6 +523,30 @@ export default function LoginPage() {
     }
   }
 
+  async function handleWechatInviteRegister() {
+    clearMessages();
+    if (!registerToken) {
+      setErrorMessage("注册凭证不存在，请重新发起微信登录");
+      return;
+    }
+    if (!wechatRegisterInviteCode.trim()) {
+      setErrorMessage("请输入邀请码");
+      return;
+    }
+    try {
+      setLoading(true);
+      const response = await wechatInviteRegister({
+        register_token: registerToken,
+        invite_code: wechatRegisterInviteCode.trim(),
+      });
+      finishLogin(response.data.access_token);
+    } catch (error) {
+      setErrorMessage(error?.response?.data?.detail || "邀请码注册失败，请稍后重试");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleSendBindCode() {
     clearMessages();
     if (!validateMobile(bindPhone)) return setErrorMessage("请输入正确的手机号");
@@ -568,6 +610,14 @@ export default function LoginPage() {
       const response = await wechatLogin({ code, state });
       if (response.data.access_token) {
         finishLogin(response.data.access_token);
+        return;
+      }
+      if (response.data.next_step === "wechat_invite_register") {
+        setRegisterToken(response.data.register_token || "");
+        setWechatRegisterInviteCode("");
+        setActiveTab("wechat_invite_register");
+        setSuccessMessage(response.data.message || "请先填写邀请码完成注册");
+        clearLoginQueryParams();
         return;
       }
       if (response.data.next_step === "bind_mobile") {
@@ -670,12 +720,12 @@ export default function LoginPage() {
       >
         <motion.div className="w-full login-page-panel" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.15, ease: "easeOut" }}>
           <div className="login-panel-header">
-            <h2 className="login-panel-title">{panelTitle}</h2>
-            <p className="login-panel-subtitle">{panelDescription}</p>
+            <h2 className="login-panel-title">{resolvedPanelTitle}</h2>
+            <p className="login-panel-subtitle">{resolvedPanelDescription}</p>
           </div>
           <MessageBlock errorMessage={errorMessage} successMessage={successMessage} />
 
-          {activeTab !== "bind_mobile" ? (
+          {activeTab !== "bind_mobile" && activeTab !== "wechat_invite_register" ? (
             <div className="login-tabbar flex rounded-lg mb-7 p-1 relative">
               {tabs.map((tab) => (
                 <button
@@ -887,14 +937,14 @@ export default function LoginPage() {
 
             {activeTab === "wechat" ? (
               <motion.div key="wechat" variants={formVariants} initial="initial" animate="animate" exit="exit" transition={{ duration: 0.22, ease: "easeInOut" }} className="flex flex-col items-center gap-5 login-form-panel">
-                <motion.div className="login-wechat-placeholder-wrap relative overflow-hidden">
+                <div style={{ display: "none" }}>
                   <div className="login-wechat-placeholder relative">
                     <ScannerLine />
                     <div className="login-wechat-placeholder-badge">已接入</div>
                   </div>
-                </motion.div>
+                </div>
 
-                <div className="text-center">
+                <div className="text-center" style={{ display: "none" }}>
                   <p className="login-wechat-title">使用 <span style={{ color: "#07c160", fontWeight: 600 }}>微信</span> 扫码登录</p>
                   <p className="login-wechat-subtitle">点击下方按钮后，将跳转到微信开放平台官方扫码确认页</p>
                 </div>
@@ -916,6 +966,46 @@ export default function LoginPage() {
                     </motion.button>
                   ))}
                 </div>
+              </motion.div>
+            ) : null}
+
+            {activeTab === "wechat_invite_register" ? (
+              <motion.div key="wechat_invite_register" variants={formVariants} initial="initial" animate="animate" exit="exit" transition={{ duration: 0.22, ease: "easeInOut" }} className="flex flex-col gap-4 login-form-panel">
+                <div className="flex flex-col gap-1.5">
+                  <label className="login-field-label">邀请码</label>
+                  <AnimatedInput focused={wechatRegisterInviteFocused}>
+                    <input
+                      type="text"
+                      placeholder="请输入邀请码"
+                      value={wechatRegisterInviteCode}
+                      onChange={(event) => setWechatRegisterInviteCode(event.target.value)}
+                      onFocus={() => setWechatRegisterInviteFocused(true)}
+                      onBlur={() => setWechatRegisterInviteFocused(false)}
+                      className="login-plain-input flex-1 outline-none bg-transparent"
+                    />
+                  </AnimatedInput>
+                </div>
+
+                <p className="login-helper-text">
+                  首次使用微信扫码时，填写邀请码即可完成注册并直接登录。手机号可在登录后到用户信息页绑定。
+                </p>
+
+                <motion.button type="button" onClick={handleWechatInviteRegister} className="login-submit-button w-full py-3 rounded-2xl mt-1" style={{ cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>
+                  {loading ? "提交中..." : "完成注册并登录"}
+                </motion.button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearMessages();
+                    setRegisterToken("");
+                    setWechatRegisterInviteCode("");
+                    setActiveTab("wechat");
+                  }}
+                  className="login-link-button self-start"
+                >
+                  返回微信扫码
+                </button>
               </motion.div>
             ) : null}
 

@@ -159,6 +159,10 @@ export function wechatLogin(data) {
   return request.post("/api/v1/auth/login/wechat", data);
 }
 
+export function wechatInviteRegister(data) {
+  return request.post("/api/v1/auth/login/wechat/invite-register", data);
+}
+
 /**
  * 微信绑定手机号
  *
@@ -226,6 +230,10 @@ export function checkMyResetPassword(data) {
  */
 export function getMe() {
   return request.get("/api/v1/auth/me");
+}
+
+export function bindMyMobile(data) {
+  return request.post("/api/v1/auth/me/mobile/bind", data);
 }
 
 /**
