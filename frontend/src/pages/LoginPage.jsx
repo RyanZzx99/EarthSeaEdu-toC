@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   checkSmsInviteRequired,
@@ -250,6 +250,20 @@ export default function LoginPage() {
     return "登录您的学习账户，继续探索之旅";
   }, [activeTab]);
 
+  const displayPanelTitle = useMemo(() => {
+    if (activeTab === "wechat_invite_register") return "\u9080\u8bf7\u7801\u6ce8\u518c";
+    if (activeTab === "bind_mobile") return "\u7ed1\u5b9a\u624b\u673a\u53f7";
+    if (activeTab === "temp_register") return "\u4e34\u65f6\u6ce8\u518c\u5165\u53e3";
+    return "\u6b22\u8fce\u56de\u6765";
+  }, [activeTab]);
+
+  const displayPanelDescription = useMemo(() => {
+    if (activeTab === "wechat_invite_register") return "\u9996\u6b21\u5fae\u4fe1\u626b\u7801\u8bf7\u586b\u5199\u9080\u8bf7\u7801\u5b8c\u6210\u6ce8\u518c\uff0c\u6210\u529f\u540e\u4f1a\u76f4\u63a5\u767b\u5f55";
+    if (activeTab === "bind_mobile") return "\u5b8c\u6210\u624b\u673a\u53f7\u7ed1\u5b9a\u540e\u5373\u53ef\u8fdb\u5165\u7cfb\u7edf";
+    if (activeTab === "temp_register") return "\u901a\u8fc7\u624b\u673a\u53f7\u3001\u5bc6\u7801\u548c\u9080\u8bf7\u7801\u5feb\u901f\u5b8c\u6210\u6ce8\u518c\u5e76\u76f4\u63a5\u767b\u5f55";
+    return "\u767b\u5f55\u60a8\u7684\u5b66\u4e60\u8d26\u6237\uff0c\u7ee7\u7eed\u63a2\u7d22\u4e4b\u65c5";
+  }, [activeTab]);
+
   const formVariants = {
     initial: { opacity: 0, x: 16 },
     animate: { opacity: 1, x: 0 },
@@ -303,7 +317,7 @@ export default function LoginPage() {
       // 中文注释：这个预检查接口只负责控制邀请码输入框显示，不应该在所有场景都阻断主流程。
       // 例如“获取验证码”时，即使预检查暂时失败，也应尽量允许用户先拿到验证码，真正提交登录时再做强校验。
       if (showError) {
-        setErrorMessage(error?.response?.data?.detail || "邀请码状态检查失败，请稍后重试");
+        setErrorMessage(error?.response?.data?.detail || "\u9080\u8bf7\u7801\u6ce8\u518c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5");
       }
       return null;
     } finally {
@@ -334,7 +348,7 @@ export default function LoginPage() {
     } catch (error) {
       // 中文注释：绑定手机号场景与短信登录相同，预检查失败时不一定要直接阻断“获取验证码”按钮。
       if (showError) {
-        setErrorMessage(error?.response?.data?.detail || "邀请码状态检查失败，请稍后重试");
+        setErrorMessage(error?.response?.data?.detail || "\u9080\u8bf7\u7801\u6ce8\u518c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5");
       }
       return null;
     } finally {
@@ -418,7 +432,7 @@ export default function LoginPage() {
       const response = await passwordLogin({ mobile: phone, password });
       finishLogin(response.data.access_token);
     } catch (error) {
-      setErrorMessage(error?.response?.data?.detail || "登录失败，请稍后重试");
+      setErrorMessage(error?.response?.data?.detail || "\u9080\u8bf7\u7801\u6ce8\u518c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5");
     } finally {
       setLoading(false);
     }
@@ -435,7 +449,7 @@ export default function LoginPage() {
       setSuccessMessage("验证码已发送，请注意查收");
       setCountdown(60);
     } catch (error) {
-      setErrorMessage(error?.response?.data?.detail || "验证码发送失败，请稍后重试");
+      setErrorMessage(error?.response?.data?.detail || "\u9080\u8bf7\u7801\u6ce8\u518c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5");
     } finally {
       setSendCodeLoading(false);
     }
@@ -463,7 +477,7 @@ export default function LoginPage() {
       const response = await smsLogin(requestPayload);
       finishLogin(response.data.access_token);
     } catch (error) {
-      setErrorMessage(error?.response?.data?.detail || "登录失败，请稍后重试");
+      setErrorMessage(error?.response?.data?.detail || "\u9080\u8bf7\u7801\u6ce8\u518c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5");
     } finally {
       setLoading(false);
     }
@@ -486,7 +500,7 @@ export default function LoginPage() {
       });
       finishLogin(response.data.access_token);
     } catch (error) {
-      setErrorMessage(error?.response?.data?.detail || "注册失败，请稍后重试");
+      setErrorMessage(error?.response?.data?.detail || "\u9080\u8bf7\u7801\u6ce8\u518c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5");
     } finally {
       setLoading(false);
     }
@@ -517,7 +531,7 @@ export default function LoginPage() {
       const response = await getWechatAuthorizeUrl();
       window.location.href = response.data.authorize_url;
     } catch (error) {
-      setErrorMessage(error?.response?.data?.detail || "获取微信登录地址失败");
+      setErrorMessage(error?.response?.data?.detail || "\u9080\u8bf7\u7801\u6ce8\u518c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5");
     } finally {
       setLoading(false);
     }
@@ -526,11 +540,11 @@ export default function LoginPage() {
   async function handleWechatInviteRegister() {
     clearMessages();
     if (!registerToken) {
-      setErrorMessage("注册凭证不存在，请重新发起微信登录");
+      setErrorMessage("\u6ce8\u518c\u51ed\u8bc1\u4e0d\u5b58\u5728\uff0c\u8bf7\u91cd\u65b0\u53d1\u8d77\u5fae\u4fe1\u767b\u5f55");
       return;
     }
     if (!wechatRegisterInviteCode.trim()) {
-      setErrorMessage("请输入邀请码");
+      setErrorMessage("\u8bf7\u8f93\u5165\u9080\u8bf7\u7801");
       return;
     }
     try {
@@ -541,7 +555,7 @@ export default function LoginPage() {
       });
       finishLogin(response.data.access_token);
     } catch (error) {
-      setErrorMessage(error?.response?.data?.detail || "邀请码注册失败，请稍后重试");
+      setErrorMessage(error?.response?.data?.detail || "\u9080\u8bf7\u7801\u6ce8\u518c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5");
     } finally {
       setLoading(false);
     }
@@ -558,7 +572,7 @@ export default function LoginPage() {
       setSuccessMessage("验证码已发送，请注意查收");
       setBindCountdown(60);
     } catch (error) {
-      setErrorMessage(error?.response?.data?.detail || "验证码发送失败，请稍后重试");
+      setErrorMessage(error?.response?.data?.detail || "\u9080\u8bf7\u7801\u6ce8\u518c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5");
     } finally {
       setSendCodeLoading(false);
     }
@@ -588,7 +602,7 @@ export default function LoginPage() {
       const response = await wechatBindMobile(requestPayload);
       finishLogin(response.data.access_token);
     } catch (error) {
-      setErrorMessage(error?.response?.data?.detail || "绑定失败，请稍后重试");
+      setErrorMessage(error?.response?.data?.detail || "\u9080\u8bf7\u7801\u6ce8\u518c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5");
     } finally {
       setLoading(false);
     }
@@ -616,7 +630,7 @@ export default function LoginPage() {
         setRegisterToken(response.data.register_token || "");
         setWechatRegisterInviteCode("");
         setActiveTab("wechat_invite_register");
-        setSuccessMessage(response.data.message || "请先填写邀请码完成注册");
+        setSuccessMessage("\u8bf7\u5148\u586b\u5199\u9080\u8bf7\u7801\u5b8c\u6210\u6ce8\u518c");
         clearLoginQueryParams();
         return;
       }
@@ -625,11 +639,11 @@ export default function LoginPage() {
         // 中文注释：切到微信绑定手机号界面前，先清空旧的邀请码判断状态，避免错误复用上一次手机号结果。
         resetBindInviteRequirement();
         setActiveTab("bind_mobile");
-        setSuccessMessage(response.data.message || "请先绑定手机号");
+        setSuccessMessage("\u8bf7\u5148\u586b\u5199\u9080\u8bf7\u7801\u5b8c\u6210\u6ce8\u518c");
         clearLoginQueryParams();
       }
     } catch (error) {
-      setErrorMessage(error?.response?.data?.detail || "微信登录失败，请稍后重试");
+      setErrorMessage(error?.response?.data?.detail || "\u9080\u8bf7\u7801\u6ce8\u518c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5");
       clearLoginQueryParams();
     } finally {
       setLoading(false);
@@ -720,8 +734,8 @@ export default function LoginPage() {
       >
         <motion.div className="w-full login-page-panel" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.15, ease: "easeOut" }}>
           <div className="login-panel-header">
-            <h2 className="login-panel-title">{resolvedPanelTitle}</h2>
-            <p className="login-panel-subtitle">{resolvedPanelDescription}</p>
+            <h2 className="login-panel-title">{displayPanelTitle}</h2>
+            <p className="login-panel-subtitle">{displayPanelDescription}</p>
           </div>
           <MessageBlock errorMessage={errorMessage} successMessage={successMessage} />
 
@@ -1109,3 +1123,4 @@ export default function LoginPage() {
     </div>
   );
 }
+

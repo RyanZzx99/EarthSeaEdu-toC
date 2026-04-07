@@ -1,4 +1,4 @@
-"""
+﻿"""
 认证模块路由定义
 
 重要说明：
@@ -646,14 +646,14 @@ def wechat_invite_register_api(
     register_payload = decode_token_safe(payload.register_token)
 
     if not register_payload:
-        raise HTTPException(status_code=401, detail="register_token 鏃犳晥鎴栧凡杩囨湡")
+        raise HTTPException(status_code=401, detail="\u6ce8\u518c\u51ed\u8bc1\u65e0\u6548\u6216\u5df2\u8fc7\u671f")
 
     if register_payload.get("token_use") != "wechat_register":
-        raise HTTPException(status_code=401, detail="register_token 绫诲瀷閿欒")
+        raise HTTPException(status_code=401, detail="\u6ce8\u518c\u51ed\u8bc1\u7c7b\u578b\u9519\u8bef")
 
     register_user_id = register_payload.get("sub")
     if not register_user_id:
-        raise HTTPException(status_code=401, detail="register_token 缂哄皯鐢ㄦ埛淇℃伅")
+        raise HTTPException(status_code=401, detail="\u6ce8\u518c\u51ed\u8bc1\u7f3a\u5c11\u7528\u6237\u4fe1\u606f")
 
     try:
         result = register_wechat_user_by_invite(
@@ -848,7 +848,7 @@ def bind_my_mobile_api(
             mobile=payload.mobile,
         )
         return {
-            "message": "鎵嬫満鍙风粦瀹氭垚鍔?",
+            "message": "\u624b\u673a\u53f7\u4fdd\u5b58\u6210\u529f",
             "user_id": user.id,
             "mobile": user.mobile,
         }
@@ -1731,3 +1731,4 @@ def list_question_banks_api(
             for row in rows
         ],
     }
+

@@ -232,7 +232,7 @@ function ShortcutNavCard({ item, index, onClick }) {
       initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.42, delay: 0.54 + index * 0.06 }}
-      whileHover={{ y: -10, scale: 1.016, rotate: index % 2 === 0 ? -0.45 : 0.45 }}
+      whileHover={{ y: -10, rotate: index % 2 === 0 ? -0.45 : 0.45 }}
       whileTap={{ scale: 0.985 }}
       style={{
         "--shortcut-start": item.palette.start,

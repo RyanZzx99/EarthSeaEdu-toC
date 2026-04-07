@@ -1,4 +1,4 @@
-"""
+﻿"""
 登录认证服务层
 
 重要说明：
@@ -1010,7 +1010,7 @@ def login_by_wechat(db: Session, code: str, state: str) -> dict:
     return {
         "next_step": "wechat_invite_register",
         "register_token": register_token,
-        "message": "寰俊鎵爜鎴愬姛锛岃鍏堝～鍐欓個璇风爜瀹屾垚娉ㄥ唽",
+        "message": "\u5fae\u4fe1\u626b\u7801\u6210\u529f\uff0c\u8bf7\u5148\u586b\u5199\u9080\u8bf7\u7801\u5b8c\u6210\u6ce8\u518c",
     }
 
 def register_wechat_user_by_invite(
@@ -1024,10 +1024,10 @@ def register_wechat_user_by_invite(
     user = get_active_user_by_id(db, register_user_id)
 
     if not user:
-        raise ValueError("寰俊鐢ㄦ埛涓嶅瓨鍦?")
+        raise ValueError("\u5fae\u4fe1\u7528\u6237\u4e0d\u5b58\u5728")
 
     if user.status != "active":
-        raise ValueError("鐢ㄦ埛宸茶绂佺敤")
+        raise ValueError("\u7528\u6237\u5df2\u88ab\u7981\u7528")
 
     if user.is_temp_wechat_user != 1:
         access_token = create_access_token({"sub": str(user.id)})
@@ -1040,7 +1040,7 @@ def register_wechat_user_by_invite(
 
     current_identity = get_active_wechat_identity_by_user_id(db, user.id)
     if not current_identity:
-        raise ValueError("褰撳墠寰俊韬唤涓嶅瓨鍦?")
+        raise ValueError("\u5f53\u524d\u5fae\u4fe1\u8eab\u4efd\u4e0d\u5b58\u5728")
 
     invite_row = consume_invite_code_for_wechat_register(
         db=db,
@@ -1075,17 +1075,14 @@ def bind_mobile_for_current_user(
         raise ValueError("鐢ㄦ埛涓嶅瓨鍦?")
 
     if user.status != "active":
-        raise ValueError("鐢ㄦ埛宸茶绂佺敤")
+        raise ValueError("\u7528\u6237\u5df2\u88ab\u7981\u7528")
 
     if not mobile or len(mobile) != 11 or not mobile.isdigit() or not mobile.startswith("1"):
-        raise ValueError("璇疯緭鍏ユ纭殑鎵嬫満鍙?")
-
-    if user.mobile:
-        raise ValueError("褰撳墠璐﹀彿宸茬粦瀹氭墜鏈哄彿")
+        raise ValueError("\u8bf7\u8f93\u5165\u6b63\u786e\u7684\u624b\u673a\u53f7")
 
     existing_user = get_active_user_by_mobile(db, mobile)
     if existing_user and existing_user.id != user.id:
-        raise ValueError("璇ユ墜鏈哄彿宸茶鍏朵粬璐﹀彿浣跨敤")
+        raise ValueError("\u8be5\u624b\u673a\u53f7\u5df2\u88ab\u5176\u4ed6\u8d26\u53f7\u4f7f\u7528")
 
     user.mobile = mobile
     user.mobile_verified = 1
@@ -1664,3 +1661,4 @@ def get_user_profile(db: Session, user_id: str) -> User | None:
     2. 用户是否禁用，由上层接口视情况决定是否继续返回
     """
     return get_active_user_by_id(db, user_id)
+
