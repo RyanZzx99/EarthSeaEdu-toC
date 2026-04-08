@@ -198,6 +198,13 @@ class User(Base):
         comment="是否为微信首次扫码产生的临时账号：0=否，1=是",
     )
 
+    is_teacher: Mapped[str] = mapped_column(
+        String(1),
+        nullable=False,
+        default="0",
+        comment="是否已开通教师端：1=是，0=否",
+    )
+
     # 创建时间
     # 说明：
     # 1. 对齐数据库字段 create_time
@@ -703,6 +710,14 @@ class InviteCode(Base):
         unique=True,
         index=True,
         comment="邀请码，唯一",
+    )
+
+    invite_scene: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="register",
+        index=True,
+        comment="邀请码用途：register=注册，teacher_portal=教师端开通",
     )
 
     # 邀请码状态

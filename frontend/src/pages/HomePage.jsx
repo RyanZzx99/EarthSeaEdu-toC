@@ -3,14 +3,12 @@ import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowRight,
-  Bell,
   BookOpen,
   Calculator,
   GraduationCap,
   Home,
   Link2,
   Send,
-  Settings,
   Sparkles,
   TrendingUp,
   UserRound,
@@ -24,7 +22,7 @@ import {
   RadarChart,
   ResponsiveContainer,
 } from "recharts";
-import { getMe } from "../api/auth";
+import { activateTeacherPortal, getMe } from "../api/auth";
 import {
   buildAiChatWsUrl,
   getAiChatMessages,
@@ -267,20 +265,6 @@ function SectionNavButton({ item, isActive, onClick }) {
   );
 }
 
-function TopActionButton({ label, children }) {
-  return (
-    <motion.button
-      type="button"
-      whileHover={{ scale: 1.05 }}
-      whileTap={{ scale: 0.95 }}
-      className="home-top-icon-button"
-      aria-label={label}
-    >
-      {children}
-    </motion.button>
-  );
-}
-
 function ShortcutNavCard({ item, index, onClick }) {
   const Icon = item.icon;
 
@@ -328,14 +312,6 @@ function BrandBlock() {
       <div className="home-brand-text">录途 Toolbox</div>
     </div>
   );
-}
-
-function BellIcon() {
-  return <Bell size={20} strokeWidth={2} color="#4b5563" />;
-}
-
-function SettingsIcon() {
-  return <Settings size={20} strokeWidth={2} color="#4b5563" />;
 }
 
 function ArrowRightIcon() {
@@ -415,6 +391,11 @@ export default function HomePage() {
   const navigate = useNavigate();
 
   const [profile, setProfile] = useState(null);
+  const [showTeacherInviteModal, setShowTeacherInviteModal] = useState(false);
+  const [teacherInviteCode, setTeacherInviteCode] = useState("");
+  const [teacherInviteMessage, setTeacherInviteMessage] = useState("");
+  const [teacherInviteError, setTeacherInviteError] = useState("");
+  const [teacherInviteLoading, setTeacherInviteLoading] = useState(false);
   const [activeSection, setActiveSection] = useState("hero");
   const [showChat, setShowChat] = useState(false);
   const [showProfileResult, setShowProfileResult] = useState(false);
@@ -632,6 +613,17 @@ export default function HomePage() {
     return source.charAt(0).toUpperCase();
   }
 
+  function closeTeacherInviteModal() {
+    if (teacherInviteLoading) {
+      return;
+    }
+
+    setShowTeacherInviteModal(false);
+    setTeacherInviteCode("");
+    setTeacherInviteMessage("");
+    setTeacherInviteError("");
+  }
+
   function scrollToSection(sectionId, key) {
     setActiveSection(key);
     const offset = 64;
@@ -657,6 +649,48 @@ export default function HomePage() {
     }
 
     scrollToSection(sectionId, key);
+  }
+
+  function handleTeacherPortalEntry() {
+    if (profile?.is_teacher) {
+      navigate("/teacher");
+      return;
+    }
+
+    setTeacherInviteCode("");
+    setTeacherInviteMessage("");
+    setTeacherInviteError("");
+    setShowTeacherInviteModal(true);
+  }
+
+  async function handleActivateTeacherPortal() {
+    const normalizedCode = teacherInviteCode.trim();
+
+    setTeacherInviteMessage("");
+    setTeacherInviteError("");
+
+    if (!normalizedCode) {
+      setTeacherInviteError("请输入教师邀请码");
+      return;
+    }
+
+    try {
+      setTeacherInviteLoading(true);
+      const response = await activateTeacherPortal({ invite_code: normalizedCode });
+
+      setProfile((previous) => ({
+        ...(previous || {}),
+        is_teacher: Boolean(response.data?.is_teacher),
+      }));
+      setShowTeacherInviteModal(false);
+      setTeacherInviteCode("");
+      setTeacherInviteMessage(response.data?.message || "教师端已开通");
+      navigate("/teacher");
+    } catch (error) {
+      setTeacherInviteError(error?.response?.data?.detail || "教师端开通失败，请稍后重试。");
+    } finally {
+      setTeacherInviteLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -1566,15 +1600,15 @@ export default function HomePage() {
           </nav>
 
           <div className="home-top-actions">
-            <TopActionButton label="鎻愰啋">
-              <div className="home-top-icon-wrap">
-                <BellIcon />
-                <span className="home-top-icon-dot" />
-              </div>
-            </TopActionButton>
-            <TopActionButton label="璁剧疆">
-              <SettingsIcon />
-            </TopActionButton>
+            <button
+              type="button"
+              className="home-teacher-switch-button"
+              onClick={handleTeacherPortalEntry}
+              disabled={!profile}
+            >
+              <GraduationCap size={18} strokeWidth={2.1} />
+              <span>{profile?.is_teacher ? "进入教师端" : "切换教师端"}</span>
+            </button>
             <div className="home-top-divider" />
 
             {profile ? (
@@ -2110,6 +2144,79 @@ export default function HomePage() {
           </motion.section>
         </div>
       </main>
+
+      <AnimatePresence>
+        {showTeacherInviteModal ? (
+          <motion.div
+            className="profile-modal-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="profile-modal-card teacher-invite-modal-card"
+              initial={{ opacity: 0, y: 18, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 18, scale: 0.98 }}
+              transition={{ duration: 0.18 }}
+            >
+              <div className="profile-modal-head">
+                <div>
+                  <h3 className="admin-panel-title">开通教师端</h3>
+                  <p className="admin-panel-subtitle">
+                    输入一次教师邀请码后，当前账号后续可直接进入教师端。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="profile-modal-close"
+                  onClick={closeTeacherInviteModal}
+                  aria-label="关闭教师邀请码弹窗"
+                >
+                  ×
+                </button>
+              </div>
+
+              <label className="field-group">
+                <span className="field-label">教师邀请码</span>
+                <input
+                  className="input"
+                  value={teacherInviteCode}
+                  onChange={(event) => {
+                    setTeacherInviteCode(event.target.value);
+                    setTeacherInviteMessage("");
+                    setTeacherInviteError("");
+                  }}
+                  placeholder="请输入教师邀请码"
+                  autoFocus
+                />
+              </label>
+
+              {teacherInviteError ? <div className="error-box">{teacherInviteError}</div> : null}
+              {teacherInviteMessage ? <p className="check-message check-success">{teacherInviteMessage}</p> : null}
+
+              <div className="inline-actions teacher-invite-modal-actions">
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  onClick={closeTeacherInviteModal}
+                  disabled={teacherInviteLoading}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="primary-btn"
+                  onClick={handleActivateTeacherPortal}
+                  disabled={teacherInviteLoading}
+                >
+                  {teacherInviteLoading ? "验证中..." : "进入教师端"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

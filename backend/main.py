@@ -21,6 +21,7 @@ from backend.routers import ai_chat
 from backend.routers import auth
 from backend.routers import health
 from backend.routers import mockexam
+from backend.routers import teacher
 
 
 # 统一初始化后端日志，控制台会直接输出中文步骤和耗时。
@@ -49,6 +50,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(mockexam.router, prefix="/api/v1/mockexam", tags=["mockexam"])
+app.include_router(teacher.router, prefix="/api/v1/teacher", tags=["teacher"])
 app.include_router(ai_chat.router, tags=["ai-chat"])
 
 @app.on_event("startup")

@@ -36,6 +36,7 @@ from backend.services.mockexam_service import load_mockexam_exam_set_payload
 from backend.services.mockexam_service import load_mockexam_payload
 from backend.services.mockexam_service import serialize_exam_set_item
 from backend.services.mockexam_service import update_mockexam_exam_set_status
+from backend.services.auth_service import get_active_user_by_id
 
 
 router = APIRouter()
@@ -45,6 +46,18 @@ def require_mockexam_user(
     authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> str:
     return get_current_user_id(authorization)
+
+
+def require_mockexam_teacher_user(
+    user_id: str = Depends(require_mockexam_user),
+    db: Session = Depends(get_db),
+) -> str:
+    user = get_active_user_by_id(db, user_id)
+    if not user or user.status != "active":
+        raise HTTPException(status_code=401, detail="当前登录状态无效")
+    if getattr(user, "is_teacher", "0") != "1":
+        raise HTTPException(status_code=403, detail="当前账号未开通教师端")
+    return user_id
 
 
 @router.get("/options", response_model=MockExamOptionsResponse)
@@ -176,7 +189,7 @@ def get_mockexam_exam_set_api(
 @router.post("/exam-sets", response_model=MockExamExamSetMutationResponse)
 def create_mockexam_exam_set_api(
     payload: MockExamExamSetCreateRequest,
-    _user_id: str = Depends(require_mockexam_user),
+    _user_id: str = Depends(require_mockexam_teacher_user),
     db: Session = Depends(get_db),
 ):
     try:
@@ -204,7 +217,7 @@ def create_mockexam_exam_set_api(
 def update_mockexam_exam_set_status_api(
     exam_sets_id: int,
     payload: MockExamExamSetStatusUpdateRequest,
-    _user_id: str = Depends(require_mockexam_user),
+    _user_id: str = Depends(require_mockexam_teacher_user),
     db: Session = Depends(get_db),
 ):
     try:
@@ -227,7 +240,7 @@ def update_mockexam_exam_set_status_api(
 @router.delete("/exam-sets/{exam_sets_id}", response_model=MockExamExamSetDeleteResponse)
 def delete_mockexam_exam_set_api(
     exam_sets_id: int,
-    _user_id: str = Depends(require_mockexam_user),
+    _user_id: str = Depends(require_mockexam_teacher_user),
     db: Session = Depends(get_db),
 ):
     try:

@@ -7,6 +7,9 @@ import LoginPage from "./pages/LoginPage";
 import MockExamPage from "./pages/MockExamPage";
 import MockExamRunnerPage from "./pages/MockExamRunnerPage";
 import ProfilePage from "./pages/ProfilePage";
+import TeacherMockExamPage from "./pages/TeacherMockExamPage";
+import TeacherPage from "./pages/TeacherPage";
+import TeacherStudentArchivePage from "./pages/TeacherStudentArchivePage";
 import { getAccessToken } from "./utils/authStorage";
 
 const AUTH_OPTIONAL_PATHS = new Set(["/admin-console", "/admin-concole"]);
@@ -140,6 +143,30 @@ export default function App() {
         element={
           <RequireAuth authState={authState}>
             <ProfilePage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/teacher"
+        element={
+          <RequireAuth authState={authState}>
+            <TeacherPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/teacher/mockexam"
+        element={
+          <RequireAuth authState={authState}>
+            <TeacherMockExamPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/teacher/student-archive"
+        element={
+          <RequireAuth authState={authState}>
+            <TeacherStudentArchivePage />
           </RequireAuth>
         }
       />

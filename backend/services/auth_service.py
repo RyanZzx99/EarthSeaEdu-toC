@@ -56,6 +56,10 @@ from backend.services.nickname_guard_service import create_nickname_audit_log
 from backend.services.nickname_guard_service import evaluate_nickname_guard
 from backend.services.nickname_guard_service import NicknameGuardHit
 
+REGISTER_INVITE_SCENE = "register"
+TEACHER_PORTAL_INVITE_SCENE = "teacher_portal"
+VALID_INVITE_SCENES = {REGISTER_INVITE_SCENE, TEACHER_PORTAL_INVITE_SCENE}
+
 
 def get_active_user_by_id(db: Session, user_id: str) -> User | None:
     """
@@ -329,6 +333,7 @@ def create_invite_codes(
         expires_days: int | None = None,
         note: str | None = None,
         issued_by_user_id: str | None = None,
+        invite_scene: str = REGISTER_INVITE_SCENE,
 ) -> list[InviteCode]:
     """
     批量生成邀请码
@@ -338,6 +343,10 @@ def create_invite_codes(
     2. 如设置过期天数，则自动写入过期时间
     """
     rows: list[InviteCode] = []
+    normalized_invite_scene = (invite_scene or REGISTER_INVITE_SCENE).strip() or REGISTER_INVITE_SCENE
+
+    if normalized_invite_scene not in VALID_INVITE_SCENES:
+        raise ValueError("邀请码用途仅支持 register 或 teacher_portal")
 
     for _ in range(count):
         # 循环直到生成一个数据库中不存在的邀请码
@@ -360,6 +369,7 @@ def create_invite_codes(
 
         row = InviteCode(
             code=code_value,
+            invite_scene=normalized_invite_scene,
             # status='1' 表示未使用
             status="1",
             issued_by_user_id=issued_by_user_id,
@@ -469,6 +479,7 @@ def list_invite_codes(
         status: str | None = None,
         mobile: str | None = None,
         code_keyword: str | None = None,
+        invite_scene: str | None = None,
         limit: int = 50,
 ) -> tuple[list[InviteCode], int]:
     """
@@ -498,6 +509,10 @@ def list_invite_codes(
     # 邀请码关键字筛选（大小写无关）
     if code_keyword:
         query = query.filter(InviteCode.code.ilike(f"%{code_keyword.strip()}%"))
+
+    # 邀请码用途筛选
+    if invite_scene:
+        query = query.filter(InviteCode.invite_scene == invite_scene.strip())
 
     # 先统计总数，再取前 N 条
     total = query.count()
@@ -541,6 +556,9 @@ def consume_invite_code_for_register(
 
     if not row:
         raise ValueError("邀请码不存在")
+
+    if (row.invite_scene or REGISTER_INVITE_SCENE) != REGISTER_INVITE_SCENE:
+        raise ValueError("该邀请码不能用于注册")
 
     # status='1' 才允许核销
     if row.status != "1":
@@ -593,6 +611,9 @@ def consume_invite_code_for_wechat_register(
     if not row:
         raise ValueError("閭€璇风爜涓嶅瓨鍦?")
 
+    if (row.invite_scene or REGISTER_INVITE_SCENE) != REGISTER_INVITE_SCENE:
+        raise ValueError("当前邀请码不能用于微信注册")
+
     if row.status != "1":
         raise ValueError("閭€璇风爜宸蹭娇鐢ㄦ垨宸插け鏁?")
 
@@ -636,6 +657,9 @@ def precheck_invite_code_for_register(
     if not row:
         raise ValueError("邀请码不存在")
 
+    if (row.invite_scene or REGISTER_INVITE_SCENE) != REGISTER_INVITE_SCENE:
+        raise ValueError("该邀请码不能用于注册")
+
     # status='1' 才允许注册使用
     if row.status != "1":
         raise ValueError("邀请码已使用或已失效")
@@ -647,6 +671,63 @@ def precheck_invite_code_for_register(
         raise ValueError("邀请码与手机号不匹配")
 
     return row
+
+
+def activate_teacher_portal_with_invite(
+        db: Session,
+        user_id: str,
+        invite_code: str,
+) -> User:
+    """
+    当前登录用户通过教师邀请码开通教师端。
+    """
+    user = get_active_user_by_id(db, user_id)
+
+    if not user:
+        raise ValueError("用户不存在")
+
+    if user.status != "active":
+        raise ValueError("用户已被禁用")
+
+    if user.is_teacher == "1":
+        return user
+
+    normalized_code = (invite_code or "").strip().upper()
+    if not normalized_code:
+        raise ValueError("请输入教师邀请码")
+
+    row = (
+        db.query(InviteCode)
+        .filter(
+            InviteCode.code == normalized_code,
+            InviteCode.delete_flag == "1",
+        )
+        .first()
+    )
+
+    if not row:
+        raise ValueError("教师邀请码不存在")
+
+    if (row.invite_scene or REGISTER_INVITE_SCENE) != TEACHER_PORTAL_INVITE_SCENE:
+        raise ValueError("当前邀请码不能用于教师端")
+
+    if row.status != "1":
+        raise ValueError("教师邀请码已使用或已失效")
+
+    if row.expires_time and row.expires_time < now_utc():
+        raise ValueError("教师邀请码已过期")
+
+    if row.issued_to_mobile and user.mobile and row.issued_to_mobile != user.mobile:
+        raise ValueError("教师邀请码与当前账号手机号不匹配")
+
+    user.is_teacher = "1"
+    row.status = "2"
+    row.used_by_user_id = user.id
+    row.used_time = now_utc()
+
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 def check_sms_login_invite_requirement(db: Session, mobile: str) -> dict:
