@@ -50,6 +50,8 @@ from backend.config.db_conf import settings
 # 导入请求/响应 schema
 from backend.schemas.auth import BindMobileRequiredResponse
 from backend.schemas.auth import BindMyMobileRequest
+from backend.schemas.auth import TeacherPortalActivateRequest
+from backend.schemas.auth import TeacherPortalActivateResponse
 from backend.schemas.auth import AvailabilityCheckResponse
 from backend.schemas.auth import CheckNicknameAvailabilityRequest
 from backend.schemas.auth import CheckPasswordAvailabilityRequest
@@ -84,6 +86,7 @@ from backend.schemas.auth import WechatLoginRequest
 
 # 导入 service 层方法
 from backend.services.auth_service import bind_mobile_for_current_user
+from backend.services.auth_service import activate_teacher_portal_with_invite
 from backend.services.auth_service import bind_mobile_for_wechat_user
 from backend.services.auth_service import check_sms_login_invite_requirement
 from backend.services.auth_service import check_wechat_bind_invite_requirement
@@ -825,9 +828,36 @@ def me_api(
         "city": user.city,
         "country": user.country,
         "status": user.status,
+        "is_teacher": user.is_teacher == "1",
         # 中文注释：前端据此判断密码区域默认显示“设置/修改密码”按钮还是直接展开表单
         "has_password": bool(user.password_hash),
     }
+
+
+@router.post("/me/teacher/activate", response_model=TeacherPortalActivateResponse)
+def activate_teacher_portal_api(
+    payload: TeacherPortalActivateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """
+    当前登录用户输入教师邀请码开通教师端。
+    """
+    user_id = get_current_user_id(authorization)
+
+    try:
+        user = activate_teacher_portal_with_invite(
+            db=db,
+            user_id=user_id,
+            invite_code=payload.invite_code,
+        )
+        return {
+            "message": "教师端已开通",
+            "user_id": user.id,
+            "is_teacher": user.is_teacher == "1",
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/me/mobile/bind")
@@ -1027,12 +1057,14 @@ def generate_invite_codes_api(
             expires_days=payload.expires_days,
             note=payload.note,
             issued_by_user_id=None,
+            invite_scene=payload.invite_scene,
         )
 
         return {
             "items": [
                 {
                     "code": row.code,
+                    "invite_scene": row.invite_scene,
                     "status": row.status,
                     "issued_to_mobile": row.issued_to_mobile,
                     "used_by_user_id": row.used_by_user_id,
@@ -1070,6 +1102,7 @@ def issue_invite_code_api(
 
         return {
             "code": row.code,
+            "invite_scene": row.invite_scene,
             "status": row.status,
             "issued_to_mobile": row.issued_to_mobile,
             "used_by_user_id": row.used_by_user_id,
@@ -1087,6 +1120,7 @@ def list_invite_codes_api(
     status: str | None = Query(default=None, description="状态筛选：1=未使用，2=已使用，3=已禁用"),
     mobile: str | None = Query(default=None, description="发放手机号筛选"),
     code_keyword: str | None = Query(default=None, description="邀请码关键字筛选"),
+    invite_scene: str | None = Query(default=None, description="邀请码用途筛选：register/teacher_portal"),
     limit: int = Query(default=50, ge=1, le=200, description="返回数量上限（1~200）"),
     x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
     db: Session = Depends(get_db),
@@ -1102,6 +1136,7 @@ def list_invite_codes_api(
         status=status,
         mobile=mobile,
         code_keyword=code_keyword,
+        invite_scene=invite_scene,
         limit=limit,
     )
 
@@ -1110,6 +1145,7 @@ def list_invite_codes_api(
         "items": [
             {
                 "code": row.code,
+                "invite_scene": row.invite_scene,
                 "status": row.status,
                 "issued_to_mobile": row.issued_to_mobile,
                 "used_by_user_id": row.used_by_user_id,
@@ -1144,6 +1180,7 @@ def update_invite_code_status_api(
 
         return {
             "code": row.code,
+            "invite_scene": row.invite_scene,
             "status": row.status,
             "issued_to_mobile": row.issued_to_mobile,
             "used_by_user_id": row.used_by_user_id,

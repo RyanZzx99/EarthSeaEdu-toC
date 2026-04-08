@@ -282,6 +282,20 @@ class BindMyMobileRequest(BaseModel):
     )
 
 
+class TeacherPortalActivateRequest(BaseModel):
+    """
+    当前登录用户输入教师邀请码开通教师端。
+    """
+
+    invite_code: str = Field(
+        ...,
+        min_length=1,
+        max_length=32,
+        description="教师端邀请码",
+        examples=["TEACH2026"],
+    )
+
+
 class GenerateInviteCodesRequest(BaseModel):
     """
     生成邀请码请求体
@@ -313,6 +327,12 @@ class GenerateInviteCodesRequest(BaseModel):
         default=None,
         description="批次备注，可为空",
         examples=["2026春季活动批次"],
+    )
+
+    invite_scene: str = Field(
+        default="register",
+        description="邀请码用途：register=注册，teacher_portal=教师端开通",
+        examples=["register"],
     )
 
 
@@ -397,6 +417,9 @@ class InviteCodeItem(BaseModel):
 
     # 邀请码
     code: str = Field(..., description="邀请码")
+
+    # 邀请码用途
+    invite_scene: str = Field(..., description="邀请码用途")
 
     # 状态
     status: str = Field(..., description="邀请码状态")
@@ -700,11 +723,27 @@ class UserProfileResponse(BaseModel):
         description="用户状态，例如 active / disabled",
     )
 
+    # 是否已开通教师端
+    is_teacher: bool = Field(
+        ...,
+        description="当前用户是否已开通教师端",
+    )
+
     # 是否已设置密码
     has_password: bool = Field(
         ...,
         description="当前用户是否已设置登录密码",
     )
+
+
+class TeacherPortalActivateResponse(BaseModel):
+    """
+    当前登录用户开通教师端后的响应体。
+    """
+
+    message: str = Field(..., description="操作结果提示")
+    user_id: str = Field(..., description="用户ID")
+    is_teacher: bool = Field(..., description="当前用户是否已开通教师端")
 
 
 class CreateNicknameRuleGroupRequest(BaseModel):

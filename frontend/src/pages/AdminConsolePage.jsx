@@ -84,6 +84,10 @@ const inviteStatusOptions = [
   { value: "2", label: "2（已使用）" },
   { value: "3", label: "3（已禁用）" },
 ];
+const inviteSceneOptions = [
+  { value: "register", label: "注册邀请码" },
+  { value: "teacher_portal", label: "教师邀请码" },
+];
 
 const groupTypeLabelMap = {
   reserved: "保留词（reserved）",
@@ -164,6 +168,10 @@ function formatDate(value) {
 function formatInviteStatus(status) {
   const item = inviteStatusOptions.find((option) => option.value === status);
   return item?.label || status || "-";
+}
+
+function formatInviteScene(value) {
+  return inviteSceneOptions.find((option) => option.value === value)?.label || value || "-";
 }
 
 function formatGroupType(value) {
@@ -395,9 +403,20 @@ function GroupSelect({
 export default function AdminConsolePage() {
   const [activeSection, setActiveSection] = useState("overview");
   const [adminKey, setAdminKey] = useState("");
-  const [generateForm, setGenerateForm] = useState({ count: 10, expires_days: "", note: "" });
+  const [generateForm, setGenerateForm] = useState({
+    count: 10,
+    expires_days: "",
+    note: "",
+    invite_scene: "register",
+  });
   const [issueForm, setIssueForm] = useState({ code: "", mobile: "" });
-  const [queryForm, setQueryForm] = useState({ status: "", mobile: "", code_keyword: "", limit: 50 });
+  const [queryForm, setQueryForm] = useState({
+    status: "",
+    mobile: "",
+    code_keyword: "",
+    invite_scene: "",
+    limit: 50,
+  });
   const [userStatusForm, setUserStatusForm] = useState({ user_id: "", mobile: "", status: "active" });
   const [questionBankUploadForm, setQuestionBankUploadForm] = useState({
     file_name: "",
@@ -570,6 +589,7 @@ export default function AdminConsolePage() {
           count: Number(generateForm.count),
           expires_days: generateForm.expires_days ? Number(generateForm.expires_days) : null,
           note: generateForm.note || null,
+          invite_scene: generateForm.invite_scene || "register",
         },
         adminKey
       );
@@ -616,6 +636,7 @@ export default function AdminConsolePage() {
           status: queryForm.status || undefined,
           mobile: queryForm.mobile || undefined,
           code_keyword: queryForm.code_keyword || undefined,
+          invite_scene: queryForm.invite_scene || undefined,
           limit: queryForm.limit ? Number(queryForm.limit) : 50,
         },
         adminKey
@@ -1292,14 +1313,35 @@ export default function AdminConsolePage() {
             subtitle="邀请码生成、发放、查询和状态维护集中在一个分区。"
           >
             <div className="admin-workbench-grid admin-workbench-grid--two">
-              <AdminPanel title="生成与发放" description="先生成新批次邀请码，再按手机号发放给目标用户。">
+              <AdminPanel title="生成与发放" description="支持生成注册邀请码和教师邀请码；注册邀请码仍可按手机号发放。">
                 <div className="admin-form-grid">
+                  <Field label="邀请码用途">
+                    <select
+                      className="input"
+                      value={generateForm.invite_scene}
+                      onChange={(event) =>
+                        setGenerateForm((previous) => ({ ...previous, invite_scene: event.target.value }))
+                      }
+                    >
+                      {inviteSceneOptions.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
                   <Field label="生成数量"><input className="input" type="number" min="1" max="200" value={generateForm.count} onChange={(event) => setGenerateForm((previous) => ({ ...previous, count: event.target.value }))} placeholder="1 到 200" /></Field>
                   <Field label="过期天数"><input className="input" type="number" min="1" max="3650" value={generateForm.expires_days} onChange={(event) => setGenerateForm((previous) => ({ ...previous, expires_days: event.target.value }))} placeholder="可留空" /></Field>
                   <Field label="批次备注"><input className="input" value={generateForm.note} onChange={(event) => setGenerateForm((previous) => ({ ...previous, note: event.target.value }))} placeholder="例如：四月运营活动" /></Field>
                 </div>
                 <div className="admin-button-row">
-                  <button type="button" className="primary-btn" disabled={loadingGenerate} onClick={handleGenerate}>{loadingGenerate ? "生成中..." : "生成邀请码"}</button>
+                  <button type="button" className="primary-btn" disabled={loadingGenerate} onClick={handleGenerate}>
+                    {loadingGenerate
+                      ? "生成中..."
+                      : generateForm.invite_scene === "teacher_portal"
+                        ? "生成教师邀请码"
+                        : "生成注册邀请码"}
+                  </button>
                 </div>
                 <div className="admin-divider" />
                 <div className="admin-form-grid">
@@ -1317,6 +1359,7 @@ export default function AdminConsolePage() {
                     {generatedSummary.map((item) => (
                       <div key={item.code} className="list-item">
                         <span className="code">{item.code}</span>
+                        <span className="meta">用途：{formatInviteScene(item.invite_scene)}</span>
                         <span className="meta">状态：{formatInviteStatus(item.status)}</span>
                         <span className="meta">过期：{formatDate(item.expires_time)}</span>
                       </div>
@@ -1327,6 +1370,7 @@ export default function AdminConsolePage() {
                 {lastIssued.code ? (
                   <div className="admin-detail-list">
                     <div><strong>邀请码：</strong>{lastIssued.code}</div>
+                    <div><strong>用途：</strong>{formatInviteScene(lastIssued.invite_scene)}</div>
                     <div><strong>状态：</strong>{formatInviteStatus(lastIssued.status)}</div>
                     <div><strong>手机号：</strong>{lastIssued.issued_to_mobile || "-"}</div>
                     <div><strong>发放时间：</strong>{formatDate(lastIssued.issued_time)}</div>
@@ -1338,6 +1382,20 @@ export default function AdminConsolePage() {
             <div className="admin-workbench-grid">
               <AdminPanel title="邀请码查询与状态维护" description="支持按状态、手机号、关键字查询，并在列表里直接维护状态。">
                 <div className="admin-filter-grid">
+                  <Field label="邀请码用途">
+                    <select
+                      className="input"
+                      value={queryForm.invite_scene}
+                      onChange={(event) => setQueryForm((previous) => ({ ...previous, invite_scene: event.target.value }))}
+                    >
+                      <option value="">全部用途</option>
+                      {inviteSceneOptions.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
                   <Field label="状态"><select className="input" value={queryForm.status} onChange={(event) => setQueryForm((previous) => ({ ...previous, status: event.target.value }))}><option value="">全部状态</option>{inviteStatusOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></Field>
                   <Field label="手机号"><input className="input" value={queryForm.mobile} onChange={(event) => setQueryForm((previous) => ({ ...previous, mobile: event.target.value }))} placeholder="可留空" /></Field>
                   <Field label="邀请码关键字"><input className="input" value={queryForm.code_keyword} onChange={(event) => setQueryForm((previous) => ({ ...previous, code_keyword: event.target.value }))} placeholder="支持模糊匹配" /></Field>
@@ -1350,11 +1408,12 @@ export default function AdminConsolePage() {
                   <div className="table-wrap">
                     <div className="result-box">共 {queryTotal} 条</div>
                     <table className="table">
-                      <thead><tr><th>邀请码</th><th>状态</th><th>发放手机号</th><th>使用用户</th><th>发放时间</th><th>过期时间</th><th>操作</th></tr></thead>
+                      <thead><tr><th>邀请码</th><th>用途</th><th>状态</th><th>发放手机号</th><th>使用用户</th><th>发放时间</th><th>过期时间</th><th>操作</th></tr></thead>
                       <tbody>
                         {inviteList.map((item) => (
                           <tr key={item.code}>
                             <td>{item.code}</td>
+                            <td>{formatInviteScene(item.invite_scene)}</td>
                             <td>{formatInviteStatus(item.status)}</td>
                             <td>{item.issued_to_mobile || "-"}</td>
                             <td>{item.used_by_user_id || "-"}</td>

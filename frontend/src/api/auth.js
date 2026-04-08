@@ -237,6 +237,10 @@ export function bindMyMobile(data) {
   return request.post("/api/v1/auth/me/mobile/bind", data);
 }
 
+export function activateTeacherPortal(data) {
+  return request.post("/api/v1/auth/me/teacher/activate", data);
+}
+
 /**
  * 退出登录
  *
