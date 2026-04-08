@@ -9,6 +9,8 @@ import MockExamRunnerPage from "./pages/MockExamRunnerPage";
 import ProfilePage from "./pages/ProfilePage";
 import { getAccessToken } from "./utils/authStorage";
 
+const AUTH_OPTIONAL_PATHS = new Set(["/admin-console", "/admin-concole"]);
+
 function useResolvedAuthState() {
   const location = useLocation();
   const [authState, setAuthState] = useState({
@@ -36,6 +38,10 @@ function useResolvedAuthState() {
     let active = true;
 
     async function verifyLoginState() {
+      if (AUTH_OPTIONAL_PATHS.has(location.pathname)) {
+        return;
+      }
+
       const token = getAccessToken();
 
       if (!token) {
@@ -161,6 +167,7 @@ export default function App() {
           </RequireAuth>
         }
       />
+      <Route path="/admin-concole" element={<Navigate to="/admin-console" replace />} />
       <Route path="/admin-console" element={<AdminConsolePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
