@@ -15,6 +15,7 @@
 
  // 导入 axios
 import axios from "axios";
+import { clearAccessToken, getAccessToken } from "../utils/authStorage";
 
 /**
  * 创建 axios 实例
@@ -39,7 +40,7 @@ const request = axios.create({
 request.interceptors.request.use(
   (config) => {
     // 从本地存储读取 access token
-    const token = localStorage.getItem("access_token");
+    const token = getAccessToken();
 
     // 如果存在 token，则自动带到请求头
     if (token) {
@@ -81,7 +82,7 @@ request.interceptors.response.use(
     // 如果是 401，说明未登录或 token 失效
     if (response?.status === 401) {
       // 清理本地 token
-      localStorage.removeItem("access_token");
+      clearAccessToken();
 
       // 当前浏览器路径
       const currentPath = window.location.pathname;

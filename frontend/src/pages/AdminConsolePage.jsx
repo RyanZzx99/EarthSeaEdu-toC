@@ -205,6 +205,20 @@ function formatQuestionBankStatus(value) {
   return questionBankStatusOptions.find((item) => item.value === value)?.label || value || "-";
 }
 
+function buildQuestionBankFileSummary(files) {
+  if (!files.length) {
+    return "";
+  }
+
+  if (files.length === 1) {
+    return `已选择文件：${files[0].name}`;
+  }
+
+  const previewNames = files.slice(0, 4).map((item) => item.name).join("、");
+  const suffix = files.length > 4 ? ` 等 ${files.length} 个文件` : "";
+  return `已选择 ${files.length} 个文件：${previewNames}${suffix}`;
+}
+
 function SectionNavButton({ item, isActive, onClick }) {
   return (
     <motion.button
@@ -389,7 +403,7 @@ export default function AdminConsolePage() {
     file_name: "",
     exam_category: "IELTS",
     exam_content: questionBankContentMap.IELTS[0],
-    file: null,
+    files: [],
   });
   const [questionBankListQuery, setQuestionBankListQuery] = useState({
     page: 1,
@@ -500,8 +514,8 @@ export default function AdminConsolePage() {
     () => questionBankContentMap[questionBankUploadForm.exam_category] || [],
     [questionBankUploadForm.exam_category]
   );
-  const questionBankFileInputKey = questionBankUploadForm.file
-    ? `${questionBankUploadForm.file.name}-${questionBankUploadForm.file.lastModified}`
+  const questionBankFileInputKey = questionBankUploadForm.files.length
+    ? questionBankUploadForm.files.map((item) => `${item.name}-${item.lastModified}`).join("|")
     : "question-bank-empty";
   const questionBankTotalPages = useMemo(() => {
     const pageSize = Math.max(1, Number(questionBankListQuery.page_size) || 10);
@@ -645,11 +659,11 @@ export default function AdminConsolePage() {
     }));
   }
 
-  function handleQuestionBankFileChange(file) {
+  function handleQuestionBankFileChange(fileList) {
     setQuestionBankUploadMessage("");
     setQuestionBankUploadForm((previous) => ({
       ...previous,
-      file,
+      files: Array.from(fileList || []),
     }));
   }
 
@@ -657,29 +671,63 @@ export default function AdminConsolePage() {
     setErrorMessage("");
     setQuestionBankUploadMessage("");
     if (!ensureAdminKey()) return;
-    if (!questionBankUploadForm.file) {
+    if (!questionBankUploadForm.files.length) {
       setErrorMessage("请先选择 JSON 文件");
       return;
     }
 
-    const formData = new FormData();
-    formData.append("file_name", questionBankUploadForm.file_name.trim());
-    formData.append("exam_category", questionBankUploadForm.exam_category);
-    formData.append("exam_content", questionBankUploadForm.exam_content);
-    formData.append("file", questionBankUploadForm.file);
-
     try {
       setLoadingQuestionBankUpload(true);
-      await uploadQuestionBank(formData, adminKey);
-      setQuestionBankUploadMessage("题库上传成功");
+      const selectedFiles = questionBankUploadForm.files;
+      const titleValue = questionBankUploadForm.file_name.trim();
+      const successItems = [];
+      const failedItems = [];
+      const failedFiles = [];
+
+      for (let index = 0; index < selectedFiles.length; index += 1) {
+        const currentFile = selectedFiles[index];
+        const formData = new FormData();
+        formData.append("file_name", selectedFiles.length === 1 ? titleValue : "");
+        formData.append("exam_category", questionBankUploadForm.exam_category);
+        formData.append("exam_content", questionBankUploadForm.exam_content);
+        formData.append("file", currentFile);
+        setQuestionBankUploadMessage(
+          selectedFiles.length === 1
+            ? `正在上传：${currentFile.name}`
+            : `正在上传 ${index + 1} / ${selectedFiles.length}：${currentFile.name}`
+        );
+
+        try {
+          await uploadQuestionBank(formData, adminKey);
+          successItems.push(currentFile.name);
+        } catch (error) {
+          failedFiles.push(currentFile);
+          failedItems.push(`${currentFile.name}：${error?.response?.data?.detail || "上传失败"}`);
+        }
+      }
+
       setQuestionBankUploadForm((previous) => ({
         ...previous,
-        file_name: "",
-        file: null,
+        file_name: selectedFiles.length === 1 && failedFiles.length === 1 ? previous.file_name : "",
+        files: failedFiles,
       }));
-      await handleListQuestionBanks(1);
+
+      if (successItems.length) {
+        await handleListQuestionBanks(1);
+      }
+
+      if (!failedItems.length) {
+        setQuestionBankUploadMessage(
+          successItems.length > 1 ? `批量上传完成，成功 ${successItems.length} 个文件` : "题库上传成功"
+        );
+        return;
+      }
+
+      setQuestionBankUploadMessage(`批量上传完成，成功 ${successItems.length} 个，失败 ${failedItems.length} 个`);
+      setErrorMessage(failedItems.join("；"));
     } catch (error) {
       setErrorMessage(error?.response?.data?.detail || "题库上传失败");
+      setQuestionBankUploadMessage("");
     } finally {
       setLoadingQuestionBankUpload(false);
     }
@@ -1340,11 +1388,18 @@ export default function AdminConsolePage() {
             <div className="admin-section-stack">
               <AdminPanel
                 title="上传题库"
-                description="标题可留空，留空时自动使用上传文件名。文件不会落到项目目录，只会写入数据库。"
+                description="支持单个或多个 JSON 文件上传。单个文件可自定义标题，批量上传时自动使用各文件名。"
                 aside={questionBankUploadMessage ? <span className="check-success">{questionBankUploadMessage}</span> : null}
               >
                 <div className="admin-form-grid">
-                  <Field label="标题" hint="留空则使用上传文件名">
+                  <Field
+                    label="标题"
+                    hint={
+                      questionBankUploadForm.files.length > 1
+                        ? "批量上传时会忽略这里的标题，自动使用每个文件名入库"
+                        : "留空则使用上传文件名"
+                    }
+                  >
                     <input
                       className="input"
                       value={questionBankUploadForm.file_name}
@@ -1377,19 +1432,20 @@ export default function AdminConsolePage() {
                       key={questionBankFileInputKey}
                       className="input"
                       type="file"
+                      multiple
                       accept=".json,application/json"
-                      onChange={(event) => handleQuestionBankFileChange(event.target.files?.[0] || null)}
+                      onChange={(event) => handleQuestionBankFileChange(event.target.files)}
                     />
                   </Field>
                 </div>
-                {questionBankUploadForm.file ? (
+                {questionBankUploadForm.files.length ? (
                   <div className="result-box">
-                    已选择文件：{questionBankUploadForm.file.name}
+                    {buildQuestionBankFileSummary(questionBankUploadForm.files)}
                   </div>
                 ) : null}
                 <div className="admin-button-row">
                   <button type="button" className="primary-btn" disabled={loadingQuestionBankUpload} onClick={handleUploadQuestionBank}>
-                    {loadingQuestionBankUpload ? "上传中..." : "上传题库"}
+                    {loadingQuestionBankUpload ? "批量上传中..." : "上传题库"}
                   </button>
                 </div>
               </AdminPanel>

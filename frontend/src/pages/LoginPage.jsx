@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { useNavigate } from "react-router-dom";
 import {
   checkSmsInviteRequired,
   checkWechatBindInviteRequired,
@@ -12,6 +13,7 @@ import {
   wechatBindMobile,
   wechatLogin,
 } from "../api/auth";
+import { setAccessToken } from "../utils/authStorage";
 import { validatePasswordRule } from "../utils/passwordValidation";
 
 function Particle({ x, y, size, duration, delay }) {
@@ -70,7 +72,7 @@ function AnimatedStat({ target, label, delay }) {
   return (
     <motion.div
       className="flex flex-col gap-1"
-      initial={{ opacity: 0, y: 20 }}
+      initial={false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.5, ease: "easeOut" }}
     >
@@ -159,6 +161,7 @@ function MessageBlock({ errorMessage, successMessage }) {
 }
 
 export default function LoginPage() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("password");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
@@ -265,7 +268,7 @@ export default function LoginPage() {
   }, [activeTab]);
 
   const formVariants = {
-    initial: { opacity: 0, x: 16 },
+    initial: { opacity: 1, x: 0 },
     animate: { opacity: 1, x: 0 },
     exit: { opacity: 0, x: -16 },
   };
@@ -357,13 +360,17 @@ export default function LoginPage() {
   }
 
   function saveAccessToken(token) {
-    localStorage.setItem("access_token", token);
-    if (!rememberLogin) sessionStorage.setItem("access_token_shadow", token);
+    setAccessToken(token, rememberLogin);
   }
 
   function finishLogin(token) {
     saveAccessToken(token);
-    window.location.replace("/");
+    navigate("/", { replace: true });
+    window.setTimeout(() => {
+      if (window.location.pathname === "/login") {
+        window.location.replace("/");
+      }
+    }, 80);
   }
 
   function clearLoginQueryParams() {
@@ -698,12 +705,12 @@ export default function LoginPage() {
         />
         <div className="absolute top-[-80px] right-[-80px] w-64 h-64 rounded-full opacity-10" style={{ background: "rgba(255,255,255,0.15)" }} />
         <div className="absolute bottom-[-60px] left-[-60px] w-48 h-48 rounded-full opacity-10" style={{ background: "rgba(255,255,255,0.1)" }} />
-        <motion.div className="relative z-10 login-brand-text" initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.1, ease: "easeOut" }}>
+        <motion.div className="relative z-10 login-brand-text" initial={false} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.1, ease: "easeOut" }}>
           <span className="login-brand-cn">录途</span>
           <span className="login-brand-en">LutoolBox</span>
         </motion.div>
         <div className="relative z-10 flex flex-col gap-8 items-center justify-center flex-1">
-          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.2, ease: "easeOut" }}>
+          <motion.div initial={false} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.2, ease: "easeOut" }}>
             <h1 className="text-white mb-4" style={{ fontSize: "48px", fontWeight: 700, lineHeight: 1.3, letterSpacing: "-0.01em" }}>
               欢迎使用录途
               <br />
@@ -714,25 +721,25 @@ export default function LoginPage() {
             </p>
           </motion.div>
         </div>
-        <motion.div className="relative z-10 flex gap-10" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.45 }}>
+        <motion.div className="relative z-10 flex gap-10" initial={false} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.45 }}>
           <AnimatedStat target="4" label="登录方式" delay={0.55} />
           <AnimatedStat target="24h" label="随时访问" delay={0.65} />
           <AnimatedStat target="1站式" label="留学工具包" delay={0.75} />
         </motion.div>
-        <motion.div className="relative z-10" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6, delay: 1 }}>
+        <motion.div className="relative z-10" initial={false} animate={{ opacity: 1 }} transition={{ duration: 0.6, delay: 1 }}>
           <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.35)" }}>© 2026 录途 LutoolBox</p>
         </motion.div>
       </motion.div>
 
       <motion.div
         className="flex-1 flex flex-col items-center justify-center px-6 py-12 bg-white min-h-screen"
-        initial={{ opacity: 0 }}
+        initial={false}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.5 }}
         onMouseEnter={() => setHoveredPanel("right")}
         onMouseLeave={() => setHoveredPanel(null)}
       >
-        <motion.div className="w-full login-page-panel" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.15, ease: "easeOut" }}>
+        <motion.div className="w-full login-page-panel" initial={false} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.15, ease: "easeOut" }}>
           <div className="login-panel-header">
             <h2 className="login-panel-title">{displayPanelTitle}</h2>
             <p className="login-panel-subtitle">{displayPanelDescription}</p>
@@ -1098,7 +1105,7 @@ export default function LoginPage() {
           </AnimatePresence>
 
           {activeTab !== "wechat" ? (
-            <motion.p className="mt-5 text-center login-agreement-text" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+            <motion.p className="mt-5 text-center login-agreement-text" initial={false} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
               登录即表示同意{" "}
               <button type="button" onClick={() => window.alert("用户协议暂未接入")} className="login-link-button">
                 用户协议

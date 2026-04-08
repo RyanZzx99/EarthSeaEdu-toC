@@ -38,6 +38,7 @@ from backend.services.ai_prompt_runtime_service import execute_prompt_with_conte
 from backend.services.business_profile_form_service import load_business_profile_snapshot
 from backend.services.business_profile_persistence_service import build_db_payload_from_profile_json
 from backend.services.business_profile_persistence_service import MULTI_ROW_TABLES
+from backend.services.business_profile_persistence_service import prune_academic_payload_by_curriculum_system
 from backend.services.business_profile_persistence_service import persist_business_profile_snapshot
 from backend.services.business_profile_persistence_service import SINGLE_ROW_TABLES
 from backend.services.code_resolution_service import apply_code_resolution_to_payload
@@ -550,6 +551,7 @@ def _prepare_draft_for_official_persistence(
         student_id=student_id,
         raw_curriculum_system=raw_curriculum_system,
     )
+    prune_academic_payload_by_curriculum_system(official_profile_json)
 
     apply_code_resolution_to_payload(
         db,
@@ -640,32 +642,14 @@ def _sync_curriculum_system_rows_from_raw_basic_info(
     if not curriculum_codes:
         return
 
-    current_rows = profile_json.get("student_basic_info_curriculum_system")
-    if not isinstance(current_rows, list):
-        current_rows = []
-        profile_json["student_basic_info_curriculum_system"] = current_rows
-
-    existing_codes = {
-        str(row.get("curriculum_system_code") or "").strip()
-        for row in current_rows
-        if isinstance(row, dict) and str(row.get("curriculum_system_code") or "").strip()
-    }
-
-    for index, curriculum_code in enumerate(curriculum_codes):
-        if curriculum_code in existing_codes:
-            for row in current_rows:
-                if isinstance(row, dict) and row.get("curriculum_system_code") == curriculum_code:
-                    row["is_primary"] = 1 if index == 0 else int(row.get("is_primary") or 0)
-                    row["student_id"] = student_id
-            continue
-
-        current_rows.append(
-            {
-                "student_id": student_id,
-                "curriculum_system_code": curriculum_code,
-                "is_primary": 1 if index == 0 else 0,
-            }
-        )
+    profile_json["student_basic_info_curriculum_system"] = [
+        {
+            "student_id": student_id,
+            "curriculum_system_code": curriculum_code,
+            "is_primary": 1 if index == 0 else 0,
+        }
+        for index, curriculum_code in enumerate(curriculum_codes)
+    ]
 
 
 def _normalize_curriculum_system_codes(raw_value: Any) -> list[str]:

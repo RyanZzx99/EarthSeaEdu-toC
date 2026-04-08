@@ -1190,7 +1190,13 @@
      actionBtn.disabled = true;
      actionBtn.textContent = 'Submitting...';
      try{
-       var token = window.localStorage ? window.localStorage.getItem('access_token') : '';
+       var token = '';
+       if(window.localStorage){
+         token = window.localStorage.getItem('access_token') || token;
+       }
+       if(!token && window.sessionStorage){
+         token = window.sessionStorage.getItem('access_token') || '';
+       }
        var headers = { 'Content-Type': 'application/json' };
        if(token){
          headers.Authorization = 'Bearer ' + token;

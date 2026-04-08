@@ -1,4 +1,5 @@
 import axios from "axios";
+import { clearAccessToken, getAccessToken } from "../utils/authStorage";
 
 const request = axios.create({
   baseURL: "",
@@ -7,7 +8,7 @@ const request = axios.create({
 
 request.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("access_token");
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -21,7 +22,7 @@ request.interceptors.response.use(
   (error) => {
     const response = error?.response;
     if (response?.status === 401) {
-      localStorage.removeItem("access_token");
+      clearAccessToken();
       if (window.location.pathname !== "/login") {
         window.location.href = "/login?session_expired=1";
       }

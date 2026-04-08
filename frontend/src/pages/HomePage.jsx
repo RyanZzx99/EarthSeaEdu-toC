@@ -35,6 +35,7 @@ import {
 } from "../api/aiChat";
 import RankingTool from "../components/RankingTool";
 import ScoreConverter from "../components/ScoreConverter";
+import { clearAccessToken, getAccessToken } from "../utils/authStorage";
 
 const AI_CHAT_BIZ_DOMAIN = "student_profile_build";
 const AI_CHAT_SESSION_CACHE_KEY = "latest_ai_chat_session_id";
@@ -179,6 +180,65 @@ function normalizeVisibleMessages(items) {
     .map((item) => createChatMessage(item.message_role, item.content, { id: item.id }));
 }
 
+function isPersistedChatMessageId(messageId) {
+  if (typeof messageId === "number") {
+    return Number.isFinite(messageId);
+  }
+
+  if (typeof messageId === "string") {
+    return /^\d+$/.test(messageId);
+  }
+
+  return false;
+}
+
+function pickPreferredAssistantMessage(existingMessage, nextMessage) {
+  const existingPersisted = isPersistedChatMessageId(existingMessage?.id);
+  const nextPersisted = isPersistedChatMessageId(nextMessage?.id);
+
+  if (existingPersisted !== nextPersisted) {
+    return nextPersisted ? { ...existingMessage, ...nextMessage } : existingMessage;
+  }
+
+  if (Boolean(existingMessage?.isStreaming) !== Boolean(nextMessage?.isStreaming)) {
+    return existingMessage?.isStreaming ? { ...existingMessage, ...nextMessage } : existingMessage;
+  }
+
+  if ((existingMessage?.deliveryStatus === "sent") !== (nextMessage?.deliveryStatus === "sent")) {
+    return nextMessage?.deliveryStatus === "sent" ? { ...existingMessage, ...nextMessage } : existingMessage;
+  }
+
+  return (nextMessage?.content || "").length >= (existingMessage?.content || "").length
+    ? { ...existingMessage, ...nextMessage }
+    : existingMessage;
+}
+
+function dedupeTransientAssistantMessages(items) {
+  return (items || []).reduce((result, currentMessage) => {
+    const lastMessage = result[result.length - 1];
+    const isSameAssistantMessage =
+      lastMessage &&
+      lastMessage.role === "assistant" &&
+      currentMessage?.role === "assistant" &&
+      lastMessage.content === currentMessage.content;
+
+    const hasTransientAssistant =
+      isSameAssistantMessage &&
+      (!isPersistedChatMessageId(lastMessage.id) ||
+        !isPersistedChatMessageId(currentMessage.id) ||
+        lastMessage.isStreaming ||
+        currentMessage.isStreaming);
+
+    if (hasTransientAssistant) {
+      result[result.length - 1] = pickPreferredAssistantMessage(lastMessage, currentMessage);
+      return result;
+    }
+
+    result.push(currentMessage);
+    return result;
+  }, []);
+}
+
 function SectionNavButton({ item, isActive, onClick }) {
   const Icon = item.icon;
 
@@ -229,7 +289,7 @@ function ShortcutNavCard({ item, index, onClick }) {
       type="button"
       className="home-shortcut-card"
       onClick={onClick}
-      initial={{ opacity: 0, y: 18 }}
+      initial={false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.42, delay: 0.54 + index * 0.06 }}
       whileHover={{ y: -10, rotate: index % 2 === 0 ? -0.45 : 0.45 }}
@@ -380,6 +440,7 @@ export default function HomePage() {
   const [uiHint, setUiHint] = useState("");
   const [connectionError, setConnectionError] = useState("");
   const [createProfileLoading, setCreateProfileLoading] = useState(false);
+  const renderedMessages = useMemo(() => dedupeTransientAssistantMessages(messages), [messages]);
 
   const wsRef = useRef(null);
   const connectPromiseRef = useRef(null);
@@ -431,7 +492,7 @@ export default function HomePage() {
       }
       chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
     });
-  }, [messages, showChat, assistantStreaming]);
+  }, [renderedMessages, showChat, assistantStreaming]);
 
   useEffect(() => {
     if (!profile?.user_id) {
@@ -567,7 +628,7 @@ export default function HomePage() {
   }
 
   function getDisplayInitial() {
-    const source = (profile?.nickname || profile?.mobile || "U").trim();
+    const source = String(profile?.nickname || profile?.mobile || "U").trim();
     return source.charAt(0).toUpperCase();
   }
 
@@ -619,7 +680,7 @@ export default function HomePage() {
         }
 
         if (error?.response?.status === 401) {
-          localStorage.removeItem("access_token");
+          clearAccessToken();
           navigate("/login", { replace: true });
           return;
         }
@@ -803,7 +864,7 @@ export default function HomePage() {
               student_id: studentId,
               session_id: sessionIdRef.current,
               biz_domain: AI_CHAT_BIZ_DOMAIN,
-              access_token: localStorage.getItem("access_token"),
+              access_token: getAccessToken(),
             },
           })
         );
@@ -1486,7 +1547,7 @@ export default function HomePage() {
     <div className="home-shell">
       <motion.header
         className="home-topbar"
-        initial={{ y: -20, opacity: 0 }}
+        initial={false}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.4 }}
       >
@@ -1543,7 +1604,7 @@ export default function HomePage() {
         <motion.section
           className="home-hero"
           id="home-hero"
-          initial={{ opacity: 0 }}
+          initial={false}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.6 }}
         >
@@ -1558,7 +1619,7 @@ export default function HomePage() {
           >
             <motion.div
               layout="position"
-              initial={{ opacity: 0, y: 30 }}
+              initial={false}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.2 }}
             >
@@ -1572,7 +1633,7 @@ export default function HomePage() {
             <motion.p
               className="home-hero-subtitle"
               layout="position"
-              initial={{ opacity: 0, y: 20 }}
+              initial={false}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.4 }}
             >
@@ -1582,7 +1643,7 @@ export default function HomePage() {
             <motion.div
               className="home-hero-actions"
               layout="position"
-              initial={{ opacity: 0, y: 20 }}
+              initial={false}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.6 }}
             >
@@ -1617,7 +1678,7 @@ export default function HomePage() {
                 <motion.div
                   key="chat-shell"
                   className="home-ai-shell"
-                  initial={{ opacity: 0, y: 24, scale: 0.97 }}
+                  initial={false}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -10, scale: 0.985 }}
                   transition={{
@@ -1643,7 +1704,7 @@ export default function HomePage() {
                   </div>
 
                   <div className="home-ai-body" ref={chatBodyRef}>
-                    {messages.length === 0 ? (
+                    {renderedMessages.length === 0 ? (
                       <div className="home-ai-empty-state">
                         <div className="home-ai-empty-icon">
                           <UserRound size={20} strokeWidth={2} />
@@ -1656,7 +1717,7 @@ export default function HomePage() {
                         </div>
                       </div>
                     ) : (
-                      messages.map((message) => (
+                      renderedMessages.map((message) => (
                         <div
                           key={message.id}
                           className={`home-ai-message-row ${message.role === "user" ? "home-ai-message-row-user" : "home-ai-message-row-assistant"}`}
@@ -1775,7 +1836,7 @@ export default function HomePage() {
                   key="profile-loading"
                   className="home-radar-loading-shell"
                   layout
-                  initial={{ opacity: 0, y: 24, scale: 0.96 }}
+                  initial={false}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 16, scale: 0.96 }}
                   transition={{ type: "spring", stiffness: 220, damping: 28 }}
@@ -1794,7 +1855,7 @@ export default function HomePage() {
                   key="profile-result"
                   className="home-radar-shell"
                   layout
-                  initial={{ opacity: 0, y: 24, scale: 0.96 }}
+                  initial={false}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 16, scale: 0.96 }}
                   transition={{ type: "spring", stiffness: 220, damping: 28 }}
@@ -1920,7 +1981,7 @@ export default function HomePage() {
                           "--score-to": (RADAR_COLORS[key] || RADAR_COLORS.academic).to,
                           "--score-bg": (RADAR_COLORS[key] || RADAR_COLORS.academic).bg,
                         }}
-                        initial={{ opacity: 0, y: 14 }}
+                        initial={false}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.08 }}
                       >
@@ -1973,7 +2034,7 @@ export default function HomePage() {
           <motion.section
             className="home-section"
             id="home-tools"
-            initial={{ opacity: 0, y: 20 }}
+            initial={false}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.5 }}
           >
@@ -1992,7 +2053,7 @@ export default function HomePage() {
           <motion.section
             className="home-section"
             id="home-exams"
-            initial={{ opacity: 0, y: 20 }}
+            initial={false}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.6 }}
           >
@@ -2012,7 +2073,7 @@ export default function HomePage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="home-exam-card"
-                  initial={{ opacity: 0, scale: 0.95 }}
+                  initial={false}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ duration: 0.3, delay: 0.7 + index * 0.05 }}
                   whileHover={{ y: -4, boxShadow: "0 8px 20px rgba(0,0,0,0.1)" }}
@@ -2032,7 +2093,7 @@ export default function HomePage() {
           <motion.section
             className="home-section"
             id="home-ranking"
-            initial={{ opacity: 0, y: 20 }}
+            initial={false}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.8 }}
           >

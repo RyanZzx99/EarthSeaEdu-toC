@@ -7,6 +7,9 @@ import LoginPage from "./pages/LoginPage";
 import MockExamPage from "./pages/MockExamPage";
 import MockExamRunnerPage from "./pages/MockExamRunnerPage";
 import ProfilePage from "./pages/ProfilePage";
+import { getAccessToken } from "./utils/authStorage";
+
+const AUTH_OPTIONAL_PATHS = new Set(["/admin-console", "/admin-concole"]);
 
 function useResolvedAuthState() {
   const location = useLocation();
@@ -14,12 +17,33 @@ function useResolvedAuthState() {
     status: "checking",
     reason: "unknown",
   });
+  const [authRefreshSeed, setAuthRefreshSeed] = useState(0);
+
+  useEffect(() => {
+    function handleAuthTokenChanged() {
+      setAuthState({
+        status: "checking",
+        reason: "token_changed",
+      });
+      setAuthRefreshSeed((previous) => previous + 1);
+    }
+
+    window.addEventListener("auth-token-changed", handleAuthTokenChanged);
+    return () => {
+      window.removeEventListener("auth-token-changed", handleAuthTokenChanged);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
-    const token = localStorage.getItem("access_token");
 
     async function verifyLoginState() {
+      if (AUTH_OPTIONAL_PATHS.has(location.pathname)) {
+        return;
+      }
+
+      const token = getAccessToken();
+
       if (!token) {
         if (active) {
           setAuthState({
@@ -60,7 +84,7 @@ function useResolvedAuthState() {
     return () => {
       active = false;
     };
-  }, [location.pathname]);
+  }, [location.pathname, authRefreshSeed]);
 
   return authState;
 }
@@ -143,6 +167,7 @@ export default function App() {
           </RequireAuth>
         }
       />
+      <Route path="/admin-concole" element={<Navigate to="/admin-console" replace />} />
       <Route path="/admin-console" element={<AdminConsolePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
