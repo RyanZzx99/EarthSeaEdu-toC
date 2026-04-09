@@ -29,6 +29,11 @@ const request = axios.create({
   timeout: 10000,
 });
 
+const SESSION_OPTIONAL_REDIRECT_PATHS = new Set([
+  "/admin-console",
+  "/admin-concole",
+]);
+
 /**
  * 请求拦截器
  *
@@ -81,11 +86,16 @@ request.interceptors.response.use(
 
     // 如果是 401，说明未登录或 token 失效
     if (response?.status === 401) {
-      // 清理本地 token
-      clearAccessToken();
-
       // 当前浏览器路径
       const currentPath = window.location.pathname;
+
+      // 管理员控制台只依赖 X-Admin-Key，不应因为 401 被强制带回登录页
+      if (SESSION_OPTIONAL_REDIRECT_PATHS.has(currentPath)) {
+        return Promise.reject(error);
+      }
+
+      // 清理本地 token
+      clearAccessToken();
 
       // 中文注释：如果当前不在登录页，则带上“登录已过期”标记跳转，便于登录页展示提示
       if (currentPath !== "/login") {

@@ -42,6 +42,12 @@ from backend.utils.flow_logging import log_flow_info
 
 logger = logging.getLogger(__name__)
 
+_AI_RESPONSE_ENCODING = "utf-8"
+_MISCONFIGURED_AI_BASE_URL_SUFFIXES = (
+    "/chat/completions",
+    "/responses",
+)
+
 
 @dataclass(slots=True)
 class PromptExecutionResult:
@@ -757,8 +763,9 @@ def _post_chat_completion(
                 f"调用 AI 模型接口失败（超时配置：{_format_timeout_config(timeout_config, stream=False)}）：{exc}"
             ) from exc
 
+        _force_ai_response_encoding(response)
         if response.status_code >= 400:
-            response_text = response.text
+            response_text = _read_ai_response_text(response)
             response.close()
             if attempt_index < retry_count and _should_retry_status_code(response.status_code):
                 logger.warning(
@@ -782,9 +789,13 @@ def _post_chat_completion(
             )
 
         try:
-            return response.json()
-        except ValueError as exc:
+            return _load_ai_response_json(response)
+        except UnicodeDecodeError as exc:
+            raise PromptRuntimeError("AI 模型接口返回内容不是合法 UTF-8 JSON") from exc
+        except json.JSONDecodeError as exc:
             raise PromptRuntimeError("AI 模型接口未返回合法 JSON") from exc
+        finally:
+            response.close()
 
     raise PromptRuntimeError("AI 模型接口重试后仍然失败")
 
@@ -817,9 +828,12 @@ def _open_chat_completion_stream(
             f"调用 AI 模型流式接口失败（超时配置：{_format_timeout_config(timeout_config, stream=True)}）：{exc}"
         ) from exc
 
+    _force_ai_response_encoding(response)
     if response.status_code >= 400:
+        response_text = _read_ai_response_text(response)
+        response.close()
         raise PromptRuntimeError(
-            f"AI 模型流式接口返回异常状态码：{response.status_code}，响应内容：{response.text}"
+            f"AI 模型流式接口返回异常状态码：{response.status_code}，响应内容：{response_text}"
         )
 
     return response
@@ -851,11 +865,11 @@ def _iter_chat_completion_stream(
     chunk_count = 0
     start_time = perf_counter()
     try:
-        for raw_line in response.iter_lines(decode_unicode=True):
+        for raw_line in response.iter_lines(decode_unicode=False):
             if not raw_line:
                 continue
 
-            line = raw_line.strip()
+            line = _decode_ai_response_line(raw_line).strip()
             if not line.startswith("data:"):
                 continue
 
@@ -927,11 +941,12 @@ def _build_request_target(
     当前统一走 OpenAI 兼容 `chat/completions`。
     """
 
-    base_url = str(
+    raw_base_url = str(
         runtime_config.get("AI_MODEL_BASE_URL")
         or settings.ai_model_base_url
         or ""
-    ).strip().rstrip("/")
+    ).strip()
+    base_url = _normalize_chat_completion_base_url(raw_base_url)
     api_key = str(
         runtime_config.get("AI_MODEL_API_KEY")
         or settings.ai_model_api_key
@@ -948,6 +963,50 @@ def _build_request_target(
         "Content-Type": "application/json",
     }
     return url, headers
+
+
+def _normalize_chat_completion_base_url(base_url: str) -> str:
+    """Normalize API root URLs that were mistakenly configured with endpoint paths."""
+
+    normalized_base_url = (base_url or "").strip().rstrip("/")
+    for suffix in _MISCONFIGURED_AI_BASE_URL_SUFFIXES:
+        if normalized_base_url.endswith(suffix):
+            corrected_base_url = normalized_base_url[: -len(suffix)].rstrip("/")
+            if corrected_base_url:
+                logger.warning(
+                    "AI_MODEL_BASE_URL should point to the API root. "
+                    "Auto-corrected %s to %s before requesting chat/completions.",
+                    normalized_base_url,
+                    corrected_base_url,
+                )
+                return corrected_base_url
+    return normalized_base_url
+
+
+def _force_ai_response_encoding(response: requests.Response) -> None:
+    """OpenAI-compatible JSON/SSE payloads are UTF-8; force that instead of vendor headers."""
+
+    response.encoding = _AI_RESPONSE_ENCODING
+
+
+def _read_ai_response_text(response: requests.Response) -> str:
+    """Decode AI HTTP responses as UTF-8 so Chinese content is not mangled by wrong charset headers."""
+
+    return response.content.decode(_AI_RESPONSE_ENCODING, errors="replace")
+
+
+def _load_ai_response_json(response: requests.Response) -> dict[str, Any]:
+    """Parse AI JSON responses from UTF-8 bytes instead of requests' charset guess."""
+
+    return json.loads(response.content.decode(_AI_RESPONSE_ENCODING))
+
+
+def _decode_ai_response_line(raw_line: bytes | str) -> str:
+    """Decode one SSE line from UTF-8 bytes."""
+
+    if isinstance(raw_line, bytes):
+        return raw_line.decode(_AI_RESPONSE_ENCODING)
+    return raw_line
 
 
 def _measure_context_length(context: dict[str, Any]) -> int:
