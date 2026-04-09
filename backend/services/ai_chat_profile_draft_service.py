@@ -42,6 +42,7 @@ from backend.services.business_profile_persistence_service import prune_academic
 from backend.services.business_profile_persistence_service import persist_business_profile_snapshot
 from backend.services.business_profile_persistence_service import SINGLE_ROW_TABLES
 from backend.services.code_resolution_service import apply_code_resolution_to_payload
+from backend.services.code_resolution_service import apply_subject_code_resolution_to_payload
 from backend.utils.flow_logging import log_flow_info
 from backend.utils.flow_logging import log_timed_step
 
@@ -559,6 +560,10 @@ def _prepare_draft_for_official_persistence(
         target_country_text=raw_target_country,
         major_text=raw_major_interest,
         school_name_text=(official_profile_json.get("student_academic") or {}).get("school_name"),
+    )
+    apply_subject_code_resolution_to_payload(
+        db,
+        official_profile_json,
     )
 
     return official_profile_json

@@ -28,6 +28,8 @@ from uuid import uuid4
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from backend.services.code_resolution_service import apply_subject_code_resolution_to_payload
+
 
 logger = logging.getLogger(__name__)
 
@@ -819,7 +821,10 @@ def persist_business_profile_snapshot(
     project_id_mapping: dict[int, int] = {}
 
     try:
-        _normalize_payload_for_persistence(db_payload)
+        _normalize_payload_for_persistence(
+            db_payload,
+            db=db,
+        )
         # 中文注释：先处理“可被整体清空”的单行表。
         # 如果本轮表单明确把这些单行对象清成 {}，就需要主动删除数据库旧快照；
         # 否则旧逻辑只会跳过 upsert，历史数据会残留。
@@ -1001,7 +1006,11 @@ def _normalize_project_id_mapping(payload: dict[str, Any]) -> None:
                 row["project_id"] = only_project_id
 
 
-def _normalize_payload_for_persistence(payload: dict[str, Any]) -> None:
+def _normalize_payload_for_persistence(
+    payload: dict[str, Any],
+    *,
+    db: Session | None = None,
+) -> None:
     """
     对最终 db_payload 做一次“正式入库前归一化”。
 
@@ -1021,6 +1030,11 @@ def _normalize_payload_for_persistence(payload: dict[str, Any]) -> None:
     # 2. 再做 required_fields 校验，补不齐的行直接跳过，避免撞数据库约束
     _normalize_curriculum_system_primary_flags(payload)
     prune_academic_payload_by_curriculum_system(payload)
+    if db is not None:
+        apply_subject_code_resolution_to_payload(
+            db,
+            payload,
+        )
     _apply_academic_subject_local_fill_rules(payload)
     _normalize_academic_subject_payload(payload)
     _normalize_language_payload(payload)

@@ -123,7 +123,9 @@ from backend.services.ai_prompt_admin_service import update_ai_prompt_config
 from backend.services.ai_runtime_config_service import list_ai_runtime_configs
 from backend.services.ai_runtime_config_service import update_ai_runtime_config
 from backend.services.question_bank_service import create_question_bank
+from backend.services.question_bank_service import import_question_bank_test_beta
 from backend.services.question_bank_service import list_question_banks
+from backend.services.question_bank_import_beta import UploadedImportFile
 
 # 导入微信服务
 from backend.services.wechat_service import build_wechat_qr_authorize_url
@@ -1733,6 +1735,37 @@ async def upload_question_bank_api(
             "create_time": row.create_time,
             "update_time": row.update_time,
         }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/question-banks/import-beta")
+async def import_question_bank_test_beta_api(
+    source_mode: str = Form(...),
+    entry_paths_json: str | None = Form(default=None),
+    files: list[UploadFile] = File(...),
+    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    db: Session = Depends(get_db),
+):
+    verify_invite_admin_key(x_admin_key)
+
+    uploaded_files: list[UploadedImportFile] = []
+    for index, file in enumerate(files, start=1):
+        raw_bytes = await file.read()
+        uploaded_files.append(
+            UploadedImportFile(
+                filename=file.filename or f"file_{index}",
+                raw_bytes=raw_bytes,
+            )
+        )
+
+    try:
+        return import_question_bank_test_beta(
+            db=db,
+            source_mode=source_mode,
+            uploaded_files=uploaded_files,
+            entry_paths_json=entry_paths_json,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

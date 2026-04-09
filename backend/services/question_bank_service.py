@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import json
-
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import load_only
 
 from backend.models.question_bank_models import QuestionBank
+from backend.services.question_bank_import_beta import UploadedImportFile
+from backend.services.question_bank_import_beta import import_question_bank_test_beta_impl
+from backend.services.question_bank_import_beta import parse_json_bytes
 
 QUESTION_BANK_CONTENT_OPTIONS = {
     "IELTS": ["Listening", "Reading", "Speaking", "Writing"],
@@ -40,12 +41,7 @@ def create_question_bank(
     if not file_bytes:
         raise ValueError("请上传 JSON 文件")
 
-    try:
-        json.loads(file_bytes.decode("utf-8-sig"))
-    except UnicodeDecodeError as exc:
-        raise ValueError("JSON 文件必须使用 UTF-8 编码") from exc
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"上传文件不是合法 JSON：第 {exc.lineno} 行第 {exc.colno} 列附近有错误") from exc
+    parse_json_bytes(file_bytes, file_label=normalized_file_name)
 
     row = QuestionBank(
         file_name=normalized_file_name,
@@ -90,3 +86,18 @@ def list_question_banks(
         .all()
     )
     return rows, total
+
+
+def import_question_bank_test_beta(
+    db: Session,
+    *,
+    source_mode: str,
+    uploaded_files: list[UploadedImportFile],
+    entry_paths_json: str | None,
+) -> dict:
+    return import_question_bank_test_beta_impl(
+        db,
+        source_mode=source_mode,
+        uploaded_files=uploaded_files,
+        entry_paths_json=entry_paths_json,
+    )

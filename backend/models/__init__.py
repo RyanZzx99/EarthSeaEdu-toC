@@ -23,4 +23,13 @@ from backend.models.nickname_guard_models import NicknameAuditLog
 from backend.models.nickname_guard_models import NicknameRuleOperationLog
 from backend.models.exam_set_models import ExamSet
 from backend.models.exam_set_models import ExamSetPart
+from backend.models.ielts_exam_models import ExamAsset
+from backend.models.ielts_exam_models import ExamBank
+from backend.models.ielts_exam_models import ExamGroup
+from backend.models.ielts_exam_models import ExamGroupOption
+from backend.models.ielts_exam_models import ExamPaper
+from backend.models.ielts_exam_models import ExamQuestion
+from backend.models.ielts_exam_models import ExamQuestionAnswer
+from backend.models.ielts_exam_models import ExamQuestionBlank
+from backend.models.ielts_exam_models import ExamSection
 from backend.models.question_bank_models import QuestionBank

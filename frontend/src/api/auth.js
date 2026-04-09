@@ -471,6 +471,15 @@ export function uploadQuestionBank(formData, adminKey) {
   });
 }
 
+export function importQuestionBankBeta(formData, adminKey) {
+  return request.post("/api/v1/auth/question-banks/import-beta", formData, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+    timeout: 120000,
+  });
+}
+
 export function listQuestionBanks(params, adminKey) {
   return request.get("/api/v1/auth/question-banks", {
     params,

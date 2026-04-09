@@ -16,6 +16,7 @@ import {
   createNicknameRuleGroup,
   createNicknameWordRule,
   generateInviteCodes,
+  importQuestionBankBeta,
   issueInviteCode,
   listAiPromptConfigs,
   listAiRuntimeConfigs,
@@ -155,6 +156,11 @@ const questionBankContentMap = {
   TOEFL: ["Listening", "Reading", "Speaking", "Writing"],
 };
 const examCategoryOptions = Object.keys(questionBankContentMap);
+const importBetaModeOptions = [
+  { value: "zip", label: "压缩包" },
+  { value: "directory", label: "文件夹" },
+  { value: "files", label: "文件批量" },
+];
 
 function validateMobile(mobile) {
   return /^1\d{10}$/.test(mobile);
@@ -225,6 +231,27 @@ function buildQuestionBankFileSummary(files) {
   const previewNames = files.slice(0, 4).map((item) => item.name).join("、");
   const suffix = files.length > 4 ? ` 等 ${files.length} 个文件` : "";
   return `已选择 ${files.length} 个文件：${previewNames}${suffix}`;
+}
+
+function buildImportBetaFileSummary(items) {
+  if (!items.length) {
+    return "";
+  }
+
+  if (items.length === 1) {
+    return `已选择：${items[0].relativePath}`;
+  }
+
+  const previewNames = items.slice(0, 4).map((item) => item.relativePath).join("、");
+  const suffix = items.length > 4 ? ` 等 ${items.length} 个文件` : "";
+  return `已选择 ${items.length} 个文件：${previewNames}${suffix}`;
+}
+
+function createImportBetaItems(fileList) {
+  return Array.from(fileList || []).map((file) => ({
+    file,
+    relativePath: file.webkitRelativePath || file.name,
+  }));
 }
 
 function SectionNavButton({ item, isActive, onClick }) {
@@ -424,6 +451,10 @@ export default function AdminConsolePage() {
     exam_content: questionBankContentMap.IELTS[0],
     files: [],
   });
+  const [questionBankImportBetaForm, setQuestionBankImportBetaForm] = useState({
+    source_mode: "zip",
+    items: [],
+  });
   const [questionBankListQuery, setQuestionBankListQuery] = useState({
     page: 1,
     page_size: 10,
@@ -487,6 +518,8 @@ export default function AdminConsolePage() {
   const [lastUserStatusResult, setLastUserStatusResult] = useState({});
   const [lastRuleStatusResult, setLastRuleStatusResult] = useState({});
   const [questionBankUploadMessage, setQuestionBankUploadMessage] = useState("");
+  const [questionBankImportBetaMessage, setQuestionBankImportBetaMessage] = useState("");
+  const [questionBankImportBetaResult, setQuestionBankImportBetaResult] = useState(null);
   const [generatedItems, setGeneratedItems] = useState([]);
   const [lastIssued, setLastIssued] = useState({});
   const [inviteList, setInviteList] = useState([]);
@@ -512,6 +545,7 @@ export default function AdminConsolePage() {
   const [loadingIssue, setLoadingIssue] = useState(false);
   const [loadingQuery, setLoadingQuery] = useState(false);
   const [loadingQuestionBankUpload, setLoadingQuestionBankUpload] = useState(false);
+  const [loadingQuestionBankImportBeta, setLoadingQuestionBankImportBeta] = useState(false);
   const [loadingQuestionBankList, setLoadingQuestionBankList] = useState(false);
   const [loadingUserStatus, setLoadingUserStatus] = useState(false);
   const [loadingGroupCreate, setLoadingGroupCreate] = useState(false);
@@ -536,6 +570,11 @@ export default function AdminConsolePage() {
   const questionBankFileInputKey = questionBankUploadForm.files.length
     ? questionBankUploadForm.files.map((item) => `${item.name}-${item.lastModified}`).join("|")
     : "question-bank-empty";
+  const questionBankImportBetaInputKey = questionBankImportBetaForm.items.length
+    ? questionBankImportBetaForm.items
+        .map((item) => `${item.relativePath}-${item.file.lastModified}-${item.file.size}`)
+        .join("|")
+    : "question-bank-import-beta-empty";
   const questionBankTotalPages = useMemo(() => {
     const pageSize = Math.max(1, Number(questionBankListQuery.page_size) || 10);
     return Math.max(1, Math.ceil(questionBankTotal / pageSize));
@@ -688,6 +727,24 @@ export default function AdminConsolePage() {
     }));
   }
 
+  function handleQuestionBankImportBetaModeChange(nextMode) {
+    setQuestionBankImportBetaMessage("");
+    setQuestionBankImportBetaResult(null);
+    setQuestionBankImportBetaForm({
+      source_mode: nextMode,
+      items: [],
+    });
+  }
+
+  function handleQuestionBankImportBetaFileChange(fileList) {
+    setQuestionBankImportBetaMessage("");
+    setQuestionBankImportBetaResult(null);
+    setQuestionBankImportBetaForm((previous) => ({
+      ...previous,
+      items: createImportBetaItems(fileList),
+    }));
+  }
+
   async function handleUploadQuestionBank() {
     setErrorMessage("");
     setQuestionBankUploadMessage("");
@@ -751,6 +808,46 @@ export default function AdminConsolePage() {
       setQuestionBankUploadMessage("");
     } finally {
       setLoadingQuestionBankUpload(false);
+    }
+  }
+
+  async function handleImportQuestionBankBeta() {
+    setErrorMessage("");
+    setQuestionBankImportBetaMessage("");
+    if (!ensureAdminKey()) return;
+    if (!questionBankImportBetaForm.items.length) {
+      setErrorMessage("请先选择要导入的文件");
+      return;
+    }
+
+    try {
+      setLoadingQuestionBankImportBeta(true);
+      const formData = new FormData();
+      formData.append("source_mode", questionBankImportBetaForm.source_mode);
+      formData.append(
+        "entry_paths_json",
+        JSON.stringify(questionBankImportBetaForm.items.map((item) => item.relativePath))
+      );
+      questionBankImportBetaForm.items.forEach((item) => {
+        formData.append("files", item.file);
+      });
+
+      setQuestionBankImportBetaMessage(`正在导入：${questionBankImportBetaForm.items.length} 个文件`);
+      const response = await importQuestionBankBeta(formData, adminKey);
+      setQuestionBankImportBetaResult(response.data);
+      setQuestionBankImportBetaForm((previous) => ({
+        ...previous,
+        items: [],
+      }));
+      setQuestionBankImportBetaMessage(
+        `导入完成：成功 ${response.data.success_count || 0} 个题包，失败 ${response.data.failure_count || 0} 个`
+      );
+    } catch (error) {
+      setQuestionBankImportBetaResult(null);
+      setQuestionBankImportBetaMessage("");
+      setErrorMessage(error?.response?.data?.detail || "导入-测试版执行失败");
+    } finally {
+      setLoadingQuestionBankImportBeta(false);
     }
   }
 
@@ -1507,6 +1604,141 @@ export default function AdminConsolePage() {
                     {loadingQuestionBankUpload ? "批量上传中..." : "上传题库"}
                   </button>
                 </div>
+              </AdminPanel>
+
+              <AdminPanel
+                title="导入-测试版"
+                description="按新 IELTS 结构化方案导入压缩包、文件夹或批量文件，落到 exam_* 表。旧 JSON 上传功能继续保留。"
+                aside={questionBankImportBetaMessage ? <span className="check-success">{questionBankImportBetaMessage}</span> : null}
+              >
+                <div className="admin-segmented">
+                  {importBetaModeOptions.map((item) => (
+                    <button
+                      key={item.value}
+                      type="button"
+                      className={`admin-segmented-btn ${questionBankImportBetaForm.source_mode === item.value ? "active" : ""}`}
+                      onClick={() => handleQuestionBankImportBetaModeChange(item.value)}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="admin-form-grid">
+                  <Field label="导入模式">
+                    <input
+                      className="input"
+                      value={
+                        importBetaModeOptions.find((item) => item.value === questionBankImportBetaForm.source_mode)?.label || "压缩包"
+                      }
+                      disabled
+                    />
+                  </Field>
+
+                  <Field
+                    label="导入文件"
+                    hint={
+                      questionBankImportBetaForm.source_mode === "zip"
+                        ? "支持一个或多个 zip 包，zip 内部可包含多套题库。"
+                        : questionBankImportBetaForm.source_mode === "directory"
+                          ? "请选择包含 manifest.json 的根目录，浏览器会自动携带相对路径。"
+                          : "支持批量文件，若涉及多套同名 section 文件，优先改用压缩包或文件夹模式。"
+                    }
+                  >
+                    {questionBankImportBetaForm.source_mode === "zip" ? (
+                      <input
+                        key={questionBankImportBetaInputKey}
+                        className="input"
+                        type="file"
+                        multiple
+                        accept=".zip,application/zip"
+                        onChange={(event) => handleQuestionBankImportBetaFileChange(event.target.files)}
+                      />
+                    ) : null}
+
+                    {questionBankImportBetaForm.source_mode === "directory" ? (
+                      <input
+                        key={questionBankImportBetaInputKey}
+                        className="input"
+                        type="file"
+                        multiple
+                        webkitdirectory=""
+                        directory=""
+                        onChange={(event) => handleQuestionBankImportBetaFileChange(event.target.files)}
+                      />
+                    ) : null}
+
+                    {questionBankImportBetaForm.source_mode === "files" ? (
+                      <input
+                        key={questionBankImportBetaInputKey}
+                        className="input"
+                        type="file"
+                        multiple
+                        onChange={(event) => handleQuestionBankImportBetaFileChange(event.target.files)}
+                      />
+                    ) : null}
+                  </Field>
+                </div>
+
+                {questionBankImportBetaForm.items.length ? (
+                  <div className="result-box">
+                    {buildImportBetaFileSummary(questionBankImportBetaForm.items)}
+                  </div>
+                ) : null}
+
+                <div className="admin-button-row">
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    disabled={loadingQuestionBankImportBeta}
+                    onClick={handleImportQuestionBankBeta}
+                  >
+                    {loadingQuestionBankImportBeta ? "导入中..." : "开始导入-测试版"}
+                  </button>
+                </div>
+
+                {questionBankImportBetaResult ? (
+                  <div className="admin-import-result">
+                    <div className="admin-detail-list">
+                      <div><strong>识别 manifest：</strong>{questionBankImportBetaResult.manifest_count || 0}</div>
+                      <div><strong>成功题包：</strong>{questionBankImportBetaResult.success_count || 0}</div>
+                      <div><strong>失败题包：</strong>{questionBankImportBetaResult.failure_count || 0}</div>
+                      <div><strong>导入试卷：</strong>{questionBankImportBetaResult.imported_paper_count || 0}</div>
+                      <div><strong>Section / Group / Question：</strong>{questionBankImportBetaResult.imported_section_count || 0} / {questionBankImportBetaResult.imported_group_count || 0} / {questionBankImportBetaResult.imported_question_count || 0}</div>
+                      <div><strong>Answer / Blank / Option / Asset：</strong>{questionBankImportBetaResult.imported_answer_count || 0} / {questionBankImportBetaResult.imported_blank_count || 0} / {questionBankImportBetaResult.imported_option_count || 0} / {questionBankImportBetaResult.imported_asset_count || 0}</div>
+                    </div>
+
+                    {questionBankImportBetaResult.items?.length ? (
+                      <div className="admin-import-result-block">
+                        <h4>成功明细</h4>
+                        <div className="admin-import-result-list">
+                          {questionBankImportBetaResult.items.map((item) => (
+                            <div key={`${item.paper_code}-${item.package_root}`} className="admin-import-result-item">
+                              <strong>{item.paper_name}</strong>
+                              <span>{item.subject_type} / {item.import_status}</span>
+                              <span>{item.bank_code}</span>
+                              <span>{item.package_root}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {questionBankImportBetaResult.failures?.length ? (
+                      <div className="admin-import-result-block">
+                        <h4>失败明细</h4>
+                        <div className="admin-import-result-list">
+                          {questionBankImportBetaResult.failures.map((item, index) => (
+                            <div key={`${item.package_root}-${index}`} className="admin-import-result-item error">
+                              <strong>{item.package_root}</strong>
+                              <span>{item.message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </AdminPanel>
 
               <AdminPanel title="题库列表" description="默认每页展示 10 条，按创建时间倒序排列。">
