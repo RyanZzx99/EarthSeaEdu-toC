@@ -12,6 +12,16 @@ from sqlalchemy.orm import selectinload
 
 from backend.models.exam_set_models import ExamSet
 from backend.models.exam_set_models import ExamSetPart
+from backend.models.ielts_exam_models import ExamAsset
+from backend.models.ielts_exam_models import ExamBank
+from backend.models.ielts_exam_models import ExamGroup
+from backend.models.ielts_exam_models import ExamGroupOption
+from backend.models.ielts_exam_models import ExamPaper
+from backend.models.ielts_exam_models import ExamQuestion
+from backend.models.ielts_exam_models import ExamQuestionAnswer
+from backend.models.ielts_exam_models import ExamQuestionBlank
+from backend.models.ielts_exam_models import ExamSection
+from backend.models.mockexam_record_models import MockExamSubmission
 from backend.models.question_bank_models import QuestionBank
 
 
@@ -23,6 +33,26 @@ MOCKEXAM_CONTENT_OPTIONS: dict[str, list[str]] = {
 }
 
 SUPPORTED_MOCKEXAM_CATEGORIES = tuple(MOCKEXAM_CONTENT_OPTIONS.keys())
+
+MOCKEXAM_BETA_CONTENT_OPTIONS: dict[str, list[str]] = {
+    "IELTS": ["Listening", "Reading"],
+}
+
+SUPPORTED_MOCKEXAM_BETA_CATEGORIES = tuple(MOCKEXAM_BETA_CONTENT_OPTIONS.keys())
+MOCKEXAM_BETA_SUBJECT_TYPE_MAP = {
+    "Listening": "listening",
+    "Reading": "reading",
+}
+MOCKEXAM_BETA_EXAM_CONTENT_MAP = {
+    "listening": "Listening",
+    "reading": "Reading",
+}
+MOCKEXAM_SUBMISSION_SOURCE_TYPES = {
+    "question-bank",
+    "exam-set",
+    "paper-beta",
+    "quick-practice",
+}
 
 
 def clamp_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
@@ -79,6 +109,15 @@ def normalize_exam_contents(values: list[str] | None, *, exam_category: str) -> 
     for value in dedupe_str_list(values or []):
         result.append(normalize_exam_content(value, exam_category=exam_category))
     return result
+
+
+def normalize_mockexam_submission_source_type(value: str | None, *, allow_empty: bool = False) -> str:
+    normalized = (value or "").strip().lower()
+    if not normalized and allow_empty:
+        return ""
+    if normalized not in MOCKEXAM_SUBMISSION_SOURCE_TYPES:
+        raise ValueError("Unsupported mock exam submission source type")
+    return normalized
 
 
 def get_mockexam_options() -> dict[str, Any]:
@@ -161,6 +200,482 @@ def load_mockexam_payload(db: Session, *, question_bank_id: int) -> tuple[Questi
     row = get_mockexam_question_bank(db, question_bank_id=question_bank_id)
     payload = parse_mockexam_question_bank_payload(row)
     return row, payload
+
+
+def get_mockexam_beta_options() -> dict[str, Any]:
+    return {
+        "exam_category_options": list(MOCKEXAM_BETA_CONTENT_OPTIONS.keys()),
+        "content_options_map": MOCKEXAM_BETA_CONTENT_OPTIONS,
+        "supported_categories": list(SUPPORTED_MOCKEXAM_BETA_CATEGORIES),
+    }
+
+
+def normalize_mockexam_beta_exam_category(value: str | None, *, allow_empty: bool = False) -> str:
+    normalized = (value or "").strip().upper()
+    if not normalized and allow_empty:
+        return ""
+    if normalized not in MOCKEXAM_BETA_CONTENT_OPTIONS:
+        raise ValueError("测试版模拟考试当前仅支持 IELTS")
+    return normalized
+
+
+def normalize_mockexam_beta_exam_content(value: str | None, *, allow_empty: bool = False) -> str:
+    normalized = (value or "").strip().title()
+    if not normalized and allow_empty:
+        return ""
+    if normalized not in MOCKEXAM_BETA_CONTENT_OPTIONS["IELTS"]:
+        raise ValueError("测试版模拟考试当前仅支持 IELTS Reading / Listening")
+    return normalized
+
+
+def beta_exam_content_to_subject_type(exam_content: str | None) -> str:
+    normalized_exam_content = normalize_mockexam_beta_exam_content(exam_content)
+    return MOCKEXAM_BETA_SUBJECT_TYPE_MAP[normalized_exam_content]
+
+
+def beta_exam_content_from_subject_type(subject_type: str | None) -> str:
+    normalized_subject_type = str(subject_type or "").strip().lower()
+    return MOCKEXAM_BETA_EXAM_CONTENT_MAP.get(normalized_subject_type, "Reading")
+
+
+def list_mockexam_beta_papers(
+    db: Session,
+    *,
+    exam_category: str | None = None,
+    exam_content: str | None = None,
+) -> list[ExamPaper]:
+    normalized_exam_category = normalize_mockexam_beta_exam_category(exam_category, allow_empty=True)
+    normalized_exam_content = ""
+    if normalized_exam_category:
+        normalized_exam_content = normalize_mockexam_beta_exam_content(exam_content, allow_empty=True)
+    elif exam_content:
+        raise ValueError("筛选考试内容前请先选择考试类别")
+
+    query = (
+        db.query(ExamPaper)
+        .join(ExamPaper.bank)
+        .filter(ExamPaper.delete_flag == "1")
+        .filter(ExamPaper.status == 1)
+        .filter(ExamBank.delete_flag == "1")
+        .filter(ExamBank.status == 1)
+        .filter(ExamBank.exam_type == "IELTS")
+    )
+    if normalized_exam_content:
+        query = query.filter(func.lower(ExamPaper.subject_type) == beta_exam_content_to_subject_type(normalized_exam_content))
+
+    return (
+        query.options(
+            load_only(
+                ExamPaper.exam_paper_id,
+                ExamPaper.paper_code,
+                ExamPaper.paper_name,
+                ExamPaper.module_name,
+                ExamPaper.subject_type,
+                ExamPaper.book_code,
+                ExamPaper.test_no,
+                ExamPaper.create_time,
+            ),
+            selectinload(ExamPaper.bank).load_only(
+                ExamBank.exam_bank_id,
+                ExamBank.bank_name,
+                ExamBank.exam_type,
+            ),
+        )
+        .order_by(
+            ExamPaper.subject_type.asc(),
+            ExamPaper.book_code.asc(),
+            ExamPaper.test_no.asc(),
+            ExamPaper.exam_paper_id.asc(),
+        )
+        .all()
+    )
+
+
+def get_mockexam_beta_paper(db: Session, *, exam_paper_id: int) -> ExamPaper:
+    row = (
+        db.query(ExamPaper)
+        .join(ExamPaper.bank)
+        .options(
+            selectinload(ExamPaper.bank).load_only(
+                ExamBank.exam_bank_id,
+                ExamBank.bank_name,
+                ExamBank.exam_type,
+            ),
+            selectinload(ExamPaper.sections)
+            .selectinload(ExamSection.groups)
+            .selectinload(ExamGroup.questions)
+            .selectinload(ExamQuestion.answers),
+            selectinload(ExamPaper.sections)
+            .selectinload(ExamSection.groups)
+            .selectinload(ExamGroup.questions)
+            .selectinload(ExamQuestion.blanks),
+            selectinload(ExamPaper.sections)
+            .selectinload(ExamSection.groups)
+            .selectinload(ExamGroup.questions)
+            .selectinload(ExamQuestion.assets),
+            selectinload(ExamPaper.sections)
+            .selectinload(ExamSection.groups)
+            .selectinload(ExamGroup.options),
+            selectinload(ExamPaper.sections)
+            .selectinload(ExamSection.groups)
+            .selectinload(ExamGroup.assets),
+            selectinload(ExamPaper.sections).selectinload(ExamSection.assets),
+        )
+        .filter(ExamPaper.exam_paper_id == exam_paper_id)
+        .filter(ExamPaper.delete_flag == "1")
+        .filter(ExamPaper.status == 1)
+        .filter(ExamBank.delete_flag == "1")
+        .filter(ExamBank.status == 1)
+        .filter(ExamBank.exam_type == "IELTS")
+        .first()
+    )
+    if not row:
+        raise LookupError("测试版试卷不存在或已停用")
+    return row
+
+
+def load_mockexam_beta_paper_payload(db: Session, *, exam_paper_id: int) -> tuple[ExamPaper, dict[str, Any]]:
+    row = get_mockexam_beta_paper(db, exam_paper_id=exam_paper_id)
+    return row, build_mockexam_beta_payload(row)
+
+
+def evaluate_mockexam_beta_paper_submission(
+    db: Session,
+    *,
+    exam_paper_id: int,
+    answers_map: dict[str, Any],
+) -> dict[str, Any]:
+    row, payload = load_mockexam_beta_paper_payload(db, exam_paper_id=exam_paper_id)
+    if (row.bank.exam_type if row.bank else "IELTS") not in SUPPORTED_MOCKEXAM_BETA_CATEGORIES:
+        raise ValueError("当前测试版模考尚未开放该考试类别")
+
+    safe_answers_map = answers_map if isinstance(answers_map, dict) else {}
+    return evaluate_quiz_payload(payload, safe_answers_map)
+
+
+def build_mockexam_beta_payload(paper: ExamPaper) -> dict[str, Any]:
+    passages: list[dict[str, Any]] = []
+    for section in get_active_sorted_records(paper.sections):
+        groups = [serialize_mockexam_beta_group(section, group) for group in get_active_sorted_records(section.groups)]
+        groups = [group for group in groups if group["questions"]]
+        if not groups:
+            continue
+
+        section_assets = get_active_sorted_records(section.assets)
+        passages.append(
+            {
+                "id": section.section_id or f"S{section.section_no or section.sort_order}",
+                "title": section.section_title or f"Section {section.section_no or section.sort_order}",
+                "instructions": section.instructions_text or "",
+                "content": rewrite_html_asset_urls(section.content_html, section_assets),
+                "audio": resolve_primary_asset_url(section.primary_audio_asset_id, section_assets, asset_type="audio"),
+                "groups": groups,
+            }
+        )
+
+    return {
+        "module": paper.module_name or beta_exam_content_from_subject_type(paper.subject_type),
+        "passages": passages,
+    }
+
+
+def serialize_mockexam_beta_group(section: ExamSection, group: ExamGroup) -> dict[str, Any]:
+    group_assets = get_active_sorted_records(group.assets)
+    group_options = serialize_mockexam_beta_group_options(group.options)
+    questions = [
+        question_payload
+        for question in get_active_sorted_records(group.questions)
+        if (question_payload := serialize_mockexam_beta_question(section, group, question, group_options)) is not None
+    ]
+    return {
+        "id": group.group_id or f"{section.section_id or 'section'}-G{group.sort_order}",
+        "title": group.group_title or "",
+        "instructions": rewrite_html_asset_urls(group.instructions_html, group_assets),
+        "type": questions[0]["type"] if questions else "",
+        "options": group_options or None,
+        "questions": questions,
+    }
+
+
+def serialize_mockexam_beta_question(
+    section: ExamSection,
+    group: ExamGroup,
+    question: ExamQuestion,
+    group_options: list[dict[str, str]],
+) -> dict[str, Any] | None:
+    answer_row = get_active_answer(question.answers)
+    answer_values = extract_answer_values(answer_row)
+    answer_text = extract_answer_text(answer_row)
+    question_type = infer_mockexam_beta_question_type(group, question, group_options, answer_values)
+
+    combined_assets = [
+        *get_active_sorted_records(section.assets),
+        *get_active_sorted_records(group.assets),
+        *get_active_sorted_records(question.assets),
+    ]
+    prompt_html, prompt_with_blank_html = resolve_mockexam_beta_question_prompt_html(group, question, combined_assets)
+
+    payload: dict[str, Any] = {
+        "id": question.question_code or question.question_id or f"Q-{question.exam_question_id}",
+        "type": question_type,
+        "stem": prompt_with_blank_html or prompt_html or build_question_fallback_html(question),
+        "content": "",
+    }
+
+    if question_type == "tfng":
+        payload["answer"] = normalize_tfng_value((answer_values[0] if answer_values else answer_text))
+        return payload
+
+    if question_type == "multiple":
+        payload["answer"] = answer_values
+        if group_options:
+            payload["options"] = group_options
+        return payload
+
+    if question_type == "single":
+        payload["answer"] = answer_values[0] if answer_values else answer_text
+        if group_options:
+            payload["options"] = group_options
+        return payload
+
+    if question_type == "cloze_inline":
+        blanks = serialize_mockexam_beta_blanks(question, answer_text, answer_values)
+        if not blanks:
+            return None
+        payload["stem"] = ""
+        payload["content"] = prompt_html or prompt_with_blank_html or build_blank_question_content(question)
+        payload["blanks"] = blanks
+        return payload
+
+    payload["answer"] = answer_text
+    return payload
+
+
+def serialize_mockexam_beta_group_options(options: list[ExamGroupOption] | None) -> list[dict[str, str]]:
+    serialized: list[dict[str, str]] = []
+    for option in get_active_sorted_records(options):
+        content = (option.option_text or "").strip() or (option.option_html or "").strip()
+        if not content:
+            continue
+        serialized.append(
+            {
+                "label": str(option.option_key or "").strip() or chr(ord("A") + len(serialized)),
+                "content": content,
+            }
+        )
+    return serialized
+
+
+def serialize_mockexam_beta_blanks(
+    question: ExamQuestion,
+    answer_text: str,
+    answer_values: list[str],
+) -> list[dict[str, Any]]:
+    blank_answer = answer_text or " | ".join(answer_values)
+    return [
+        {
+            "id": blank.blank_id,
+            "answer": blank_answer,
+        }
+        for blank in get_active_sorted_records(question.blanks)
+        if blank.blank_id
+    ]
+
+
+def infer_mockexam_beta_question_type(
+    group: ExamGroup,
+    question: ExamQuestion,
+    group_options: list[dict[str, str]],
+    answer_values: list[str],
+) -> str:
+    raw_type = str(question.raw_type or group.raw_type or "").strip().lower()
+    stat_type = str(question.stat_type or group.stat_type or "").strip().lower()
+    option_labels = {str(item.get("label") or "").strip().upper() for item in group_options if item.get("label")}
+    answers_are_option_labels = bool(answer_values) and all(value.upper() in option_labels for value in answer_values)
+
+    if raw_type == "tfng" or stat_type == "true_false_not_given":
+        return "tfng"
+    if group_options and answers_are_option_labels:
+        return "multiple" if len(answer_values) > 1 else "single"
+    if get_active_sorted_records(question.blanks):
+        return "cloze_inline"
+    if group_options:
+        return "multiple" if len(answer_values) > 1 else "single"
+    return "blank"
+
+
+def resolve_mockexam_beta_question_prompt_html(
+    group: ExamGroup,
+    question: ExamQuestion,
+    assets: list[ExamAsset],
+) -> tuple[str, str]:
+    if question.source_blank_id:
+        full_content_html = group.content_html or question.content_html or question.stem_html or ""
+        fragment_html = extract_precise_blank_fragment_html(full_content_html, question.source_blank_id)
+        if not fragment_html:
+            fragment_html = question.stem_html or question.content_html or ""
+        if fragment_html:
+            fragment_html = rewrite_html_asset_urls(fragment_html, assets)
+            normalized_fragment_html = normalize_fragment_blank_placeholders(
+                fragment_html,
+                question.source_blank_id,
+                keep_active_blank=True,
+            )
+            return (
+                normalized_fragment_html,
+                normalize_fragment_blank_placeholders(
+                    fragment_html,
+                    question.source_blank_id,
+                    keep_active_blank=False,
+                ),
+            )
+
+    prompt_html = rewrite_html_asset_urls(question.stem_html or question.content_html, assets)
+    return prompt_html, prompt_html
+
+
+def extract_precise_blank_fragment_html(full_content_html: str | None, blank_id: str | None) -> str:
+    html = str(full_content_html or "").strip()
+    normalized_blank_id = str(blank_id or "").strip()
+    if not html or not normalized_blank_id:
+        return ""
+
+    safe_blank_id = re.escape(normalized_blank_id)
+    for tag in ("p", "li", "tr", "td", "th"):
+        pattern = re.compile(
+            rf"<{tag}\b[^>]*>(?:(?!</{tag}>).)*\[\[{safe_blank_id}\]\](?:(?!</{tag}>).)*</{tag}>",
+            re.I | re.S,
+        )
+        match = pattern.search(html)
+        if match:
+            return match.group(0)
+    return ""
+
+
+def replace_specific_blank_placeholder(content_html: str | None, blank_id: str | None) -> str:
+    html = str(content_html or "")
+    normalized_blank_id = str(blank_id or "").strip()
+    if not normalized_blank_id:
+        return html
+    return re.sub(rf"\[\[\s*{re.escape(normalized_blank_id)}\s*\]\]", "_____", html)
+
+
+def normalize_fragment_blank_placeholders(
+    content_html: str | None,
+    active_blank_id: str | None,
+    *,
+    keep_active_blank: bool,
+) -> str:
+    html = str(content_html or "")
+    normalized_active_blank_id = str(active_blank_id or "").strip()
+    if not html:
+        return ""
+
+    def replace_match(match: re.Match[str]) -> str:
+        blank_id = str(match.group(1) or match.group(2) or "").strip()
+        if normalized_active_blank_id and blank_id == normalized_active_blank_id:
+            return match.group(0) if keep_active_blank else "_____"
+        return "_____"
+
+    return re.sub(r"\{\{\s*([^}]+)\s*\}\}|\[\[\s*([^\]]+)\s*\]\]", replace_match, html)
+
+
+def rewrite_html_asset_urls(content_html: str | None, assets: list[ExamAsset] | None) -> str:
+    html = str(content_html or "").strip()
+    if not html:
+        return ""
+    for asset in get_active_sorted_records(assets):
+        source_path = str(asset.source_path or "").strip()
+        asset_url = str(asset.asset_url or asset.source_path or "").strip()
+        if source_path and asset_url:
+            html = html.replace(source_path, asset_url)
+    return html
+
+
+def resolve_primary_asset_url(
+    primary_asset_id: int | None,
+    assets: list[ExamAsset] | None,
+    *,
+    asset_type: str | None = None,
+) -> str:
+    for asset in get_active_sorted_records(assets):
+        if primary_asset_id is not None and asset.exam_asset_id == primary_asset_id:
+            if asset_type and str(asset.asset_type or "").strip().lower() != asset_type:
+                continue
+            return str(asset.asset_url or asset.source_path or "").strip()
+
+    for asset in get_active_sorted_records(assets):
+        if asset_type and str(asset.asset_type or "").strip().lower() != asset_type:
+            continue
+        return str(asset.asset_url or asset.source_path or "").strip()
+    return ""
+
+
+def get_active_answer(answers: list[ExamQuestionAnswer] | None) -> ExamQuestionAnswer | None:
+    for answer in get_active_sorted_records(answers):
+        return answer
+    return None
+
+
+def extract_answer_values(answer: ExamQuestionAnswer | None) -> list[str]:
+    if answer is None:
+        return []
+    if isinstance(answer.answer_json, list):
+        return [str(item).strip() for item in answer.answer_json if str(item).strip()]
+    raw_text = str(answer.answer_raw or "").strip()
+    return [raw_text] if raw_text else []
+
+
+def extract_answer_text(answer: ExamQuestionAnswer | None) -> str:
+    if answer is None:
+        return ""
+    return str(answer.answer_raw or "").strip()
+
+
+def build_question_fallback_html(question: ExamQuestion) -> str:
+    if question.question_no is not None:
+        return f"<p>Question {question.question_no}</p>"
+    return f"<p>{question.question_id or question.question_code or 'Question'}</p>"
+
+
+def build_blank_question_content(question: ExamQuestion) -> str:
+    blank = next(iter(get_active_sorted_records(question.blanks)), None)
+    if question.question_no is not None and blank is not None:
+        return f"<p>Question {question.question_no}: [[{blank.blank_id}]]</p>"
+    if blank is not None:
+        return f"<p>[[{blank.blank_id}]]</p>"
+    return build_question_fallback_html(question)
+
+
+def get_active_sorted_records(records: list[Any] | None) -> list[Any]:
+    active_records = [
+        record
+        for record in (records or [])
+        if getattr(record, "delete_flag", "1") == "1" and getattr(record, "status", 1) == 1
+    ]
+    return sorted(
+        active_records,
+        key=lambda item: (
+            normalize_record_sort_value(getattr(item, "sort_order", 0)),
+            normalize_record_sort_value(getattr(item, "question_no", 0)),
+            normalize_record_sort_value(getattr(item, "exam_section_id", 0)),
+            normalize_record_sort_value(getattr(item, "exam_group_id", 0)),
+            normalize_record_sort_value(getattr(item, "exam_question_id", 0)),
+            normalize_record_sort_value(getattr(item, "exam_group_option_id", 0)),
+            normalize_record_sort_value(getattr(item, "exam_asset_id", 0)),
+            normalize_record_sort_value(getattr(item, "exam_question_blank_id", 0)),
+            normalize_record_sort_value(getattr(item, "exam_question_answer_id", 0)),
+        ),
+    )
+
+
+def normalize_record_sort_value(value: Any) -> int:
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def normalize_exam_set_rule(raw_rule: Any, *, exam_category: str) -> dict[str, Any]:
@@ -609,6 +1124,280 @@ def build_quick_practice_payload(
     }
 
 
+def build_mockexam_submission_summary(submission: MockExamSubmission) -> dict[str, Any]:
+    return {
+        "submission_id": submission.mockexam_submission_id,
+        "title": submission.title,
+        "create_time": submission.create_time,
+    }
+
+
+def create_mockexam_submission_record(
+    db: Session,
+    *,
+    user_id: str,
+    source_type: str,
+    source_id: str | None,
+    exam_category: str,
+    exam_content: str | None,
+    title: str,
+    payload: Any,
+    answers_map: dict[str, Any],
+    marked_map: dict[str, Any],
+    result: dict[str, Any],
+) -> MockExamSubmission:
+    submission = MockExamSubmission(
+        user_id=user_id,
+        source_type=normalize_mockexam_submission_source_type(source_type),
+        source_id=str(source_id).strip() if source_id is not None and str(source_id).strip() else None,
+        exam_category=(exam_category or "").strip() or "IELTS",
+        exam_content=(exam_content or "").strip() or None,
+        title=(title or "").strip() or "Mock Exam",
+        payload_json=copy.deepcopy(payload),
+        answers_json=copy.deepcopy(answers_map or {}),
+        marked_json=copy.deepcopy(marked_map or {}),
+        result_json=copy.deepcopy(result or {}),
+        status=1,
+        delete_flag="1",
+    )
+    db.add(submission)
+    db.commit()
+    db.refresh(submission)
+    return submission
+
+
+def serialize_mockexam_submission_item(submission: MockExamSubmission) -> dict[str, Any]:
+    result = submission.result_json if isinstance(submission.result_json, dict) else {}
+    return {
+        "submission_id": submission.mockexam_submission_id,
+        "source_type": submission.source_type,
+        "source_id": submission.source_id,
+        "exam_category": submission.exam_category,
+        "exam_content": submission.exam_content,
+        "title": submission.title,
+        "score_percent": result.get("score_percent"),
+        "total_questions": int(result.get("total_questions") or 0),
+        "correct_count": int(result.get("correct_count") or 0),
+        "wrong_count": int(result.get("wrong_count") or 0),
+        "gradable_questions": int(result.get("gradable_questions") or 0),
+        "create_time": submission.create_time,
+    }
+
+
+def serialize_mockexam_submission_detail(submission: MockExamSubmission) -> dict[str, Any]:
+    return {
+        "submission_id": submission.mockexam_submission_id,
+        "source_type": submission.source_type,
+        "source_id": submission.source_id,
+        "exam_category": submission.exam_category,
+        "exam_content": submission.exam_content,
+        "title": submission.title,
+        "create_time": submission.create_time,
+        "payload": copy.deepcopy(submission.payload_json),
+        "answers": copy.deepcopy(submission.answers_json or {}),
+        "marked": copy.deepcopy(submission.marked_json or {}),
+        "result": copy.deepcopy(submission.result_json or {}),
+    }
+
+
+def list_mockexam_submissions(
+    db: Session,
+    *,
+    user_id: str,
+    source_type: str | None = None,
+    exam_category: str | None = None,
+    exam_content: str | None = None,
+    limit: int = 20,
+) -> list[MockExamSubmission]:
+    query = (
+        db.query(MockExamSubmission)
+        .filter(MockExamSubmission.user_id == user_id)
+        .filter(MockExamSubmission.delete_flag == "1")
+        .filter(MockExamSubmission.status == 1)
+    )
+
+    normalized_source_type = normalize_mockexam_submission_source_type(source_type, allow_empty=True)
+    if normalized_source_type:
+        query = query.filter(MockExamSubmission.source_type == normalized_source_type)
+
+    normalized_exam_category = normalize_exam_category(exam_category, allow_empty=True)
+    normalized_exam_content = ""
+    if normalized_exam_category:
+        query = query.filter(MockExamSubmission.exam_category == normalized_exam_category)
+        normalized_exam_content = normalize_exam_content(
+            exam_content,
+            exam_category=normalized_exam_category,
+            allow_empty=True,
+        )
+    elif exam_content:
+        normalized_exam_content = (exam_content or "").strip()
+
+    if normalized_exam_content:
+        query = query.filter(MockExamSubmission.exam_content == normalized_exam_content)
+
+    safe_limit = clamp_int(limit, default=20, minimum=1, maximum=100)
+    return (
+        query.order_by(
+            MockExamSubmission.create_time.desc(),
+            MockExamSubmission.mockexam_submission_id.desc(),
+        )
+        .limit(safe_limit)
+        .all()
+    )
+
+
+def get_mockexam_submission(
+    db: Session,
+    *,
+    user_id: str,
+    submission_id: int,
+) -> MockExamSubmission:
+    row = (
+        db.query(MockExamSubmission)
+        .filter(MockExamSubmission.mockexam_submission_id == submission_id)
+        .filter(MockExamSubmission.user_id == user_id)
+        .filter(MockExamSubmission.delete_flag == "1")
+        .filter(MockExamSubmission.status == 1)
+        .first()
+    )
+    if not row:
+        raise LookupError("Mock exam submission not found")
+    return row
+
+
+def submit_mockexam_question_bank(
+    db: Session,
+    *,
+    user_id: str,
+    question_bank_id: int,
+    answers_map: dict[str, Any],
+    marked_map: dict[str, Any],
+) -> tuple[dict[str, Any], MockExamSubmission]:
+    row, payload = load_mockexam_payload(db, question_bank_id=question_bank_id)
+    if row.exam_category not in SUPPORTED_MOCKEXAM_CATEGORIES:
+        raise ValueError("Current exam category is not enabled for mock exam scoring yet")
+
+    safe_answers_map = answers_map if isinstance(answers_map, dict) else {}
+    safe_marked_map = marked_map if isinstance(marked_map, dict) else {}
+    result = evaluate_quiz_payload(payload, safe_answers_map)
+    submission = create_mockexam_submission_record(
+        db,
+        user_id=user_id,
+        source_type="question-bank",
+        source_id=str(row.id),
+        exam_category=row.exam_category,
+        exam_content=row.exam_content,
+        title=row.file_name,
+        payload=payload,
+        answers_map=safe_answers_map,
+        marked_map=safe_marked_map,
+        result=result,
+    )
+    return result, submission
+
+
+def submit_mockexam_beta_paper(
+    db: Session,
+    *,
+    user_id: str,
+    exam_paper_id: int,
+    answers_map: dict[str, Any],
+    marked_map: dict[str, Any],
+) -> tuple[dict[str, Any], MockExamSubmission]:
+    row, payload = load_mockexam_beta_paper_payload(db, exam_paper_id=exam_paper_id)
+    exam_category = row.bank.exam_type if row.bank and row.bank.exam_type else "IELTS"
+    if exam_category not in SUPPORTED_MOCKEXAM_BETA_CATEGORIES:
+        raise ValueError("Current beta exam category is not enabled")
+
+    safe_answers_map = answers_map if isinstance(answers_map, dict) else {}
+    safe_marked_map = marked_map if isinstance(marked_map, dict) else {}
+    result = evaluate_quiz_payload(payload, safe_answers_map)
+    submission = create_mockexam_submission_record(
+        db,
+        user_id=user_id,
+        source_type="paper-beta",
+        source_id=str(row.exam_paper_id),
+        exam_category=exam_category,
+        exam_content=beta_exam_content_from_subject_type(row.subject_type),
+        title=row.paper_name or row.paper_code or f"Paper {row.exam_paper_id}",
+        payload=payload,
+        answers_map=safe_answers_map,
+        marked_map=safe_marked_map,
+        result=result,
+    )
+    return result, submission
+
+
+def submit_mockexam_exam_set(
+    db: Session,
+    *,
+    user_id: str,
+    exam_sets_id: int,
+    answers_map: dict[str, Any],
+    marked_map: dict[str, Any],
+) -> tuple[dict[str, Any], MockExamSubmission]:
+    exam_set, payload = load_mockexam_exam_set_payload(db, exam_sets_id=exam_sets_id)
+    if exam_set.exam_category not in SUPPORTED_MOCKEXAM_CATEGORIES:
+        raise ValueError("Current exam category is not enabled for mock exam scoring yet")
+
+    safe_answers_map = answers_map if isinstance(answers_map, dict) else {}
+    safe_marked_map = marked_map if isinstance(marked_map, dict) else {}
+    result = evaluate_quiz_payload(payload, safe_answers_map)
+    submission = create_mockexam_submission_record(
+        db,
+        user_id=user_id,
+        source_type="exam-set",
+        source_id=str(exam_set.exam_sets_id),
+        exam_category=exam_set.exam_category or "IELTS",
+        exam_content=None,
+        title=exam_set.name,
+        payload=payload,
+        answers_map=safe_answers_map,
+        marked_map=safe_marked_map,
+        result=result,
+    )
+    return result, submission
+
+
+def submit_inline_mockexam_payload(
+    db: Session,
+    *,
+    user_id: str,
+    payload: Any,
+    answers_map: dict[str, Any],
+    marked_map: dict[str, Any],
+    source_type: str | None,
+    source_id: str | None,
+    source_title: str | None,
+    exam_category: str | None,
+    exam_content: str | None,
+) -> tuple[dict[str, Any], MockExamSubmission]:
+    safe_answers_map = answers_map if isinstance(answers_map, dict) else {}
+    safe_marked_map = marked_map if isinstance(marked_map, dict) else {}
+    normalized_source_type = normalize_mockexam_submission_source_type(source_type or "quick-practice")
+    normalized_exam_category = normalize_exam_category(exam_category or "IELTS")
+    normalized_exam_content = normalize_exam_content(
+        exam_content,
+        exam_category=normalized_exam_category,
+        allow_empty=True,
+    )
+    result = evaluate_quiz_payload(payload, safe_answers_map)
+    submission = create_mockexam_submission_record(
+        db,
+        user_id=user_id,
+        source_type=normalized_source_type,
+        source_id=source_id,
+        exam_category=normalized_exam_category,
+        exam_content=normalized_exam_content or None,
+        title=(source_title or "").strip() or "Quick Practice",
+        payload=payload,
+        answers_map=safe_answers_map,
+        marked_map=safe_marked_map,
+        result=result,
+    )
+    return result, submission
+
+
 def evaluate_mockexam_submission(
     db: Session,
     *,
@@ -975,12 +1764,15 @@ def evaluate_quiz_payload(payload: Any, answers_map: dict[str, Any]) -> dict[str
     total_questions = 0
     gradable_questions = 0
     correct_count = 0
+    wrong_count = 0
+    type_stats: dict[str, dict[str, Any]] = {}
 
     for item in questions:
         question_id = item["id"]
         question = item["question"]
         answer_value = answers_map.get(question_id)
         result = evaluate_single_question(question, answer_value)
+        question_type = result["type"]
 
         if result["answered"]:
             answered_count += 1
@@ -989,11 +1781,37 @@ def evaluate_quiz_payload(payload: Any, answers_map: dict[str, Any]) -> dict[str
             gradable_questions += 1
             if result["correct"]:
                 correct_count += 1
+            elif result["answered"]:
+                wrong_count += 1
+
+        stats = type_stats.setdefault(
+            question_type,
+            {
+                "question_type": question_type,
+                "total_questions": 0,
+                "answered_count": 0,
+                "gradable_questions": 0,
+                "correct_count": 0,
+                "wrong_count": 0,
+                "unanswered_count": 0,
+            },
+        )
+        stats["total_questions"] += 1
+        if result["answered"]:
+            stats["answered_count"] += 1
+        else:
+            stats["unanswered_count"] += 1
+        if result["gradable"]:
+            stats["gradable_questions"] += 1
+            if result["correct"]:
+                stats["correct_count"] += 1
+            elif result["answered"]:
+                stats["wrong_count"] += 1
 
         details.append(
             {
                 "question_id": question_id,
-                "type": result["type"],
+                "type": question_type,
                 "answered": result["answered"],
                 "correct": result["correct"],
                 "gradable": result["gradable"],
@@ -1004,12 +1822,16 @@ def evaluate_quiz_payload(payload: Any, answers_map: dict[str, Any]) -> dict[str
     score_percent = None
     if gradable_questions > 0:
         score_percent = round(correct_count * 100.0 / gradable_questions, 2)
+    unanswered_count = max(0, total_questions - answered_count)
 
     return {
         "answered_count": answered_count,
         "total_questions": total_questions,
         "gradable_questions": gradable_questions,
         "correct_count": correct_count,
+        "wrong_count": wrong_count,
+        "unanswered_count": unanswered_count,
         "score_percent": score_percent,
+        "type_breakdown": list(type_stats.values()),
         "details": details,
     }

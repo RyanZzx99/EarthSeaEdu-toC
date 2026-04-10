@@ -1,21 +1,53 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { LoaderCircle } from "lucide-react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { getMe } from "../api/auth";
-import { getMockExamExamSet, getMockExamQuestionBank } from "../api/mockexam";
+import {
+  getMockExamBetaPaper,
+  getMockExamExamSet,
+  getMockExamQuestionBank,
+  getMockExamSubmission,
+} from "../api/mockexam";
 import { buildMockExamIeltsSrcDoc } from "../mockexam/mockexamFrame";
 import { loadQuickPracticePayload } from "../mockexam/mockexamStorage";
 import "../mockexam/mockexam.css";
 
 function toUserDisplayName(profile) {
-  return profile?.nickname || profile?.mobile || "学生用户";
+  return profile?.nickname || profile?.mobile || "Student";
+}
+
+function deriveQuickPracticeExamContent(quickPractice) {
+  const contents = Array.from(
+    new Set((quickPractice?.picked_items || []).map((item) => item?.exam_content).filter(Boolean))
+  );
+  return contents.length === 1 ? contents[0] : "";
 }
 
 export default function MockExamRunnerPage() {
   const { sourceType, sourceId } = useParams();
+  const navigate = useNavigate();
+  const frameRef = useRef(null);
   const [frameSrcDoc, setFrameSrcDoc] = useState("");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    function handleMessage(event) {
+      if (!frameRef.current || event.source !== frameRef.current.contentWindow) {
+        return;
+      }
+      const data = event.data || {};
+      if (data.type !== "mockexam:submitted" || !data.submission_id) {
+        return;
+      }
+      navigate(`/mockexam/results/${data.submission_id}`);
+    }
+
+    window.addEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [navigate]);
 
   useEffect(() => {
     let active = true;
@@ -29,11 +61,16 @@ export default function MockExamRunnerPage() {
 
         const profile = profileResponse.data || null;
         let examCategory = "";
+        let examContent = "";
         let title = "";
         let payload = null;
         let submitUrl = "";
         let inlinePayload = null;
-        let currentSourceType = sourceType || "question-bank";
+        let reviewMode = false;
+        let initialAnswers = null;
+        let initialMarked = null;
+        let initialResult = null;
+        const currentSourceType = sourceType || "question-bank";
 
         if (currentSourceType === "question-bank") {
           const questionBankResponse = await getMockExamQuestionBank(sourceId);
@@ -42,6 +79,7 @@ export default function MockExamRunnerPage() {
           }
           const questionBank = questionBankResponse.data || {};
           examCategory = questionBank.exam_category || "";
+          examContent = questionBank.exam_content || "";
           title = questionBank.file_name || "";
           payload = questionBank.payload;
           submitUrl = `/api/v1/mockexam/question-banks/${questionBank.id}/submit`;
@@ -55,19 +93,45 @@ export default function MockExamRunnerPage() {
           title = examSet.name || "";
           payload = examSet.payload;
           submitUrl = `/api/v1/mockexam/exam-sets/${examSet.exam_sets_id}/submit`;
+        } else if (currentSourceType === "paper-beta") {
+          const betaPaperResponse = await getMockExamBetaPaper(sourceId);
+          if (!active) {
+            return;
+          }
+          const betaPaper = betaPaperResponse.data || {};
+          examCategory = betaPaper.exam_category || "";
+          examContent = betaPaper.exam_content || "";
+          title = betaPaper.paper_name || betaPaper.paper_code || "";
+          payload = betaPaper.payload;
+          submitUrl = `/api/v1/mockexam/beta/papers/${betaPaper.exam_paper_id}/submit`;
         } else if (currentSourceType === "quick-practice") {
           const quickPractice = loadQuickPracticePayload(sourceId);
           if (!quickPractice) {
-            setMessage("随堂小练数据已失效，请返回上一页重新生成。");
+            setMessage("Quick practice data expired. Rebuild it from the previous page.");
             return;
           }
           examCategory = quickPractice.exam_category || "";
-          title = quickPractice.label || "随堂小练";
+          examContent = deriveQuickPracticeExamContent(quickPractice);
+          title = quickPractice.label || "Quick Practice";
           payload = quickPractice.payload;
           submitUrl = "/api/v1/mockexam/evaluate";
           inlinePayload = quickPractice.payload;
+        } else if (currentSourceType === "submission-review") {
+          const submissionResponse = await getMockExamSubmission(sourceId);
+          if (!active) {
+            return;
+          }
+          const submission = submissionResponse.data || {};
+          examCategory = submission.exam_category || "";
+          examContent = submission.exam_content || "";
+          title = submission.title || "";
+          payload = submission.payload;
+          reviewMode = true;
+          initialAnswers = submission.answers || {};
+          initialMarked = submission.marked || {};
+          initialResult = submission.result || null;
         } else {
-          setMessage("不支持的模考来源。");
+          setMessage("Unsupported mock exam source.");
           return;
         }
 
@@ -77,17 +141,24 @@ export default function MockExamRunnerPage() {
             sourceType: currentSourceType,
             sourceId,
             questionBankId: currentSourceType === "question-bank" ? sourceId : null,
+            sourceTitle: title,
             fileName: title,
+            examCategory,
+            examContent,
             payload,
             submitUrl,
             inlinePayload,
+            reviewMode,
+            initialAnswers,
+            initialMarked,
+            initialResult,
           })
         );
       } catch (error) {
         if (!active) {
           return;
         }
-        setMessage(error?.response?.data?.detail || "模考试卷加载失败，请稍后重试。");
+        setMessage(error?.response?.data?.detail || "Failed to load mock exam paper.");
       } finally {
         if (active) {
           setLoading(false);
@@ -100,14 +171,14 @@ export default function MockExamRunnerPage() {
     return () => {
       active = false;
     };
-  }, [sourceId, sourceType]);
+  }, [navigate, sourceId, sourceType]);
 
   if (loading) {
     return (
       <div className="mockexam-runner-state">
         <div className="mockexam-runner-card">
           <LoaderCircle size={18} strokeWidth={2.2} className="spin" />
-          <span>正在载入模考试卷</span>
+          <span>Loading mock exam paper...</span>
         </div>
       </div>
     );
@@ -116,14 +187,19 @@ export default function MockExamRunnerPage() {
   if (!frameSrcDoc) {
     return (
       <div className="mockexam-runner-state">
-        <div className="mockexam-runner-card">{message || "暂无可显示的模考试卷"}</div>
+        <div className="mockexam-runner-card">{message || "No mock exam paper available."}</div>
       </div>
     );
   }
 
   return (
     <div className="mockexam-runner">
-      <iframe title="模拟考试" className="mockexam-runner-frame" srcDoc={frameSrcDoc} />
+      <iframe
+        ref={frameRef}
+        title="Mock Exam Runner"
+        className="mockexam-runner-frame"
+        srcDoc={frameSrcDoc}
+      />
     </div>
   );
 }

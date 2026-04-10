@@ -23,6 +23,7 @@ from backend.models.nickname_guard_models import NicknameAuditLog
 from backend.models.nickname_guard_models import NicknameRuleOperationLog
 from backend.models.exam_set_models import ExamSet
 from backend.models.exam_set_models import ExamSetPart
+from backend.models.mockexam_record_models import MockExamSubmission
 from backend.models.ielts_exam_models import ExamAsset
 from backend.models.ielts_exam_models import ExamBank
 from backend.models.ielts_exam_models import ExamGroup

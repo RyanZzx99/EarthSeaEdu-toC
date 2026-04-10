@@ -8,130 +8,218 @@ from pydantic import Field
 
 
 class MockExamOptionsResponse(BaseModel):
-    exam_category_options: list[str] = Field(default_factory=list, description="考试类别选项")
-    content_options_map: dict[str, list[str]] = Field(default_factory=dict, description="考试内容选项映射")
-    supported_categories: list[str] = Field(default_factory=list, description="当前已开放模考的考试类别")
+    exam_category_options: list[str] = Field(default_factory=list, description="Exam categories")
+    content_options_map: dict[str, list[str]] = Field(default_factory=dict, description="Exam content map")
+    supported_categories: list[str] = Field(default_factory=list, description="Supported exam categories")
 
 
 class MockExamQuestionBankItem(BaseModel):
-    id: int = Field(..., description="题库ID")
-    file_name: str = Field(..., description="文件名")
-    exam_category: str = Field(..., description="考试类别")
-    exam_content: str = Field(..., description="考试内容")
-    create_time: datetime = Field(..., description="创建时间")
+    id: int = Field(..., description="Question bank ID")
+    file_name: str = Field(..., description="File name")
+    exam_category: str = Field(..., description="Exam category")
+    exam_content: str = Field(..., description="Exam content")
+    create_time: datetime = Field(..., description="Created at")
 
 
 class MockExamQuestionBankListResponse(BaseModel):
-    items: list[MockExamQuestionBankItem] = Field(default_factory=list, description="题库列表")
+    items: list[MockExamQuestionBankItem] = Field(default_factory=list, description="Question bank list")
 
 
 class MockExamQuestionBankPayloadResponse(BaseModel):
-    id: int = Field(..., description="题库ID")
-    file_name: str = Field(..., description="文件名")
-    exam_category: str = Field(..., description="考试类别")
-    exam_content: str = Field(..., description="考试内容")
-    payload: Any = Field(..., description="原始题库 JSON")
+    id: int = Field(..., description="Question bank ID")
+    file_name: str = Field(..., description="File name")
+    exam_category: str = Field(..., description="Exam category")
+    exam_content: str = Field(..., description="Exam content")
+    payload: Any = Field(..., description="Raw question bank payload")
+
+
+class MockExamBetaPaperItem(BaseModel):
+    exam_paper_id: int = Field(..., description="Structured paper ID")
+    paper_code: str = Field(..., description="Paper code")
+    paper_name: str = Field(..., description="Paper name")
+    bank_name: str = Field(..., description="Bank name")
+    exam_category: str = Field(..., description="Exam category")
+    exam_content: str = Field(..., description="Exam content")
+    module_name: str = Field(default="", description="Module name")
+    book_code: str | None = Field(default=None, description="Book code")
+    test_no: int | None = Field(default=None, description="Test number")
+    create_time: datetime = Field(..., description="Created at")
+
+
+class MockExamBetaPaperListResponse(BaseModel):
+    items: list[MockExamBetaPaperItem] = Field(default_factory=list, description="Structured paper list")
+
+
+class MockExamBetaPaperPayloadResponse(BaseModel):
+    exam_paper_id: int = Field(..., description="Structured paper ID")
+    paper_code: str = Field(..., description="Paper code")
+    paper_name: str = Field(..., description="Paper name")
+    bank_name: str = Field(..., description="Bank name")
+    exam_category: str = Field(..., description="Exam category")
+    exam_content: str = Field(..., description="Exam content")
+    module_name: str = Field(default="", description="Module name")
+    book_code: str | None = Field(default=None, description="Book code")
+    test_no: int | None = Field(default=None, description="Test number")
+    payload: Any = Field(..., description="Converted mock exam payload")
 
 
 class MockExamExamSetItem(BaseModel):
-    exam_sets_id: int = Field(..., description="组合试卷ID")
-    name: str = Field(..., description="组合试卷名称")
-    mode: str = Field(..., description="组卷模式")
-    exam_category: str | None = Field(default=None, description="考试类别")
-    part_count: int = Field(..., description="题库份数")
-    status: str = Field(..., description="状态")
-    content_summary: str = Field(default="", description="内容摘要")
-    question_bank_names: list[str] = Field(default_factory=list, description="手动组卷题库名称列表")
-    create_time: datetime = Field(..., description="创建时间")
-    update_time: datetime = Field(..., description="更新时间")
+    exam_sets_id: int = Field(..., description="Exam set ID")
+    name: str = Field(..., description="Exam set name")
+    mode: str = Field(..., description="Assembly mode")
+    exam_category: str | None = Field(default=None, description="Exam category")
+    part_count: int = Field(..., description="Part count")
+    status: str = Field(..., description="Status")
+    content_summary: str = Field(default="", description="Content summary")
+    question_bank_names: list[str] = Field(default_factory=list, description="Question bank names")
+    create_time: datetime = Field(..., description="Created at")
+    update_time: datetime = Field(..., description="Updated at")
 
 
 class MockExamExamSetListResponse(BaseModel):
-    items: list[MockExamExamSetItem] = Field(default_factory=list, description="组合试卷列表")
+    items: list[MockExamExamSetItem] = Field(default_factory=list, description="Exam set list")
 
 
 class MockExamExamSetPayloadResponse(BaseModel):
-    exam_sets_id: int = Field(..., description="组合试卷ID")
-    name: str = Field(..., description="组合试卷名称")
-    mode: str = Field(..., description="组卷模式")
-    exam_category: str | None = Field(default=None, description="考试类别")
-    part_count: int = Field(..., description="题库份数")
-    content_summary: str = Field(default="", description="内容摘要")
-    question_bank_names: list[str] = Field(default_factory=list, description="手动组卷题库名称列表")
-    payload: Any = Field(..., description="组合后的试卷 JSON")
+    exam_sets_id: int = Field(..., description="Exam set ID")
+    name: str = Field(..., description="Exam set name")
+    mode: str = Field(..., description="Assembly mode")
+    exam_category: str | None = Field(default=None, description="Exam category")
+    part_count: int = Field(..., description="Part count")
+    content_summary: str = Field(default="", description="Content summary")
+    question_bank_names: list[str] = Field(default_factory=list, description="Question bank names")
+    payload: Any = Field(..., description="Merged payload")
 
 
 class MockExamExamSetCreateRequest(BaseModel):
-    name: str = Field(..., description="组合试卷名称")
-    mode: str = Field(..., description="组卷模式：manual/random")
-    exam_category: str = Field(..., description="考试类别")
-    question_bank_ids: list[int] = Field(default_factory=list, description="手动组卷的题库ID列表")
-    exam_contents: list[str] = Field(default_factory=list, description="随机组卷的考试内容列表")
-    per_content: int = Field(default=1, description="每个内容随机份数")
-    extra_count: int = Field(default=0, description="额外随机份数")
-    total_count: int = Field(default=3, description="兜底总份数")
+    name: str = Field(..., description="Exam set name")
+    mode: str = Field(..., description="Assembly mode")
+    exam_category: str = Field(..., description="Exam category")
+    question_bank_ids: list[int] = Field(default_factory=list, description="Question bank IDs for manual mode")
+    exam_contents: list[str] = Field(default_factory=list, description="Exam contents for random mode")
+    per_content: int = Field(default=1, description="Per-content count")
+    extra_count: int = Field(default=0, description="Extra random count")
+    total_count: int = Field(default=3, description="Total count")
 
 
 class MockExamExamSetStatusUpdateRequest(BaseModel):
-    status: str = Field(..., description="状态：1启用，0停用")
+    status: str = Field(..., description="Status")
 
 
 class MockExamExamSetMutationResponse(BaseModel):
-    status: str = Field(default="ok", description="响应状态")
-    item: MockExamExamSetItem = Field(..., description="组合试卷信息")
+    status: str = Field(default="ok", description="Response status")
+    item: MockExamExamSetItem = Field(..., description="Exam set item")
 
 
 class MockExamExamSetDeleteResponse(BaseModel):
-    status: str = Field(default="ok", description="响应状态")
+    status: str = Field(default="ok", description="Response status")
 
 
 class MockExamQuickPracticePickedItem(BaseModel):
-    id: int = Field(..., description="题库ID")
-    file_name: str = Field(..., description="文件名")
-    exam_content: str = Field(..., description="考试内容")
+    id: int = Field(..., description="Question bank ID")
+    file_name: str = Field(..., description="File name")
+    exam_content: str = Field(..., description="Exam content")
 
 
 class MockExamQuickPracticeBuildRequest(BaseModel):
-    exam_category: str = Field(..., description="考试类别")
-    exam_contents: list[str] = Field(default_factory=list, description="筛选的考试内容")
-    count: int = Field(default=3, description="组合份数")
+    exam_category: str = Field(..., description="Exam category")
+    exam_contents: list[str] = Field(default_factory=list, description="Exam contents")
+    count: int = Field(default=3, description="Question bank count")
 
 
 class MockExamQuickPracticeBuildResponse(BaseModel):
-    status: str = Field(default="ok", description="响应状态")
-    exam_category: str = Field(..., description="考试类别")
-    label: str = Field(..., description="试卷标题")
-    payload: Any = Field(..., description="组合后的试卷 JSON")
-    picked_items: list[MockExamQuickPracticePickedItem] = Field(default_factory=list, description="本次选中的题库")
+    status: str = Field(default="ok", description="Response status")
+    exam_category: str = Field(..., description="Exam category")
+    label: str = Field(..., description="Practice label")
+    payload: Any = Field(..., description="Merged payload")
+    picked_items: list[MockExamQuickPracticePickedItem] = Field(default_factory=list, description="Picked question banks")
 
 
 class MockExamSubmitRequest(BaseModel):
-    answers: dict[str, Any] = Field(default_factory=dict, description="用户答案")
-    marked: dict[str, bool] = Field(default_factory=dict, description="标记题目")
+    answers: dict[str, Any] = Field(default_factory=dict, description="Answer map")
+    marked: dict[str, bool] = Field(default_factory=dict, description="Marked-for-review map")
 
 
 class MockExamInlineSubmitRequest(MockExamSubmitRequest):
-    payload: Any = Field(..., description="用于即时判分的试卷 JSON")
+    payload: Any = Field(..., description="Inline payload to score")
+    source_type: str | None = Field(default=None, description="Source type")
+    source_id: str | None = Field(default=None, description="Source ID")
+    source_title: str | None = Field(default=None, description="Source title")
+    exam_category: str | None = Field(default=None, description="Exam category")
+    exam_content: str | None = Field(default=None, description="Exam content")
 
 
 class MockExamSubmitDetail(BaseModel):
-    question_id: str = Field(..., description="题目ID")
-    type: str = Field(..., description="题型")
-    answered: bool = Field(..., description="是否作答")
-    correct: bool = Field(..., description="是否正确")
-    gradable: bool = Field(..., description="是否可自动判分")
-    stem: str = Field(..., description="题干摘要")
+    question_id: str = Field(..., description="Question ID")
+    type: str = Field(..., description="Question type")
+    answered: bool = Field(..., description="Answered")
+    correct: bool = Field(..., description="Correct")
+    gradable: bool = Field(..., description="Gradable")
+    stem: str = Field(..., description="Question stem preview")
+
+
+class MockExamSubmitTypeBreakdownItem(BaseModel):
+    question_type: str = Field(..., description="Question type")
+    total_questions: int = Field(..., description="Total questions")
+    answered_count: int = Field(..., description="Answered count")
+    gradable_questions: int = Field(..., description="Gradable question count")
+    correct_count: int = Field(..., description="Correct count")
+    wrong_count: int = Field(..., description="Wrong count")
+    unanswered_count: int = Field(..., description="Unanswered count")
 
 
 class MockExamSubmitResult(BaseModel):
-    answered_count: int = Field(..., description="已答题数")
-    total_questions: int = Field(..., description="总题数")
-    gradable_questions: int = Field(..., description="可判分题数")
-    correct_count: int = Field(..., description="答对题数")
-    score_percent: float | None = Field(default=None, description="百分比得分")
-    details: list[MockExamSubmitDetail] = Field(default_factory=list, description="逐题结果")
+    answered_count: int = Field(..., description="Answered count")
+    total_questions: int = Field(..., description="Total questions")
+    gradable_questions: int = Field(..., description="Gradable question count")
+    correct_count: int = Field(..., description="Correct count")
+    wrong_count: int = Field(..., description="Wrong count")
+    unanswered_count: int = Field(..., description="Unanswered count")
+    score_percent: float | None = Field(default=None, description="Score percent")
+    type_breakdown: list[MockExamSubmitTypeBreakdownItem] = Field(default_factory=list, description="Per-type breakdown")
+    details: list[MockExamSubmitDetail] = Field(default_factory=list, description="Per-question results")
+
+
+class MockExamSubmissionItem(BaseModel):
+    submission_id: int = Field(..., description="Submission ID")
+    source_type: str = Field(..., description="Source type")
+    source_id: str | None = Field(default=None, description="Source ID")
+    exam_category: str = Field(..., description="Exam category")
+    exam_content: str | None = Field(default=None, description="Exam content")
+    title: str = Field(..., description="Submission title")
+    score_percent: float | None = Field(default=None, description="Score percent")
+    total_questions: int = Field(default=0, description="Total questions")
+    correct_count: int = Field(default=0, description="Correct count")
+    wrong_count: int = Field(default=0, description="Wrong count")
+    gradable_questions: int = Field(default=0, description="Gradable question count")
+    create_time: datetime = Field(..., description="Submitted at")
+
+
+class MockExamSubmissionListResponse(BaseModel):
+    items: list[MockExamSubmissionItem] = Field(default_factory=list, description="Submission list")
+
+
+class MockExamSubmissionDetailResponse(BaseModel):
+    submission_id: int = Field(..., description="Submission ID")
+    source_type: str = Field(..., description="Source type")
+    source_id: str | None = Field(default=None, description="Source ID")
+    exam_category: str = Field(..., description="Exam category")
+    exam_content: str | None = Field(default=None, description="Exam content")
+    title: str = Field(..., description="Submission title")
+    create_time: datetime = Field(..., description="Submitted at")
+    payload: Any = Field(..., description="Payload snapshot")
+    answers: Any = Field(default_factory=dict, description="Answer snapshot")
+    marked: Any = Field(default_factory=dict, description="Marked snapshot")
+    result: MockExamSubmitResult = Field(..., description="Score result")
+
+
+class MockExamSubmissionSummary(BaseModel):
+    submission_id: int = Field(..., description="Submission ID")
+    title: str = Field(..., description="Submission title")
+    create_time: datetime = Field(..., description="Submitted at")
 
 
 class MockExamSubmitResponse(BaseModel):
-    status: str = Field(default="ok", description="响应状态")
-    result: MockExamSubmitResult = Field(..., description="评分结果")
+    status: str = Field(default="ok", description="Response status")
+    result: MockExamSubmitResult = Field(..., description="Score result")
+    submission: MockExamSubmissionSummary | None = Field(default=None, description="Submission summary")

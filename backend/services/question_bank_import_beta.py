@@ -49,6 +49,16 @@ TEXT_BREAK_TAGS = {
 OPTION_KEY_PATTERN = re.compile(r"^\s*([A-Z])[\.\)\-:：]?\s+(.*)$", re.S)
 QUESTION_NUMBER_PATTERN = re.compile(r"(\d+)(?!.*\d)")
 IMAGE_SOURCE_PATTERN = re.compile(r"<img[^>]+src=['\"]([^'\"]+)['\"]", re.I)
+OPTION_HTML_BLOCK_PATTERN = re.compile(r"(<(?P<tag>p|li)\b[^>]*>.*?</(?P=tag)>)", re.I | re.S)
+OPTION_SIMPLE_TABLE_CELL_PATTERN = re.compile(r"<td\b[^>]*>\s*(?P<content>[^<]*?)\s*</td>", re.I | re.S)
+OPTION_PREFIX_PATTERN = re.compile(
+    r"^\s*(?P<key>(?:[A-Z]|[ivxlcdm]+))[\.\)\-:：]?\s+(?P<content>.+?)\s*$",
+    re.I | re.S,
+)
+COMPACT_TABLE_OPTION_PATTERN = re.compile(
+    r"^\s*(?P<key>[A-Z])(?P<content>[a-z].+?)\s*$",
+    re.S,
+)
 BOOK_TEST_PATTERNS = (
     re.compile(r"真题\s*0*(\d{1,2})\s*[-－]\s*0*(\d+)", re.I),
     re.compile(r"0*(\d{1,2})\s*[-－]\s*0*(\d+)", re.I),
@@ -466,6 +476,7 @@ def import_single_ielts_package(db: Session, *, package: ImportPackage) -> Packa
             stat_type = infer_stat_type(raw_type=raw_type, group_payload=group_payload)
             blank_ids = collect_group_blank_ids(group_payload)
             raw_question_ids = collect_group_question_ids(group_payload)
+            shared_options = extract_group_shared_options(group_payload)
             group = ExamGroup(
                 exam_section_id=section.exam_section_id,
                 group_id=normalize_string(group_payload.get("id")),
@@ -476,7 +487,7 @@ def import_single_ielts_package(db: Session, *, package: ImportPackage) -> Packa
                 instructions_text=html_to_text(group_payload.get("instructions")),
                 content_html=group_content_html,
                 content_text=html_to_text(group_content_html),
-                has_shared_options=1 if isinstance(group_payload.get("options"), list) and group_payload.get("options") else 0,
+                has_shared_options=1 if shared_options else 0,
                 has_blanks=1 if blank_ids else 0,
                 primary_image_asset_id=None,
                 structure_json={
@@ -504,24 +515,22 @@ def import_single_ielts_package(db: Session, *, package: ImportPackage) -> Packa
                 group.primary_image_asset_id = group_image_assets[0].exam_asset_id
                 counts["assets"] += len(group_image_assets)
 
-            group_options = group_payload.get("options")
-            if isinstance(group_options, list):
-                for option_index, raw_option in enumerate(group_options, start=1):
-                    option_html = normalize_string(raw_option)
-                    option_key = extract_option_key(option_html, fallback_index=option_index)
-                    option_text = strip_option_prefix(html_to_text(option_html), option_key=option_key)
-                    db.add(
-                        ExamGroupOption(
-                            exam_group_id=group.exam_group_id,
-                            option_key=option_key,
-                            option_html=option_html,
-                            option_text=option_text,
-                            sort_order=option_index,
-                            status=1,
-                            delete_flag="1",
-                        )
+            for option_index, raw_option in enumerate(shared_options, start=1):
+                option_html = normalize_string(raw_option)
+                option_key = extract_option_key(option_html, fallback_index=option_index)
+                option_text = strip_option_prefix(html_to_text(option_html), option_key=option_key)
+                db.add(
+                    ExamGroupOption(
+                        exam_group_id=group.exam_group_id,
+                        option_key=option_key,
+                        option_html=option_html,
+                        option_text=option_text,
+                        sort_order=option_index,
+                        status=1,
+                        delete_flag="1",
                     )
-                    counts["options"] += 1
+                )
+                counts["options"] += 1
 
             import_questions_for_group(
                 db,
@@ -1053,6 +1062,77 @@ def extract_image_sources(value: Any) -> list[str]:
     return result
 
 
+def extract_group_shared_options(group_payload: dict[str, Any]) -> list[str]:
+    explicit_options = group_payload.get("options")
+    if isinstance(explicit_options, list) and explicit_options:
+        return [
+            normalized_option
+            for raw_option in explicit_options
+            if (normalized_option := normalize_string(raw_option))
+        ]
+
+    instructions_html = normalize_string(group_payload.get("instructions"))
+    if not instructions_html:
+        return []
+
+    extracted_options: list[str] = []
+    seen_option_keys: set[str] = set()
+    for match in OPTION_HTML_BLOCK_PATTERN.finditer(instructions_html):
+        option_html = normalize_string(match.group(1))
+        option_text = html_to_text(option_html)
+        parsed_option = parse_option_prefix(option_text)
+        if not parsed_option:
+            continue
+
+        option_key, _, _ = parsed_option
+        if option_key in seen_option_keys:
+            continue
+
+        seen_option_keys.add(option_key)
+        extracted_options.append(option_html)
+
+    for match in OPTION_SIMPLE_TABLE_CELL_PATTERN.finditer(instructions_html):
+        option_text = normalize_string(match.group("content"))
+        parsed_option = parse_option_prefix(
+            option_text,
+            allow_compact=True,
+        )
+        if not parsed_option:
+            continue
+
+        option_key, option_content, _ = parsed_option
+        if option_key in seen_option_keys:
+            continue
+
+        seen_option_keys.add(option_key)
+        extracted_options.append(f"<p>{option_key} {option_content}</p>")
+
+    if extracted_options:
+        return extracted_options
+
+    for line in html_to_text(instructions_html).splitlines():
+        option_text = normalize_string(line)
+        parsed_option = parse_option_prefix(option_text)
+        if not parsed_option:
+            continue
+
+        option_key, option_content, _ = parsed_option
+        if option_key in seen_option_keys:
+            continue
+
+        seen_option_keys.add(option_key)
+        extracted_options.append(f"<p>{option_key} {option_content}</p>")
+
+    return extracted_options
+
+
+def looks_like_option_text(value: str) -> bool:
+    text = normalize_string(value)
+    if not text:
+        return False
+    return parse_option_prefix(text) is not None
+
+
 def create_assets_for_owner(
     db: Session,
     *,
@@ -1166,7 +1246,7 @@ def normalize_answer_token(value: str) -> str:
     return normalized.lower()
 
 
-def extract_option_key(option_html: str, *, fallback_index: int) -> str:
+def _legacy_extract_option_key(option_html: str, *, fallback_index: int) -> str:
     text = normalize_string(option_html)
     match = OPTION_KEY_PATTERN.match(text)
     if match:
@@ -1175,12 +1255,73 @@ def extract_option_key(option_html: str, *, fallback_index: int) -> str:
     return chr(ord("A") + fallback_index - 1)
 
 
-def strip_option_prefix(option_text: str, *, option_key: str) -> str:
+def _legacy_strip_option_prefix(option_text: str, *, option_key: str) -> str:
     text = normalize_string(option_text)
     if not text:
         return ""
     pattern = re.compile(rf"^\s*{re.escape(option_key)}[\.\)\-:：]?\s+", re.I)
     return pattern.sub("", text).strip()
+
+
+def extract_option_key(option_html: str, *, fallback_index: int) -> str:
+    text = normalize_string(option_html)
+    parsed_option = parse_option_prefix(
+        text,
+        allow_compact=True,
+    )
+    if parsed_option:
+        return parsed_option[0]
+    fallback_index = max(1, fallback_index)
+    return chr(ord("A") + fallback_index - 1)
+
+
+def strip_option_prefix(option_text: str, *, option_key: str) -> str:
+    text = normalize_string(option_text)
+    if not text:
+        return ""
+    parsed_option = parse_option_prefix(
+        text,
+        allow_compact=True,
+    )
+    if parsed_option and parsed_option[0] == normalize_option_key(option_key):
+        return parsed_option[1]
+    return text
+
+
+def parse_option_prefix(
+    value: str,
+    *,
+    allow_compact: bool = False,
+) -> tuple[str, str, bool] | None:
+    text = normalize_string(value)
+    if not text:
+        return None
+
+    prefix_match = OPTION_PREFIX_PATTERN.match(text)
+    if prefix_match:
+        return (
+            normalize_option_key(prefix_match.group("key")),
+            normalize_string(prefix_match.group("content")),
+            False,
+        )
+
+    if allow_compact and "\n" not in text and "\r" not in text:
+        compact_match = COMPACT_TABLE_OPTION_PATTERN.match(text)
+        if compact_match:
+            return (
+                normalize_option_key(compact_match.group("key")),
+                normalize_string(compact_match.group("content")),
+                True,
+            )
+
+    return None
+
+
+def normalize_option_key(value: str) -> str:
+    text = normalize_string(value)
+    if re.fullmatch(r"[ivxlcdm]+", text, re.I) and text == text.lower():
+        return text.lower()
+    return text.upper()
 
 
 def normalize_import_path(value: str | None) -> str:

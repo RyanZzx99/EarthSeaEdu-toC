@@ -35,8 +35,18 @@ export function getMockExamOptions() {
   return request.get("/api/v1/mockexam/options");
 }
 
+export function getMockExamBetaOptions() {
+  return request.get("/api/v1/mockexam/beta/options");
+}
+
 export function getMockExamQuestionBanks(params) {
   return request.get("/api/v1/mockexam/question-banks", {
+    params,
+  });
+}
+
+export function getMockExamBetaPapers(params) {
+  return request.get("/api/v1/mockexam/beta/papers", {
     params,
   });
 }
@@ -45,8 +55,26 @@ export function getMockExamQuestionBank(questionBankId) {
   return request.get(`/api/v1/mockexam/question-banks/${questionBankId}`);
 }
 
+export function getMockExamBetaPaper(examPaperId) {
+  return request.get(`/api/v1/mockexam/beta/papers/${examPaperId}`);
+}
+
+export function getMockExamSubmissions(params) {
+  return request.get("/api/v1/mockexam/submissions", {
+    params,
+  });
+}
+
+export function getMockExamSubmission(submissionId) {
+  return request.get(`/api/v1/mockexam/submissions/${submissionId}`);
+}
+
 export function submitMockExam(questionBankId, data) {
   return request.post(`/api/v1/mockexam/question-banks/${questionBankId}/submit`, data);
+}
+
+export function submitMockExamBetaPaper(examPaperId, data) {
+  return request.post(`/api/v1/mockexam/beta/papers/${examPaperId}/submit`, data);
 }
 
 export function getMockExamExamSets(params) {

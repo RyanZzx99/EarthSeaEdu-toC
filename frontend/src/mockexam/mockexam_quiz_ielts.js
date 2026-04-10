@@ -348,10 +348,25 @@
   var QUESTION_BANK_ID = bootstrap.questionBankId || null;
   var QUIZ_SOURCE_TYPE = bootstrap.sourceType || 'question-bank';
   var QUIZ_SOURCE_ID = bootstrap.sourceId || QUESTION_BANK_ID || null;
+  var QUIZ_SOURCE_TITLE = bootstrap.sourceTitle || bootstrap.fileName || '';
+  var QUIZ_EXAM_CATEGORY = bootstrap.examCategory || '';
+  var QUIZ_EXAM_CONTENT = bootstrap.examContent || '';
   var SUBMIT_URL = bootstrap.submitUrl || (QUESTION_BANK_ID ? '/api/v1/mockexam/question-banks/' + QUESTION_BANK_ID + '/submit' : '');
   var INLINE_PAYLOAD = bootstrap.inlinePayload || null;
+  var REVIEW_MODE = !!bootstrap.reviewMode;
+  var INITIAL_RESULT = safeParseDataset(bootstrap.initialResult) || null;
   var quizSubmitting = false;
-  var quizSubmitted = false;
+  var quizSubmitted = REVIEW_MODE;
+
+  function seedObjectState(target, source){
+    if(!source || typeof source!=='object' || Array.isArray(source)) return;
+    Object.keys(source).forEach(function(key){
+      target[key]=clone(source[key]);
+    });
+  }
+
+  seedObjectState(answers, safeParseDataset(bootstrap.initialAnswers) || {});
+  seedObjectState(marked, safeParseDataset(bootstrap.initialMarked) || {});
 
   function decryptAESCBC(encryptedMessage, key) {
       if (key === void 0) key = "rcF3FMdBGh0XF7kQoL16DsswTYs78byL";
@@ -406,7 +421,7 @@
     { value:'FALSE', label:'FALSE' },
     { value:'NOT GIVEN', label:'NOT GIVEN' }
   ];
-  let answersVisible=false;
+  let answersVisible=REVIEW_MODE;
   var sectionLabel=document.getElementById('sectionLabel');
   var questionPane=document.getElementById('questionPane');
   var passageContainer=document.getElementById('passageContainer');
@@ -742,7 +757,9 @@
      card.dataset.index=question.globalIndex;
      var header=document.createElement('div');
      header.className='flex items-center justify-between gap-3 mb-3';
-     header.innerHTML='<div class="flex items-center gap-3"><span class="badge">'+question.displayNo+'</span><span class="scalable content-reset question-stem">'+question.stem+'</span></div><span class="mark-pill hidden">已标记</span>';
+     var headerStemHtml = question.type==='cloze_inline' ? '' : String(question.stem||'');
+     var headerStemBlock = headerStemHtml ? '<span class="scalable content-reset question-stem">'+headerStemHtml+'</span>' : '';
+     header.innerHTML='<div class="flex items-center gap-3"><span class="badge">'+question.displayNo+'</span>'+headerStemBlock+'</div><span class="mark-pill hidden">已标记</span>';
      card.appendChild(header);
     if(question.type==='blank'){
       var input=document.createElement('textarea');
@@ -1132,6 +1149,11 @@
      var total=examAPI.getLength();
      if(!total||idx===null){ prevBtn.disabled=true; actionBtn.disabled=true; actionBtn.textContent='Next'; return; }
      prevBtn.disabled = idx<=0;
+     if(REVIEW_MODE){
+       actionBtn.disabled = idx>=total-1;
+       actionBtn.textContent = (idx===total-1)?'Reviewed':'Next';
+       return;
+     }
      if(quizSubmitted){
        actionBtn.disabled = true;
        actionBtn.textContent = '已提交';
@@ -1151,10 +1173,10 @@
 
    function updateLockBadge(question){ lockBadge.classList.toggle('hidden',!(question&&(isLocked(question)||shouldRevealAnswers()))); }
 
-   function updateMarkUI(){
+  function updateMarkUI(){
      var current=examAPI.getQuestion(idx);
      if(!current){ markBtn.setAttribute('aria-pressed','false'); markBtn.disabled=true; return; }
-     markBtn.disabled=false;
+     markBtn.disabled=REVIEW_MODE||quizSubmitted;
      var state=!!marked[current.id];
      markBtn.setAttribute('aria-pressed',state?'true':'false');
      markBtn.classList.toggle('is-marked',state);
@@ -1176,8 +1198,8 @@
      if(navOverlay.classList.contains('visible')) buildNavigator();
    }
 
-   async function submitCurrentSession(){
-     if(quizSubmitting){ return; }
+  async function submitCurrentSession(){
+     if(REVIEW_MODE || quizSubmitting){ return; }
      if(!SUBMIT_URL){
        alert('缺少试卷信息，无法提交。');
        return;
@@ -1207,6 +1229,11 @@
        };
        if(INLINE_PAYLOAD){
          submitBody.payload = INLINE_PAYLOAD;
+         submitBody.source_type = QUIZ_SOURCE_TYPE;
+         submitBody.source_id = QUIZ_SOURCE_ID == null ? null : String(QUIZ_SOURCE_ID);
+         submitBody.source_title = QUIZ_SOURCE_TITLE || '';
+         submitBody.exam_category = QUIZ_EXAM_CATEGORY || '';
+         submitBody.exam_content = QUIZ_EXAM_CONTENT || '';
        }
        var resp = await fetch(SUBMIT_URL, {
          method: 'POST',
@@ -1233,9 +1260,18 @@
        updateLockBadge(examAPI.getQuestion(idx));
        updateNavButtons();
        var result = data.result || {};
+       var submission = data.submission || {};
        var scoreText = result.score_percent==null ? '暂不支持自动判分' : ('得分 ' + result.score_percent + '%');
        showNotice('已提交，' + scoreText, 'success');
-       alert('本次结果：\n答题 ' + (result.answered_count || 0) + ' / ' + (result.total_questions || 0) + '\n答对 ' + (result.correct_count || 0) + ' / ' + (result.gradable_questions || 0) + '\n' + scoreText);
+       if(window.parent && window.parent !== window && submission.submission_id){
+         window.parent.postMessage({
+           type: 'mockexam:submitted',
+           submission_id: submission.submission_id,
+           result: result
+         }, '*');
+       } else {
+         alert('本次结果：\n答题 ' + (result.answered_count || 0) + ' / ' + (result.total_questions || 0) + '\n答对 ' + (result.correct_count || 0) + ' / ' + (result.gradable_questions || 0) + '\n' + scoreText);
+       }
      }catch(err){
        alert(err && err.message ? err.message : '提交失败，请稍后重试。');
        quizSubmitting = false;
@@ -1274,7 +1310,7 @@
    navClose.addEventListener('click', hideNavigator);
    progressEl.addEventListener('click',function(){ if(!navOverlay.classList.contains('visible')) buildNavigator(); navOverlay.classList.toggle('visible'); });
 
-   markBtn.addEventListener('click',function(){ var current=examAPI.getQuestion(idx); if(!current) return; marked[current.id]=!marked[current.id]; updateMarkUI(); updateProgress(); });
+   markBtn.addEventListener('click',function(){ var current=examAPI.getQuestion(idx); if(!current || REVIEW_MODE || quizSubmitted) return; marked[current.id]=!marked[current.id]; updateMarkUI(); updateProgress(); });
    prevBtn.onclick=function(){ if(examAPI.getLength()===0||idx===null) return; setCurrentQuestion(idx-1); };
    actionBtn.onclick=function(){
      if(examAPI.getLength()===0||idx===null) return;
@@ -1348,9 +1384,18 @@
    resumeQuiz();
    updateProgress();
    if(!examData||!examData.passages.length){ renderStimulusPane(null); }
+   if(REVIEW_MODE && INITIAL_RESULT){
+     showNotice('已进入成绩回看', 'info');
+   }
 
    if(toggleAnswersBtn){
+     if(REVIEW_MODE){
+      toggleAnswersBtn.disabled=true;
+      toggleAnswersBtn.setAttribute('aria-pressed','true');
+      toggleAnswersBtn.textContent='回看模式';
+     }
      toggleAnswersBtn.addEventListener('click',function(){
+      if(REVIEW_MODE){ return; }
       answersVisible=!answersVisible;
       toggleAnswersBtn.setAttribute('aria-pressed',answersVisible?'true':'false');
       toggleAnswersBtn.textContent=answersVisible?'隐藏答案':'显示答案';

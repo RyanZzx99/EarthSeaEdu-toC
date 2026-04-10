@@ -4,8 +4,10 @@ import { getMe } from "./api/auth";
 import AdminConsolePage from "./pages/AdminConsolePage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
+import MockExamBetaPage from "./pages/MockExamBetaPage";
 import MockExamPage from "./pages/MockExamPage";
 import MockExamRunnerPage from "./pages/MockExamRunnerPage";
+import MockExamSubmissionResultPage from "./pages/MockExamSubmissionResultPage";
 import ProfilePage from "./pages/ProfilePage";
 import TeacherMockExamPage from "./pages/TeacherMockExamPage";
 import TeacherPage from "./pages/TeacherPage";
@@ -179,6 +181,14 @@ export default function App() {
         }
       />
       <Route
+        path="/mockexam-beta"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamBetaPage />
+          </RequireAuth>
+        }
+      />
+      <Route
         path="/mockexam/run/:questionBankId"
         element={
           <RequireAuth authState={authState}>
@@ -191,6 +201,14 @@ export default function App() {
         element={
           <RequireAuth authState={authState}>
             <MockExamRunnerPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam/results/:submissionId"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamSubmissionResultPage />
           </RequireAuth>
         }
       />
