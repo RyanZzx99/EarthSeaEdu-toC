@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 # 导入 CORS 中间件
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 # 导入配置
 from backend.config.db_conf import settings
@@ -22,6 +23,8 @@ from backend.routers import auth
 from backend.routers import health
 from backend.routers import mockexam
 from backend.routers import teacher
+from backend.utils.exam_asset_storage import ensure_exam_asset_root
+from backend.utils.exam_asset_storage import EXAM_ASSET_URL_PREFIX
 
 
 # 统一初始化后端日志，控制台会直接输出中文步骤和耗时。
@@ -44,6 +47,12 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+app.mount(
+    EXAM_ASSET_URL_PREFIX,
+    StaticFiles(directory=str(ensure_exam_asset_root())),
+    name="exam-assets",
 )
 
 # 注册路由

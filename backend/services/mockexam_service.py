@@ -586,7 +586,7 @@ def rewrite_html_asset_urls(content_html: str | None, assets: list[ExamAsset] | 
         return ""
     for asset in get_active_sorted_records(assets):
         source_path = str(asset.source_path or "").strip()
-        asset_url = str(asset.asset_url or asset.source_path or "").strip()
+        asset_url = str(asset.asset_url or "").strip()
         if source_path and asset_url:
             html = html.replace(source_path, asset_url)
     return html
@@ -602,12 +602,16 @@ def resolve_primary_asset_url(
         if primary_asset_id is not None and asset.exam_asset_id == primary_asset_id:
             if asset_type and str(asset.asset_type or "").strip().lower() != asset_type:
                 continue
-            return str(asset.asset_url or asset.source_path or "").strip()
+            asset_url = str(asset.asset_url or "").strip()
+            if asset_url:
+                return asset_url
 
     for asset in get_active_sorted_records(assets):
         if asset_type and str(asset.asset_type or "").strip().lower() != asset_type:
             continue
-        return str(asset.asset_url or asset.source_path or "").strip()
+        asset_url = str(asset.asset_url or "").strip()
+        if asset_url:
+            return asset_url
     return ""
 
 

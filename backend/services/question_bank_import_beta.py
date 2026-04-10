@@ -24,6 +24,8 @@ from backend.models.ielts_exam_models import ExamQuestion
 from backend.models.ielts_exam_models import ExamQuestionAnswer
 from backend.models.ielts_exam_models import ExamQuestionBlank
 from backend.models.ielts_exam_models import ExamSection
+from backend.utils.exam_asset_storage import build_exam_asset_url
+from backend.utils.exam_asset_storage import resolve_exam_asset_abspath
 
 STRUCTURED_IMPORT_SOURCE_MODES = {"zip", "directory", "files"}
 TEXT_BREAK_TAGS = {
@@ -66,6 +68,7 @@ BOOK_TEST_PATTERNS = (
     re.compile(r"test\s*0*(\d+)", re.I),
 )
 SPECIAL_ANSWER_TOKENS = {"TRUE", "FALSE", "NOT GIVEN", "YES", "NO"}
+EXTERNAL_ASSET_URL_PATTERN = re.compile(r"^[a-z][a-z0-9+\-.]*://", re.I)
 
 
 @dataclass(slots=True)
@@ -441,11 +444,13 @@ def import_single_ielts_package(db: Session, *, package: ImportPackage) -> Packa
 
         section_audio_assets = create_assets_for_owner(
             db,
+            package=package,
             paper=paper,
             owner_type="section",
             source_paths=[normalize_string(section_payload.get("audio"))],
             section=section,
             asset_role="primary_audio",
+            source_context_path=source_file,
         )
         if section_audio_assets:
             section.primary_audio_asset_id = section_audio_assets[0].exam_asset_id
@@ -453,11 +458,13 @@ def import_single_ielts_package(db: Session, *, package: ImportPackage) -> Packa
 
         section_image_assets = create_assets_for_owner(
             db,
+            package=package,
             paper=paper,
             owner_type="section",
             source_paths=extract_image_sources(section.instructions_html) + extract_image_sources(section.content_html),
             section=section,
             asset_role="primary_image",
+            source_context_path=source_file,
         )
         if section_image_assets:
             section.primary_image_asset_id = section_image_assets[0].exam_asset_id
@@ -504,12 +511,14 @@ def import_single_ielts_package(db: Session, *, package: ImportPackage) -> Packa
 
             group_image_assets = create_assets_for_owner(
                 db,
+                package=package,
                 paper=paper,
                 owner_type="group",
                 source_paths=extract_image_sources(group.instructions_html) + extract_image_sources(group.content_html),
                 section=section,
                 group=group,
                 asset_role="primary_image",
+                source_context_path=source_file,
             )
             if group_image_assets:
                 group.primary_image_asset_id = group_image_assets[0].exam_asset_id
@@ -534,6 +543,8 @@ def import_single_ielts_package(db: Session, *, package: ImportPackage) -> Packa
 
             import_questions_for_group(
                 db,
+                package=package,
+                source_context_path=source_file,
                 paper=paper,
                 section=section,
                 group=group,
@@ -555,6 +566,8 @@ def import_single_ielts_package(db: Session, *, package: ImportPackage) -> Packa
 def import_questions_for_group(
     db: Session,
     *,
+    package: ImportPackage,
+    source_context_path: str | None,
     paper: ExamPaper,
     section: ExamSection,
     group: ExamGroup,
@@ -574,6 +587,8 @@ def import_questions_for_group(
         if isinstance(blanks, list) and blanks:
             question_sort_order = import_blank_questions(
                 db,
+                package=package,
+                source_context_path=source_context_path,
                 paper=paper,
                 section=section,
                 group=group,
@@ -638,6 +653,7 @@ def import_questions_for_group(
 
         question_assets = create_assets_for_owner(
             db,
+            package=package,
             paper=paper,
             owner_type="question",
             source_paths=extract_image_sources(question.stem_html) + extract_image_sources(question.content_html),
@@ -645,6 +661,7 @@ def import_questions_for_group(
             group=group,
             question=question,
             asset_role="inline_image",
+            source_context_path=source_context_path,
         )
         counts["assets"] += len(question_assets)
 
@@ -652,6 +669,8 @@ def import_questions_for_group(
 def import_blank_questions(
     db: Session,
     *,
+    package: ImportPackage,
+    source_context_path: str | None,
     paper: ExamPaper,
     section: ExamSection,
     group: ExamGroup,
@@ -735,6 +754,7 @@ def import_blank_questions(
 
         question_assets = create_assets_for_owner(
             db,
+            package=package,
             paper=paper,
             owner_type="question",
             source_paths=extract_image_sources(question.stem_html) + extract_image_sources(question.content_html),
@@ -742,6 +762,7 @@ def import_blank_questions(
             group=group,
             question=question,
             asset_role="inline_image",
+            source_context_path=source_context_path,
         )
         counts["assets"] += len(question_assets)
 
@@ -1136,6 +1157,7 @@ def looks_like_option_text(value: str) -> bool:
 def create_assets_for_owner(
     db: Session,
     *,
+    package: ImportPackage,
     paper: ExamPaper,
     owner_type: str,
     source_paths: list[str],
@@ -1143,6 +1165,7 @@ def create_assets_for_owner(
     section: ExamSection | None = None,
     group: ExamGroup | None = None,
     question: ExamQuestion | None = None,
+    source_context_path: str | None = None,
 ) -> list[ExamAsset]:
     created_assets: list[ExamAsset] = []
     deduped_paths: list[str] = []
@@ -1154,14 +1177,24 @@ def create_assets_for_owner(
             deduped_paths.append(normalized_source_path)
     for index, source_path in enumerate(deduped_paths, start=1):
         role = asset_role if index == 1 else "inline_image"
-        storage_path = build_asset_storage_path(
-            paper=paper,
-            owner_type=owner_type,
-            source_path=source_path,
-            section=section,
-            group=group,
-            question=question,
-        )
+        storage_path: str | None = None
+        asset_url = source_path if is_external_asset_url(source_path) else ""
+        if not asset_url:
+            storage_path = build_asset_storage_path(
+                paper=paper,
+                owner_type=owner_type,
+                source_path=source_path,
+                section=section,
+                group=group,
+                question=question,
+            )
+            persisted = persist_package_asset_file(
+                package=package,
+                source_path=source_path,
+                storage_path=storage_path,
+                source_context_path=source_context_path,
+            )
+            asset_url = build_exam_asset_url(storage_path) if persisted else ""
         asset = ExamAsset(
             exam_section_id=section.exam_section_id if section else None,
             exam_group_id=group.exam_group_id if group else None,
@@ -1172,7 +1205,7 @@ def create_assets_for_owner(
             asset_name=PurePosixPath(source_path).name or f"asset_{index}",
             source_path=source_path,
             storage_path=storage_path,
-            asset_url=f"/{storage_path}",
+            asset_url=asset_url,
             sort_order=index,
             status=1,
             delete_flag="1",
@@ -1210,8 +1243,83 @@ def build_asset_storage_path(
         owner_segment = f"group-{group.sort_order}"
     elif owner_type == "question" and question is not None:
         owner_segment = f"question-{question.question_no or question.sort_order}"
+    source_name = build_safe_asset_file_name(source_path)
+    return normalize_import_path(f"{paper.paper_code}/{owner_segment}/{source_name}")
+
+
+def build_safe_asset_file_name(source_path: str) -> str:
     source_name = PurePosixPath(source_path).name or short_hash(source_path)
-    return normalize_import_path(f"exam-assets/{paper.paper_code}/{owner_segment}/{source_name}")
+    source_suffix = PurePosixPath(source_name).suffix.lower()
+    source_stem = PurePosixPath(source_name).stem
+    safe_stem = slugify_ascii(source_stem) or "asset"
+    return f"{safe_stem}_{short_hash(normalize_import_path(source_path) or source_name)}{source_suffix}"
+
+
+def is_external_asset_url(source_path: str) -> bool:
+    return bool(EXTERNAL_ASSET_URL_PATTERN.match(normalize_string(source_path)))
+
+
+def persist_package_asset_file(
+    *,
+    package: ImportPackage,
+    source_path: str,
+    storage_path: str,
+    source_context_path: str | None,
+) -> bool:
+    virtual_file = resolve_package_asset_file(
+        package,
+        source_path=source_path,
+        source_context_path=source_context_path,
+    )
+    if virtual_file is None:
+        return False
+
+    destination_path = resolve_exam_asset_abspath(storage_path)
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    destination_path.write_bytes(virtual_file.raw_bytes)
+    return True
+
+
+def resolve_package_asset_file(
+    package: ImportPackage,
+    *,
+    source_path: str,
+    source_context_path: str | None,
+) -> VirtualImportFile | None:
+    normalized_source_path = normalize_import_path(source_path)
+    if not normalized_source_path:
+        return None
+
+    candidate_paths: list[str] = []
+    direct_candidate = normalized_source_path
+    candidate_paths.append(direct_candidate)
+
+    if source_context_path:
+        normalized_context_path = normalize_import_path(source_context_path)
+        context_dir = normalize_import_path(str(PurePosixPath(normalized_context_path).parent))
+        if context_dir:
+            candidate_paths.append(normalize_import_path(f"{context_dir}/{normalized_source_path}"))
+
+    source_name = PurePosixPath(normalized_source_path).name
+    if source_name:
+        basename_matches = [
+            logical_path
+            for logical_path in package.files
+            if PurePosixPath(logical_path).name == source_name
+        ]
+        if len(basename_matches) == 1:
+            candidate_paths.append(basename_matches[0])
+
+    seen_candidates: set[str] = set()
+    for candidate_path in candidate_paths:
+        normalized_candidate_path = normalize_import_path(candidate_path)
+        if not normalized_candidate_path or normalized_candidate_path in seen_candidates:
+            continue
+        seen_candidates.add(normalized_candidate_path)
+        virtual_file = package.files.get(normalized_candidate_path)
+        if virtual_file is not None:
+            return virtual_file
+    return None
 
 
 def stringify_raw_answer(answer: Any) -> str:
