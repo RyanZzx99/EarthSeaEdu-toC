@@ -69,6 +69,10 @@
   margin-bottom: 18px;
 }
 
+.mockexam-panel-head-collapsed {
+  margin-bottom: 0;
+}
+
 .mockexam-panel-head h2,
 .mockexam-panel-head h3 {
   margin: 0;
@@ -91,6 +95,34 @@
   background: linear-gradient(135deg, #1d4ed8, #0f766e);
   color: #fff;
   box-shadow: 0 16px 30px rgba(29, 78, 216, 0.24);
+}
+
+.mockexam-panel-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mockexam-panel-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(19, 35, 62, 0.12);
+  background: #fff;
+  color: #42526c;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+.mockexam-panel-toggle:hover {
+  border-color: rgba(29, 78, 216, 0.32);
+  color: #1d4ed8;
+  box-shadow: 0 10px 20px rgba(29, 78, 216, 0.08);
 }
 
 .mockexam-form-grid {
@@ -789,9 +821,66 @@
   gap: 10px;
 }
 
+.mockexam-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr);
+  gap: 22px;
+}
+
+.mockexam-detail-html {
+  color: #243247;
+  line-height: 1.7;
+}
+
+.mockexam-detail-html table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.mockexam-detail-html table,
+.mockexam-detail-html th,
+.mockexam-detail-html td {
+  border: 1px solid rgba(19, 35, 62, 0.18);
+}
+
+.mockexam-detail-html th,
+.mockexam-detail-html td {
+  padding: 8px 10px;
+}
+
+.mockexam-question-detail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(19, 35, 62, 0.08);
+  background: rgba(247, 250, 255, 0.82);
+}
+
+.mockexam-detail-option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mockexam-detail-option {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(19, 35, 62, 0.08);
+  background: #ffffff;
+}
+
 @media (max-width: 960px) {
   .mockexam-history-card,
   .mockexam-result-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mockexam-detail-layout {
     grid-template-columns: 1fr;
   }
 

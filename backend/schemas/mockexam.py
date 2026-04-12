@@ -13,28 +13,8 @@ class MockExamOptionsResponse(BaseModel):
     supported_categories: list[str] = Field(default_factory=list, description="Supported exam categories")
 
 
-class MockExamQuestionBankItem(BaseModel):
-    id: int = Field(..., description="Question bank ID")
-    file_name: str = Field(..., description="File name")
-    exam_category: str = Field(..., description="Exam category")
-    exam_content: str = Field(..., description="Exam content")
-    create_time: datetime = Field(..., description="Created at")
-
-
-class MockExamQuestionBankListResponse(BaseModel):
-    items: list[MockExamQuestionBankItem] = Field(default_factory=list, description="Question bank list")
-
-
-class MockExamQuestionBankPayloadResponse(BaseModel):
-    id: int = Field(..., description="Question bank ID")
-    file_name: str = Field(..., description="File name")
-    exam_category: str = Field(..., description="Exam category")
-    exam_content: str = Field(..., description="Exam content")
-    payload: Any = Field(..., description="Raw question bank payload")
-
-
-class MockExamBetaPaperItem(BaseModel):
-    exam_paper_id: int = Field(..., description="Structured paper ID")
+class MockExamPaperItem(BaseModel):
+    exam_paper_id: int = Field(..., description="Paper ID")
     paper_code: str = Field(..., description="Paper code")
     paper_name: str = Field(..., description="Paper name")
     bank_name: str = Field(..., description="Bank name")
@@ -46,116 +26,81 @@ class MockExamBetaPaperItem(BaseModel):
     create_time: datetime = Field(..., description="Created at")
 
 
-class MockExamBetaPaperListResponse(BaseModel):
-    items: list[MockExamBetaPaperItem] = Field(default_factory=list, description="Structured paper list")
+class MockExamPaperListResponse(BaseModel):
+    items: list[MockExamPaperItem] = Field(default_factory=list, description="Paper list")
 
 
-class MockExamBetaPaperPayloadResponse(BaseModel):
-    exam_paper_id: int = Field(..., description="Structured paper ID")
-    paper_code: str = Field(..., description="Paper code")
-    paper_name: str = Field(..., description="Paper name")
-    bank_name: str = Field(..., description="Bank name")
+class MockExamPaperSetItem(BaseModel):
+    mockexam_paper_set_id: int = Field(..., description="Paper set ID")
+    set_name: str = Field(..., description="Paper set name")
     exam_category: str = Field(..., description="Exam category")
-    exam_content: str = Field(..., description="Exam content")
-    module_name: str = Field(default="", description="Module name")
-    book_code: str | None = Field(default=None, description="Book code")
-    test_no: int | None = Field(default=None, description="Test number")
-    payload: Any = Field(..., description="Converted mock exam payload")
-
-
-class MockExamExamSetItem(BaseModel):
-    exam_sets_id: int = Field(..., description="Exam set ID")
-    name: str = Field(..., description="Exam set name")
-    mode: str = Field(..., description="Assembly mode")
-    exam_category: str | None = Field(default=None, description="Exam category")
-    part_count: int = Field(..., description="Part count")
-    status: str = Field(..., description="Status")
-    content_summary: str = Field(default="", description="Content summary")
-    question_bank_names: list[str] = Field(default_factory=list, description="Question bank names")
+    exam_content: str | None = Field(default=None, description="Exam content")
+    paper_count: int = Field(default=0, description="Paper count")
+    status: int = Field(default=1, description="Status")
+    remark: str | None = Field(default=None, description="Remark")
+    paper_ids: list[int] = Field(default_factory=list, description="Paper IDs")
+    paper_names: list[str] = Field(default_factory=list, description="Paper names")
     create_time: datetime = Field(..., description="Created at")
     update_time: datetime = Field(..., description="Updated at")
 
 
-class MockExamExamSetListResponse(BaseModel):
-    items: list[MockExamExamSetItem] = Field(default_factory=list, description="Exam set list")
+class MockExamPaperSetListResponse(BaseModel):
+    items: list[MockExamPaperSetItem] = Field(default_factory=list, description="Paper set list")
 
 
-class MockExamExamSetPayloadResponse(BaseModel):
-    exam_sets_id: int = Field(..., description="Exam set ID")
-    name: str = Field(..., description="Exam set name")
-    mode: str = Field(..., description="Assembly mode")
-    exam_category: str | None = Field(default=None, description="Exam category")
-    part_count: int = Field(..., description="Part count")
-    content_summary: str = Field(default="", description="Content summary")
-    question_bank_names: list[str] = Field(default_factory=list, description="Question bank names")
-    payload: Any = Field(..., description="Merged payload")
-
-
-class MockExamExamSetCreateRequest(BaseModel):
-    name: str = Field(..., description="Exam set name")
-    mode: str = Field(..., description="Assembly mode")
+class MockExamPaperSetPayloadResponse(BaseModel):
+    mockexam_paper_set_id: int = Field(..., description="Paper set ID")
+    set_name: str = Field(..., description="Paper set name")
     exam_category: str = Field(..., description="Exam category")
-    question_bank_ids: list[int] = Field(default_factory=list, description="Question bank IDs for manual mode")
-    exam_contents: list[str] = Field(default_factory=list, description="Exam contents for random mode")
-    per_content: int = Field(default=1, description="Per-content count")
-    extra_count: int = Field(default=0, description="Extra random count")
-    total_count: int = Field(default=3, description="Total count")
+    exam_content: str | None = Field(default=None, description="Exam content")
+    paper_count: int = Field(default=0, description="Paper count")
+    payload: Any = Field(..., description="Mock exam payload")
 
 
-class MockExamExamSetStatusUpdateRequest(BaseModel):
-    status: str = Field(..., description="Status")
+class TeacherMockExamPaperSetCreateRequest(BaseModel):
+    set_name: str = Field(..., min_length=1, max_length=255, description="Paper set name")
+    exam_paper_ids: list[int] = Field(default_factory=list, description="Selected paper IDs")
+    remark: str | None = Field(default=None, description="Remark")
 
 
-class MockExamExamSetMutationResponse(BaseModel):
+class TeacherMockExamPaperSetStatusUpdateRequest(BaseModel):
+    status: int = Field(..., description="Status: 0 or 1")
+
+
+class TeacherMockExamPaperSetMutationResponse(BaseModel):
     status: str = Field(default="ok", description="Response status")
-    item: MockExamExamSetItem = Field(..., description="Exam set item")
+    item: MockExamPaperSetItem = Field(..., description="Paper set item")
 
 
-class MockExamExamSetDeleteResponse(BaseModel):
-    status: str = Field(default="ok", description="Response status")
-
-
-class MockExamQuickPracticePickedItem(BaseModel):
-    id: int = Field(..., description="Question bank ID")
-    file_name: str = Field(..., description="File name")
+class MockExamPaperPayloadResponse(BaseModel):
+    exam_paper_id: int = Field(..., description="Paper ID")
+    paper_code: str = Field(..., description="Paper code")
+    paper_name: str = Field(..., description="Paper name")
+    bank_name: str = Field(..., description="Bank name")
+    exam_category: str = Field(..., description="Exam category")
     exam_content: str = Field(..., description="Exam content")
-
-
-class MockExamQuickPracticeBuildRequest(BaseModel):
-    exam_category: str = Field(..., description="Exam category")
-    exam_contents: list[str] = Field(default_factory=list, description="Exam contents")
-    count: int = Field(default=3, description="Question bank count")
-
-
-class MockExamQuickPracticeBuildResponse(BaseModel):
-    status: str = Field(default="ok", description="Response status")
-    exam_category: str = Field(..., description="Exam category")
-    label: str = Field(..., description="Practice label")
-    payload: Any = Field(..., description="Merged payload")
-    picked_items: list[MockExamQuickPracticePickedItem] = Field(default_factory=list, description="Picked question banks")
+    module_name: str = Field(default="", description="Module name")
+    book_code: str | None = Field(default=None, description="Book code")
+    test_no: int | None = Field(default=None, description="Test number")
+    payload: Any = Field(..., description="Mock exam payload")
 
 
 class MockExamSubmitRequest(BaseModel):
     answers: dict[str, Any] = Field(default_factory=dict, description="Answer map")
     marked: dict[str, bool] = Field(default_factory=dict, description="Marked-for-review map")
-
-
-class MockExamInlineSubmitRequest(MockExamSubmitRequest):
-    payload: Any = Field(..., description="Inline payload to score")
-    source_type: str | None = Field(default=None, description="Source type")
-    source_id: str | None = Field(default=None, description="Source ID")
-    source_title: str | None = Field(default=None, description="Source title")
-    exam_category: str | None = Field(default=None, description="Exam category")
-    exam_content: str | None = Field(default=None, description="Exam content")
+    progress_id: int | None = Field(default=None, description="Progress ID")
 
 
 class MockExamSubmitDetail(BaseModel):
     question_id: str = Field(..., description="Question ID")
+    exam_question_id: int | None = Field(default=None, description="Exam question ID")
+    question_no: str | int | None = Field(default=None, description="Question number")
     type: str = Field(..., description="Question type")
+    stat_type: str | None = Field(default=None, description="Stat type")
     answered: bool = Field(..., description="Answered")
     correct: bool = Field(..., description="Correct")
     gradable: bool = Field(..., description="Gradable")
-    stem: str = Field(..., description="Question stem preview")
+    stem: str = Field(..., description="Question preview")
 
 
 class MockExamSubmitTypeBreakdownItem(BaseModel):
@@ -180,13 +125,27 @@ class MockExamSubmitResult(BaseModel):
     details: list[MockExamSubmitDetail] = Field(default_factory=list, description="Per-question results")
 
 
+class MockExamSubmissionSummary(BaseModel):
+    submission_id: int = Field(..., description="Submission ID")
+    title: str = Field(..., description="Submission title")
+    create_time: datetime = Field(..., description="Submitted at")
+
+
+class MockExamSubmitResponse(BaseModel):
+    status: str = Field(default="ok", description="Response status")
+    result: MockExamSubmitResult = Field(..., description="Score result")
+    submission: MockExamSubmissionSummary | None = Field(default=None, description="Submission summary")
+
+
 class MockExamSubmissionItem(BaseModel):
     submission_id: int = Field(..., description="Submission ID")
-    source_type: str = Field(..., description="Source type")
-    source_id: str | None = Field(default=None, description="Source ID")
+    exam_paper_id: int = Field(..., description="Paper ID")
+    source_kind: str = Field(default="paper", description="Source kind")
+    paper_set_id: int | None = Field(default=None, description="Paper set ID")
+    paper_code: str | None = Field(default=None, description="Paper code")
+    title: str = Field(..., description="Paper title")
     exam_category: str = Field(..., description="Exam category")
     exam_content: str | None = Field(default=None, description="Exam content")
-    title: str = Field(..., description="Submission title")
     score_percent: float | None = Field(default=None, description="Score percent")
     total_questions: int = Field(default=0, description="Total questions")
     correct_count: int = Field(default=0, description="Correct count")
@@ -201,25 +160,118 @@ class MockExamSubmissionListResponse(BaseModel):
 
 class MockExamSubmissionDetailResponse(BaseModel):
     submission_id: int = Field(..., description="Submission ID")
-    source_type: str = Field(..., description="Source type")
-    source_id: str | None = Field(default=None, description="Source ID")
+    exam_paper_id: int = Field(..., description="Paper ID")
+    source_kind: str = Field(default="paper", description="Source kind")
+    paper_set_id: int | None = Field(default=None, description="Paper set ID")
+    paper_code: str | None = Field(default=None, description="Paper code")
+    title: str = Field(..., description="Paper title")
     exam_category: str = Field(..., description="Exam category")
     exam_content: str | None = Field(default=None, description="Exam content")
-    title: str = Field(..., description="Submission title")
     create_time: datetime = Field(..., description="Submitted at")
     payload: Any = Field(..., description="Payload snapshot")
-    answers: Any = Field(default_factory=dict, description="Answer snapshot")
-    marked: Any = Field(default_factory=dict, description="Marked snapshot")
-    result: MockExamSubmitResult = Field(..., description="Score result")
+    answers: dict[str, Any] = Field(default_factory=dict, description="Answers")
+    marked: dict[str, bool] = Field(default_factory=dict, description="Marked state")
+    result: MockExamSubmitResult = Field(..., description="Result")
 
 
-class MockExamSubmissionSummary(BaseModel):
-    submission_id: int = Field(..., description="Submission ID")
-    title: str = Field(..., description="Submission title")
-    create_time: datetime = Field(..., description="Submitted at")
+class MockExamProgressSaveRequest(BaseModel):
+    progress_id: int | None = Field(default=None, description="Progress ID")
+    payload: Any = Field(default=None, description="Payload snapshot")
+    answers: dict[str, Any] = Field(default_factory=dict, description="Answers")
+    marked: dict[str, bool] = Field(default_factory=dict, description="Marked state")
+    current_question_id: str | None = Field(default=None, description="Current question ID")
+    current_question_index: int | None = Field(default=None, description="Current question index")
+    current_question_no: str | None = Field(default=None, description="Current question number")
 
 
-class MockExamSubmitResponse(BaseModel):
+class MockExamProgressItem(BaseModel):
+    progress_id: int = Field(..., description="Progress ID")
+    exam_paper_id: int = Field(..., description="Paper ID")
+    source_kind: str = Field(default="paper", description="Source kind")
+    paper_set_id: int | None = Field(default=None, description="Paper set ID")
+    paper_code: str | None = Field(default=None, description="Paper code")
+    title: str = Field(..., description="Paper title")
+    exam_category: str = Field(..., description="Exam category")
+    exam_content: str | None = Field(default=None, description="Exam content")
+    answered_count: int = Field(default=0, description="Answered count")
+    total_questions: int = Field(default=0, description="Total questions")
+    current_question_id: str | None = Field(default=None, description="Current question ID")
+    current_question_index: int | None = Field(default=None, description="Current question index")
+    current_question_no: str | None = Field(default=None, description="Current question number")
+    last_active_time: datetime = Field(..., description="Last active time")
+    status: int = Field(..., description="Status")
+
+
+class MockExamProgressListResponse(BaseModel):
+    items: list[MockExamProgressItem] = Field(default_factory=list, description="Progress list")
+
+
+class MockExamProgressDetailResponse(MockExamProgressItem):
+    payload: Any = Field(..., description="Payload snapshot")
+    answers: dict[str, Any] = Field(default_factory=dict, description="Answers")
+    marked: dict[str, bool] = Field(default_factory=dict, description="Marked state")
+
+
+class MockExamProgressMutationResponse(BaseModel):
     status: str = Field(default="ok", description="Response status")
-    result: MockExamSubmitResult = Field(..., description="Score result")
-    submission: MockExamSubmissionSummary | None = Field(default=None, description="Submission summary")
+    item: MockExamProgressItem = Field(..., description="Progress item")
+
+
+class MockExamFavoriteToggleRequest(BaseModel):
+    is_favorite: bool = Field(..., description="Whether the question should be favorited")
+
+
+class MockExamFavoriteToggleResponse(BaseModel):
+    status: str = Field(default="ok", description="Response status")
+    is_favorite: bool = Field(..., description="Favorite state")
+
+
+class MockExamFavoriteItem(BaseModel):
+    exam_question_id: int = Field(..., description="Question ID")
+    exam_paper_id: int = Field(..., description="Paper ID")
+    paper_code: str | None = Field(default=None, description="Paper code")
+    paper_title: str = Field(..., description="Paper title")
+    exam_content: str | None = Field(default=None, description="Exam content")
+    question_id: str = Field(..., description="Question code")
+    question_no: str | None = Field(default=None, description="Question number")
+    question_type: str | None = Field(default=None, description="Question type")
+    stat_type: str | None = Field(default=None, description="Stat type")
+    preview_text: str = Field(default="", description="Preview text")
+    create_time: datetime = Field(..., description="Create time")
+
+
+class MockExamFavoriteListResponse(BaseModel):
+    items: list[MockExamFavoriteItem] = Field(default_factory=list, description="Favorite list")
+
+
+class MockExamWrongQuestionItem(BaseModel):
+    exam_question_id: int | None = Field(default=None, description="Question ID")
+    exam_paper_id: int = Field(..., description="Paper ID")
+    paper_code: str | None = Field(default=None, description="Paper code")
+    paper_title: str = Field(..., description="Paper title")
+    exam_content: str | None = Field(default=None, description="Exam content")
+    question_id: str = Field(..., description="Question code")
+    question_no: str | None = Field(default=None, description="Question number")
+    question_type: str | None = Field(default=None, description="Question type")
+    stat_type: str | None = Field(default=None, description="Stat type")
+    preview_text: str = Field(default="", description="Preview text")
+    wrong_count: int = Field(default=0, description="Wrong count")
+    last_wrong_time: datetime = Field(..., description="Last wrong time")
+
+
+class MockExamWrongQuestionListResponse(BaseModel):
+    items: list[MockExamWrongQuestionItem] = Field(default_factory=list, description="Wrong question list")
+
+
+class MockExamQuestionDetailResponse(BaseModel):
+    exam_question_id: int = Field(..., description="Question ID")
+    exam_paper_id: int = Field(..., description="Paper ID")
+    paper_code: str | None = Field(default=None, description="Paper code")
+    paper_name: str = Field(..., description="Paper name")
+    exam_category: str = Field(..., description="Exam category")
+    exam_content: str | None = Field(default=None, description="Exam content")
+    is_favorite: bool = Field(default=False, description="Favorite state")
+    wrong_count: int = Field(default=0, description="Wrong count")
+    section: Any = Field(..., description="Section data")
+    group: Any = Field(..., description="Group data")
+    question: Any = Field(..., description="Question data")

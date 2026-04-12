@@ -23,32 +23,42 @@ function formatTime(value) {
 
 function formatQuestionType(value) {
   const type = String(value || "").toLowerCase();
-  if (type === "single") {
-    return "单选题";
-  }
-  if (type === "multiple") {
-    return "多选题";
-  }
-  if (type === "tfng") {
-    return "判断题";
-  }
-  if (type === "blank") {
-    return "填空题";
-  }
-  if (type === "cloze_inline") {
-    return "完形填空";
-  }
-  if (type === "matching") {
-    return "匹配题";
-  }
-  if (type === "essay") {
-    return "写作题";
-  }
+  if (type === "single") return "单选题";
+  if (type === "multiple") return "多选题";
+  if (type === "tfng") return "判断题";
+  if (type === "blank") return "填空题";
+  if (type === "cloze_inline") return "完形填空";
+  if (type === "matching") return "匹配题";
+  if (type === "essay") return "写作题";
   return value || "未知题型";
 }
 
-function resolveBackPath(sourceType) {
-  return sourceType === "paper-beta" ? "/mockexam-beta" : "/mockexam";
+function formatApiError(error, fallback) {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+  if (Array.isArray(detail) && detail.length) {
+    const messages = detail
+      .map((item) => {
+        if (typeof item === "string" && item.trim()) {
+          return item.trim();
+        }
+        if (item?.msg) {
+          const loc = Array.isArray(item.loc) ? item.loc.join(".") : "";
+          return loc ? `${loc}: ${item.msg}` : String(item.msg);
+        }
+        return "";
+      })
+      .filter(Boolean);
+    if (messages.length) {
+      return messages.join("; ");
+    }
+  }
+  if (detail?.msg) {
+    return String(detail.msg);
+  }
+  return fallback;
 }
 
 export default function MockExamSubmissionResultPage() {
@@ -75,7 +85,7 @@ export default function MockExamSubmissionResultPage() {
           return;
         }
         setSubmission(null);
-        setMessage(error?.response?.data?.detail || "成绩结果加载失败");
+        setMessage(formatApiError(error, "成绩结果加载失败"));
       } finally {
         if (active) {
           setLoading(false);
@@ -84,19 +94,17 @@ export default function MockExamSubmissionResultPage() {
     }
 
     void loadSubmission();
-
     return () => {
       active = false;
     };
   }, [submissionId]);
 
   const result = submission?.result || {};
+  const resultDetails = Array.isArray(result.details) ? result.details : [];
+  const typeBreakdown = Array.isArray(result.type_breakdown) ? result.type_breakdown : [];
   const wrongDetails = useMemo(
-    () =>
-      (result.details || []).filter(
-        (item) => item?.gradable && item?.answered && !item?.correct
-      ),
-    [result.details]
+    () => resultDetails.filter((item) => item?.gradable && item?.answered && !item?.correct),
+    [resultDetails]
   );
 
   if (loading) {
@@ -123,11 +131,7 @@ export default function MockExamSubmissionResultPage() {
       <div className="mockexam-shell">
         <div className="mockexam-topbar">
           <div className="mockexam-topcopy">
-            <button
-              type="button"
-              className="mockexam-back"
-              onClick={() => navigate(resolveBackPath(submission.source_type))}
-            >
+            <button type="button" className="mockexam-back" onClick={() => navigate("/mockexam")}>
               <ArrowLeft size={16} strokeWidth={2.2} />
               返回模拟考试
             </button>
@@ -152,9 +156,7 @@ export default function MockExamSubmissionResultPage() {
             <div className="mockexam-result-stats">
               <article className="mockexam-result-stat-card">
                 <span>得分</span>
-                <strong>
-                  {result.score_percent == null ? "--" : `${result.score_percent}%`}
-                </strong>
+                <strong>{result.score_percent == null ? "--" : `${result.score_percent}%`}</strong>
               </article>
               <article className="mockexam-result-stat-card">
                 <span>答对</span>
@@ -188,12 +190,12 @@ export default function MockExamSubmissionResultPage() {
             <div className="mockexam-panel-head">
               <div>
                 <h2>按题型统计</h2>
-                <p>这里显示每个题型一共多少题，以及这次答错了多少题。</p>
+                <p>展示每个题型共有多少题，以及这次答错了多少题。</p>
               </div>
             </div>
 
             <div className="mockexam-type-breakdown">
-              {(result.type_breakdown || []).map((item) => (
+              {typeBreakdown.map((item) => (
                 <article key={item.question_type} className="mockexam-type-breakdown-card">
                   <div>
                     <h3>{formatQuestionType(item.question_type)}</h3>
@@ -222,10 +224,21 @@ export default function MockExamSubmissionResultPage() {
             {wrongDetails.map((item) => (
               <article key={item.question_id} className="mockexam-result-detail-card">
                 <div className="mockexam-result-detail-head">
-                  <strong>{item.question_id}</strong>
+                  <strong>{item.question_no ? `Q${item.question_no}` : item.question_id}</strong>
                   <span>{formatQuestionType(item.type)}</span>
                 </div>
                 <p>{item.stem || "无题干摘要"}</p>
+                {item.exam_question_id ? (
+                  <div className="mockexam-history-actions">
+                    <button
+                      type="button"
+                      className="mockexam-secondary-button"
+                      onClick={() => navigate(`/mockexam/questions/${item.exam_question_id}`)}
+                    >
+                      查看题目
+                    </button>
+                  </div>
+                ) : null}
               </article>
             ))}
 

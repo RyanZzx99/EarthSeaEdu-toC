@@ -1,9 +1,12 @@
 import React from "react";
 import { motion } from "motion/react";
-import { ArrowLeft, FlaskConical } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import MockExamSubmissionHistoryPanel from "../components/MockExamSubmissionHistoryPanel";
 import MockExamWorkspace from "../components/MockExamWorkspace";
+import MockExamFavoritesPanel from "../components/MockExamFavoritesPanel";
+import MockExamRecentActivityPanel from "../components/MockExamRecentActivityPanel";
+import MockExamSubmissionHistoryPanel from "../components/MockExamSubmissionHistoryPanel";
+import MockExamWrongBookPanel from "../components/MockExamWrongBookPanel";
 import "../mockexam/mockexam.css";
 
 export default function MockExamPage() {
@@ -19,7 +22,7 @@ export default function MockExamPage() {
               返回首页
             </button>
             <h1>模拟考试</h1>
-            <p>选择题库或试卷直接进入模考，组合试卷管理已移至教师端。</p>
+            <p>支持单张试卷和教师组合试卷，保留继续作答、收藏、错题本和成绩回看。</p>
           </div>
         </div>
 
@@ -28,30 +31,13 @@ export default function MockExamPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35 }}
         >
-          <div className="mockexam-panel mockexam-entry-panel">
-            <div className="mockexam-panel-head">
-              <div>
-                <h2>测试版入口</h2>
-                <p>如果你要验证新题库方案下的结构化试卷，可以从这里进入 `模拟考试-测试`。</p>
-              </div>
-              <span className="mockexam-panel-badge">
-                <FlaskConical size={22} strokeWidth={2.1} />
-              </span>
-            </div>
-
-            <div className="mockexam-entry-actions">
-              <button
-                type="button"
-                className="mockexam-secondary-button"
-                onClick={() => navigate("/mockexam-beta")}
-              >
-                进入模拟考试-测试
-              </button>
-            </div>
-          </div>
-
+          <MockExamWorkspace />
           <div className="mockexam-page-spacer" />
-          <MockExamWorkspace showExamSetManagement={false} showQuickPractice />
+          <MockExamRecentActivityPanel />
+          <div className="mockexam-page-spacer" />
+          <MockExamFavoritesPanel />
+          <div className="mockexam-page-spacer" />
+          <MockExamWrongBookPanel />
           <div className="mockexam-page-spacer" />
           <MockExamSubmissionHistoryPanel />
         </motion.div>

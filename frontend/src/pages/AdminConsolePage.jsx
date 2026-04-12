@@ -1,4 +1,5 @@
 ﻿import React, { useMemo, useState } from "react";
+import { useEffect } from "react";
 import { motion } from "motion/react";
 import {
   BadgeCheck,
@@ -16,7 +17,7 @@ import {
   createNicknameRuleGroup,
   createNicknameWordRule,
   generateInviteCodes,
-  importQuestionBankBeta,
+  importQuestionBank,
   issueInviteCode,
   listAiPromptConfigs,
   listAiRuntimeConfigs,
@@ -25,14 +26,13 @@ import {
   listNicknameContactPatterns,
   listNicknameRuleGroups,
   listNicknameWordRules,
-  listQuestionBanks,
-  uploadQuestionBank,
   updateAiPromptConfig,
   updateAiRuntimeConfig,
   updateInviteCodeStatus,
   updateNicknameRuleTargetStatus,
   updateUserStatus,
 } from "../api/auth";
+import { getQuestionBankImportJob } from "../api/auth";
 
 const sectionGroups = [
   {
@@ -49,7 +49,7 @@ const sectionGroups = [
     hint: "邀请码和题库数据维护",
     items: [
       { key: "invite", label: "邀请码中心", meta: "生成、发放、查询与状态维护", sectionId: "admin-invite-center" },
-      { key: "question-bank", label: "题库管理", meta: "JSON 题库上传与分页查看", sectionId: "admin-question-bank-center" },
+      { key: "question-bank", label: "题库管理", meta: "结构化题库批量导入", sectionId: "admin-question-bank-center" },
     ],
   },
   {
@@ -145,17 +145,6 @@ const wordDecisionOptions = ["reject", "review", "pass"];
 const contactTypeOptions = ["mobile", "wechat", "qq", "email", "social"];
 const contactDecisionOptions = ["reject", "review"];
 const riskLevelOptions = ["low", "medium", "high", "critical"];
-const questionBankStatusOptions = [
-  { value: "1", label: "启用" },
-  { value: "0", label: "停用" },
-];
-const questionBankContentMap = {
-  IELTS: ["Listening", "Reading", "Speaking", "Writing"],
-  SAT: ["Reading", "Writing", "Math"],
-  ACT: ["English", "Math", "Reading", "Science", "Writing"],
-  TOEFL: ["Listening", "Reading", "Speaking", "Writing"],
-};
-const examCategoryOptions = Object.keys(questionBankContentMap);
 const importBetaModeOptions = [
   { value: "zip", label: "压缩包" },
   { value: "directory", label: "文件夹" },
@@ -213,24 +202,6 @@ function formatRuleTargetType(value) {
   if (value === "word") return "词条";
   if (value === "pattern") return "联系方式规则";
   return value || "-";
-}
-
-function formatQuestionBankStatus(value) {
-  return questionBankStatusOptions.find((item) => item.value === value)?.label || value || "-";
-}
-
-function buildQuestionBankFileSummary(files) {
-  if (!files.length) {
-    return "";
-  }
-
-  if (files.length === 1) {
-    return `已选择文件：${files[0].name}`;
-  }
-
-  const previewNames = files.slice(0, 4).map((item) => item.name).join("、");
-  const suffix = files.length > 4 ? ` 等 ${files.length} 个文件` : "";
-  return `已选择 ${files.length} 个文件：${previewNames}${suffix}`;
 }
 
 function buildImportBetaFileSummary(items) {
@@ -445,19 +416,10 @@ export default function AdminConsolePage() {
     limit: 50,
   });
   const [userStatusForm, setUserStatusForm] = useState({ user_id: "", mobile: "", status: "active" });
-  const [questionBankUploadForm, setQuestionBankUploadForm] = useState({
-    file_name: "",
-    exam_category: "IELTS",
-    exam_content: questionBankContentMap.IELTS[0],
-    files: [],
-  });
   const [questionBankImportBetaForm, setQuestionBankImportBetaForm] = useState({
     source_mode: "zip",
+    bank_name: "",
     items: [],
-  });
-  const [questionBankListQuery, setQuestionBankListQuery] = useState({
-    page: 1,
-    page_size: 10,
   });
   const [groupForm, setGroupForm] = useState({
     group_code: "",
@@ -517,15 +479,12 @@ export default function AdminConsolePage() {
   const [ruleStatusForm, setRuleStatusForm] = useState({ target_type: "group", target_id: "", status: "active" });
   const [lastUserStatusResult, setLastUserStatusResult] = useState({});
   const [lastRuleStatusResult, setLastRuleStatusResult] = useState({});
-  const [questionBankUploadMessage, setQuestionBankUploadMessage] = useState("");
   const [questionBankImportBetaMessage, setQuestionBankImportBetaMessage] = useState("");
   const [questionBankImportBetaResult, setQuestionBankImportBetaResult] = useState(null);
   const [generatedItems, setGeneratedItems] = useState([]);
   const [lastIssued, setLastIssued] = useState({});
   const [inviteList, setInviteList] = useState([]);
-  const [questionBankList, setQuestionBankList] = useState([]);
   const [queryTotal, setQueryTotal] = useState(0);
-  const [questionBankTotal, setQuestionBankTotal] = useState(0);
   const [groupList, setGroupList] = useState([]);
   const [wordRuleList, setWordRuleList] = useState([]);
   const [contactPatternList, setContactPatternList] = useState([]);
@@ -544,9 +503,7 @@ export default function AdminConsolePage() {
   const [loadingGenerate, setLoadingGenerate] = useState(false);
   const [loadingIssue, setLoadingIssue] = useState(false);
   const [loadingQuery, setLoadingQuery] = useState(false);
-  const [loadingQuestionBankUpload, setLoadingQuestionBankUpload] = useState(false);
   const [loadingQuestionBankImportBeta, setLoadingQuestionBankImportBeta] = useState(false);
-  const [loadingQuestionBankList, setLoadingQuestionBankList] = useState(false);
   const [loadingUserStatus, setLoadingUserStatus] = useState(false);
   const [loadingGroupCreate, setLoadingGroupCreate] = useState(false);
   const [loadingGroupList, setLoadingGroupList] = useState(false);
@@ -563,22 +520,65 @@ export default function AdminConsolePage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   const generatedSummary = useMemo(() => generatedItems, [generatedItems]);
-  const questionBankContentOptions = useMemo(
-    () => questionBankContentMap[questionBankUploadForm.exam_category] || [],
-    [questionBankUploadForm.exam_category]
-  );
-  const questionBankFileInputKey = questionBankUploadForm.files.length
-    ? questionBankUploadForm.files.map((item) => `${item.name}-${item.lastModified}`).join("|")
-    : "question-bank-empty";
   const questionBankImportBetaInputKey = questionBankImportBetaForm.items.length
     ? questionBankImportBetaForm.items
         .map((item) => `${item.relativePath}-${item.file.lastModified}-${item.file.size}`)
         .join("|")
     : "question-bank-import-beta-empty";
-  const questionBankTotalPages = useMemo(() => {
-    const pageSize = Math.max(1, Number(questionBankListQuery.page_size) || 10);
-    return Math.max(1, Math.ceil(questionBankTotal / pageSize));
-  }, [questionBankListQuery.page_size, questionBankTotal]);
+
+  useEffect(() => {
+    const currentJobId = questionBankImportBetaResult?.job_id;
+    const currentJobStatus = questionBankImportBetaResult?.status;
+    if (!currentJobId || !adminKey.trim() || !["pending", "running"].includes(currentJobStatus)) {
+      return undefined;
+    }
+
+    let active = true;
+
+    async function refreshImportJob() {
+      try {
+        const response = await getQuestionBankImportJob(currentJobId, adminKey);
+        if (!active) {
+          return;
+        }
+        const nextJob = response.data || null;
+        setQuestionBankImportBetaResult(nextJob);
+        if (!nextJob) {
+          return;
+        }
+
+          if (nextJob.status === "completed") {
+            setQuestionBankImportBetaMessage(
+              `导入完成：成功 ${nextJob.success_count || 0} 个题包，跳过 ${nextJob.skipped_count || 0} 个，失败 ${nextJob.failure_count || 0} 个`
+            );
+            return;
+          }
+
+        if (nextJob.status === "failed") {
+          setQuestionBankImportBetaMessage("");
+          setErrorMessage(nextJob.error_message || "题库导入执行失败");
+          return;
+        }
+
+        setQuestionBankImportBetaMessage(nextJob.progress_message || "导入任务处理中...");
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+        setQuestionBankImportBetaMessage("导入任务已创建，但状态查询失败");
+      }
+    }
+
+    void refreshImportJob();
+    const timer = window.setInterval(() => {
+      void refreshImportJob();
+    }, 2500);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [adminKey, questionBankImportBetaResult]);
   function ensureAdminKey() {
     if (!adminKey.trim()) {
       setErrorMessage("请输入管理员密钥");
@@ -600,9 +600,6 @@ export default function AdminConsolePage() {
     }
     if (key === "prompt" && adminKey.trim()) {
       handleListAiPrompts();
-    }
-    if (key === "question-bank" && adminKey.trim()) {
-      handleListQuestionBanks(1);
     }
   }
 
@@ -709,31 +706,14 @@ export default function AdminConsolePage() {
     }
   }
 
-  function handleQuestionBankCategoryChange(nextCategory) {
-    const nextOptions = questionBankContentMap[nextCategory] || [];
-    setQuestionBankUploadMessage("");
-    setQuestionBankUploadForm((previous) => ({
-      ...previous,
-      exam_category: nextCategory,
-      exam_content: nextOptions[0] || "",
-    }));
-  }
-
-  function handleQuestionBankFileChange(fileList) {
-    setQuestionBankUploadMessage("");
-    setQuestionBankUploadForm((previous) => ({
-      ...previous,
-      files: Array.from(fileList || []),
-    }));
-  }
-
   function handleQuestionBankImportBetaModeChange(nextMode) {
     setQuestionBankImportBetaMessage("");
     setQuestionBankImportBetaResult(null);
-    setQuestionBankImportBetaForm({
+    setQuestionBankImportBetaForm((previous) => ({
+      ...previous,
       source_mode: nextMode,
       items: [],
-    });
+    }));
   }
 
   function handleQuestionBankImportBetaFileChange(fileList) {
@@ -743,72 +723,6 @@ export default function AdminConsolePage() {
       ...previous,
       items: createImportBetaItems(fileList),
     }));
-  }
-
-  async function handleUploadQuestionBank() {
-    setErrorMessage("");
-    setQuestionBankUploadMessage("");
-    if (!ensureAdminKey()) return;
-    if (!questionBankUploadForm.files.length) {
-      setErrorMessage("请先选择 JSON 文件");
-      return;
-    }
-
-    try {
-      setLoadingQuestionBankUpload(true);
-      const selectedFiles = questionBankUploadForm.files;
-      const titleValue = questionBankUploadForm.file_name.trim();
-      const successItems = [];
-      const failedItems = [];
-      const failedFiles = [];
-
-      for (let index = 0; index < selectedFiles.length; index += 1) {
-        const currentFile = selectedFiles[index];
-        const formData = new FormData();
-        formData.append("file_name", selectedFiles.length === 1 ? titleValue : "");
-        formData.append("exam_category", questionBankUploadForm.exam_category);
-        formData.append("exam_content", questionBankUploadForm.exam_content);
-        formData.append("file", currentFile);
-        setQuestionBankUploadMessage(
-          selectedFiles.length === 1
-            ? `正在上传：${currentFile.name}`
-            : `正在上传 ${index + 1} / ${selectedFiles.length}：${currentFile.name}`
-        );
-
-        try {
-          await uploadQuestionBank(formData, adminKey);
-          successItems.push(currentFile.name);
-        } catch (error) {
-          failedFiles.push(currentFile);
-          failedItems.push(`${currentFile.name}：${error?.response?.data?.detail || "上传失败"}`);
-        }
-      }
-
-      setQuestionBankUploadForm((previous) => ({
-        ...previous,
-        file_name: selectedFiles.length === 1 && failedFiles.length === 1 ? previous.file_name : "",
-        files: failedFiles,
-      }));
-
-      if (successItems.length) {
-        await handleListQuestionBanks(1);
-      }
-
-      if (!failedItems.length) {
-        setQuestionBankUploadMessage(
-          successItems.length > 1 ? `批量上传完成，成功 ${successItems.length} 个文件` : "题库上传成功"
-        );
-        return;
-      }
-
-      setQuestionBankUploadMessage(`批量上传完成，成功 ${successItems.length} 个，失败 ${failedItems.length} 个`);
-      setErrorMessage(failedItems.join("；"));
-    } catch (error) {
-      setErrorMessage(error?.response?.data?.detail || "题库上传失败");
-      setQuestionBankUploadMessage("");
-    } finally {
-      setLoadingQuestionBankUpload(false);
-    }
   }
 
   async function handleImportQuestionBankBeta() {
@@ -824,6 +738,7 @@ export default function AdminConsolePage() {
       setLoadingQuestionBankImportBeta(true);
       const formData = new FormData();
       formData.append("source_mode", questionBankImportBetaForm.source_mode);
+      formData.append("bank_name", questionBankImportBetaForm.bank_name.trim());
       formData.append(
         "entry_paths_json",
         JSON.stringify(questionBankImportBetaForm.items.map((item) => item.relativePath))
@@ -832,52 +747,20 @@ export default function AdminConsolePage() {
         formData.append("files", item.file);
       });
 
-      setQuestionBankImportBetaMessage(`正在导入：${questionBankImportBetaForm.items.length} 个文件`);
-      const response = await importQuestionBankBeta(formData, adminKey);
+      setQuestionBankImportBetaMessage(`正在上传并创建导入任务：${questionBankImportBetaForm.items.length} 个文件`);
+      const response = await importQuestionBank(formData, adminKey);
       setQuestionBankImportBetaResult(response.data);
       setQuestionBankImportBetaForm((previous) => ({
         ...previous,
         items: [],
       }));
-      setQuestionBankImportBetaMessage(
-        `导入完成：成功 ${response.data.success_count || 0} 个题包，失败 ${response.data.failure_count || 0} 个`
-      );
+      setQuestionBankImportBetaMessage(response.data.progress_message || `导入任务已创建，任务 ID ${response.data.job_id}`);
     } catch (error) {
       setQuestionBankImportBetaResult(null);
       setQuestionBankImportBetaMessage("");
-      setErrorMessage(error?.response?.data?.detail || "导入-测试版执行失败");
+      setErrorMessage(error?.response?.data?.detail || "题库导入执行失败");
     } finally {
       setLoadingQuestionBankImportBeta(false);
-    }
-  }
-
-  async function handleListQuestionBanks(page = questionBankListQuery.page) {
-    setErrorMessage("");
-    if (!ensureAdminKey()) return;
-    const safePage = Math.max(1, Number(page) || 1);
-    const safePageSize = Math.max(1, Number(questionBankListQuery.page_size) || 10);
-
-    try {
-      setLoadingQuestionBankList(true);
-      const response = await listQuestionBanks(
-        {
-          page: safePage,
-          page_size: safePageSize,
-        },
-        adminKey
-      );
-      const items = response.data.items || [];
-      setQuestionBankList(items);
-      setQuestionBankTotal(response.data.total || 0);
-      setQuestionBankListQuery((previous) => ({
-        ...previous,
-        page: response.data.page || safePage,
-        page_size: response.data.page_size || safePageSize,
-      }));
-    } catch (error) {
-      setErrorMessage(error?.response?.data?.detail || "题库列表查询失败");
-    } finally {
-      setLoadingQuestionBankList(false);
     }
   }
 
@@ -1376,9 +1259,6 @@ export default function AdminConsolePage() {
                   <button type="button" className="primary-btn" disabled={loadingGroupList} onClick={handleListGroups}>
                     {loadingGroupList ? "刷新中..." : "刷新规则分组"}
                   </button>
-                  <button type="button" className="secondary-btn" disabled={loadingQuestionBankList} onClick={() => handleListQuestionBanks(1)}>
-                    {loadingQuestionBankList ? "刷新中..." : "刷新题库列表"}
-                  </button>
                   <button type="button" className="secondary-btn" disabled={loadingAuditLogs} onClick={handleListAuditLogs}>
                     {loadingAuditLogs ? "刷新中..." : "刷新审核日志"}
                   </button>
@@ -1538,77 +1418,12 @@ export default function AdminConsolePage() {
             id="admin-question-bank-center"
             icon={Database}
             title="题库管理"
-            subtitle="上传 JSON 题库到数据库，并按分页查看已入库的题库记录。"
-            actions={<button type="button" className="secondary-btn" disabled={loadingQuestionBankList} onClick={() => handleListQuestionBanks(1)}>{loadingQuestionBankList ? "加载中..." : "刷新题库列表"}</button>}
+            subtitle="按结构化方案导入压缩包、文件夹或批量文件，直接落到 exam_* 表。"
           >
             <div className="admin-section-stack">
               <AdminPanel
-                title="上传题库"
-                description="支持单个或多个 JSON 文件上传。单个文件可自定义标题，批量上传时自动使用各文件名。"
-                aside={questionBankUploadMessage ? <span className="check-success">{questionBankUploadMessage}</span> : null}
-              >
-                <div className="admin-form-grid">
-                  <Field
-                    label="标题"
-                    hint={
-                      questionBankUploadForm.files.length > 1
-                        ? "批量上传时会忽略这里的标题，自动使用每个文件名入库"
-                        : "留空则使用上传文件名"
-                    }
-                  >
-                    <input
-                      className="input"
-                      value={questionBankUploadForm.file_name}
-                      onChange={(event) => {
-                        setQuestionBankUploadMessage("");
-                        setQuestionBankUploadForm((previous) => ({ ...previous, file_name: event.target.value }));
-                      }}
-                      placeholder="例如：IELTS 听力真题 01"
-                    />
-                  </Field>
-                  <Field label="考试类别">
-                    <select className="input" value={questionBankUploadForm.exam_category} onChange={(event) => handleQuestionBankCategoryChange(event.target.value)}>
-                      {examCategoryOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="考试内容">
-                    <select
-                      className="input"
-                      value={questionBankUploadForm.exam_content}
-                      onChange={(event) => {
-                        setQuestionBankUploadMessage("");
-                        setQuestionBankUploadForm((previous) => ({ ...previous, exam_content: event.target.value }));
-                      }}
-                    >
-                      {questionBankContentOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="JSON 文件">
-                    <input
-                      key={questionBankFileInputKey}
-                      className="input"
-                      type="file"
-                      multiple
-                      accept=".json,application/json"
-                      onChange={(event) => handleQuestionBankFileChange(event.target.files)}
-                    />
-                  </Field>
-                </div>
-                {questionBankUploadForm.files.length ? (
-                  <div className="result-box">
-                    {buildQuestionBankFileSummary(questionBankUploadForm.files)}
-                  </div>
-                ) : null}
-                <div className="admin-button-row">
-                  <button type="button" className="primary-btn" disabled={loadingQuestionBankUpload} onClick={handleUploadQuestionBank}>
-                    {loadingQuestionBankUpload ? "批量上传中..." : "上传题库"}
-                  </button>
-                </div>
-              </AdminPanel>
-
-              <AdminPanel
-                title="导入-测试版"
-                description="按新 IELTS 结构化方案导入压缩包、文件夹或批量文件，落到 exam_* 表。旧 JSON 上传功能继续保留。"
+                title="导入题库"
+                description="支持按 IELTS 结构化方案导入压缩包、文件夹或批量文件。"
                 aside={questionBankImportBetaMessage ? <span className="check-success">{questionBankImportBetaMessage}</span> : null}
               >
                 <div className="admin-segmented">
@@ -1632,6 +1447,23 @@ export default function AdminConsolePage() {
                         importBetaModeOptions.find((item) => item.value === questionBankImportBetaForm.source_mode)?.label || "压缩包"
                       }
                       disabled
+                    />
+                  </Field>
+
+                  <Field
+                    label="题库名"
+                    hint="可选。不填则按题包自身规则生成；填写后，本次导入的题库名统一按这里覆盖。"
+                  >
+                    <input
+                      className="input"
+                      value={questionBankImportBetaForm.bank_name}
+                      onChange={(event) =>
+                        setQuestionBankImportBetaForm((previous) => ({
+                          ...previous,
+                          bank_name: event.target.value,
+                        }))
+                      }
+                      placeholder="例如：IELTS 真题库"
                     />
                   </Field>
 
@@ -1693,15 +1525,19 @@ export default function AdminConsolePage() {
                     disabled={loadingQuestionBankImportBeta}
                     onClick={handleImportQuestionBankBeta}
                   >
-                    {loadingQuestionBankImportBeta ? "导入中..." : "开始导入-测试版"}
+                    {loadingQuestionBankImportBeta ? "创建任务中..." : "开始导入"}
                   </button>
                 </div>
 
                 {questionBankImportBetaResult ? (
                   <div className="admin-import-result">
                     <div className="admin-detail-list">
+                      <div><strong>任务 ID：</strong>{questionBankImportBetaResult.job_id || "-"}</div>
+                      <div><strong>任务状态：</strong>{questionBankImportBetaResult.status || "-"}</div>
+                      <div><strong>进度提示：</strong>{questionBankImportBetaResult.progress_message || "-"}</div>
                       <div><strong>识别 manifest：</strong>{questionBankImportBetaResult.manifest_count || 0}</div>
                       <div><strong>成功题包：</strong>{questionBankImportBetaResult.success_count || 0}</div>
+                      <div><strong>跳过题包：</strong>{questionBankImportBetaResult.skipped_count || 0}</div>
                       <div><strong>失败题包：</strong>{questionBankImportBetaResult.failure_count || 0}</div>
                       <div><strong>导入试卷：</strong>{questionBankImportBetaResult.imported_paper_count || 0}</div>
                       <div><strong>Section / Group / Question：</strong>{questionBankImportBetaResult.imported_section_count || 0} / {questionBankImportBetaResult.imported_group_count || 0} / {questionBankImportBetaResult.imported_question_count || 0}</div>
@@ -1739,59 +1575,6 @@ export default function AdminConsolePage() {
                     ) : null}
                   </div>
                 ) : null}
-              </AdminPanel>
-
-              <AdminPanel title="题库列表" description="默认每页展示 10 条，按创建时间倒序排列。">
-                {questionBankList.length ? (
-                  <div className="table-wrap">
-                    <div className="result-box">共 {questionBankTotal} 条，当前第 {questionBankListQuery.page} / {questionBankTotalPages} 页</div>
-                    <table className="table">
-                      <thead>
-                        <tr>
-                          <th>ID</th>
-                          <th>标题</th>
-                          <th>考试类别</th>
-                          <th>考试内容</th>
-                          <th>状态</th>
-                          <th>创建时间</th>
-                          <th>更新时间</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {questionBankList.map((item) => (
-                          <tr key={item.id}>
-                            <td>{item.id}</td>
-                            <td>{item.file_name}</td>
-                            <td>{item.exam_category}</td>
-                            <td>{item.exam_content}</td>
-                            <td>{formatQuestionBankStatus(item.status)}</td>
-                            <td>{formatDate(item.create_time)}</td>
-                            <td>{formatDate(item.update_time)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <div className="admin-pagination">
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        disabled={loadingQuestionBankList || questionBankListQuery.page <= 1}
-                        onClick={() => handleListQuestionBanks(questionBankListQuery.page - 1)}
-                      >
-                        上一页
-                      </button>
-                      <span className="admin-pagination-copy">第 {questionBankListQuery.page} / {questionBankTotalPages} 页</span>
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        disabled={loadingQuestionBankList || questionBankListQuery.page >= questionBankTotalPages}
-                        onClick={() => handleListQuestionBanks(questionBankListQuery.page + 1)}
-                      >
-                        下一页
-                      </button>
-                    </div>
-                  </div>
-                ) : <DataPlaceholder text={adminKey.trim() ? "还没有题库数据，先上传一份 JSON 题库或点击刷新列表。" : "先输入管理员密钥，再刷新题库列表。"} />}
               </AdminPanel>
             </div>
           </AdminSection>

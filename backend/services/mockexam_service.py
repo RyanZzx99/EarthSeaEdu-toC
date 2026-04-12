@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import copy
+import html
 import json
 import re
 from typing import Any
@@ -10,8 +10,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm import load_only
 from sqlalchemy.orm import selectinload
 
-from backend.models.exam_set_models import ExamSet
-from backend.models.exam_set_models import ExamSetPart
 from backend.models.ielts_exam_models import ExamAsset
 from backend.models.ielts_exam_models import ExamBank
 from backend.models.ielts_exam_models import ExamGroup
@@ -21,8 +19,6 @@ from backend.models.ielts_exam_models import ExamQuestion
 from backend.models.ielts_exam_models import ExamQuestionAnswer
 from backend.models.ielts_exam_models import ExamQuestionBlank
 from backend.models.ielts_exam_models import ExamSection
-from backend.models.mockexam_record_models import MockExamSubmission
-from backend.models.question_bank_models import QuestionBank
 
 
 MOCKEXAM_CONTENT_OPTIONS: dict[str, list[str]] = {
@@ -215,7 +211,7 @@ def normalize_mockexam_beta_exam_category(value: str | None, *, allow_empty: boo
     if not normalized and allow_empty:
         return ""
     if normalized not in MOCKEXAM_BETA_CONTENT_OPTIONS:
-        raise ValueError("测试版模拟考试当前仅支持 IELTS")
+        raise ValueError("当前模拟考试仅支持 IELTS")
     return normalized
 
 
@@ -224,7 +220,7 @@ def normalize_mockexam_beta_exam_content(value: str | None, *, allow_empty: bool
     if not normalized and allow_empty:
         return ""
     if normalized not in MOCKEXAM_BETA_CONTENT_OPTIONS["IELTS"]:
-        raise ValueError("测试版模拟考试当前仅支持 IELTS Reading / Listening")
+        raise ValueError("当前模拟考试仅支持 IELTS Reading / Listening")
     return normalized
 
 
@@ -330,7 +326,7 @@ def get_mockexam_beta_paper(db: Session, *, exam_paper_id: int) -> ExamPaper:
         .first()
     )
     if not row:
-        raise LookupError("测试版试卷不存在或已停用")
+        raise LookupError("试卷不存在或已停用")
     return row
 
 
@@ -347,7 +343,7 @@ def evaluate_mockexam_beta_paper_submission(
 ) -> dict[str, Any]:
     row, payload = load_mockexam_beta_paper_payload(db, exam_paper_id=exam_paper_id)
     if (row.bank.exam_type if row.bank else "IELTS") not in SUPPORTED_MOCKEXAM_BETA_CATEGORIES:
-        raise ValueError("当前测试版模考尚未开放该考试类别")
+        raise ValueError("当前模拟考试尚未开放该考试类别")
 
     safe_answers_map = answers_map if isinstance(answers_map, dict) else {}
     return evaluate_quiz_payload(payload, safe_answers_map)
@@ -356,26 +352,31 @@ def evaluate_mockexam_beta_paper_submission(
 def build_mockexam_beta_payload(paper: ExamPaper) -> dict[str, Any]:
     passages: list[dict[str, Any]] = []
     for section in get_active_sorted_records(paper.sections):
-        groups = [serialize_mockexam_beta_group(section, group) for group in get_active_sorted_records(section.groups)]
-        groups = [group for group in groups if group["questions"]]
-        if not groups:
+        section_payload = serialize_mockexam_beta_passage(section)
+        if section_payload is None:
             continue
-
-        section_assets = get_active_sorted_records(section.assets)
-        passages.append(
-            {
-                "id": section.section_id or f"S{section.section_no or section.sort_order}",
-                "title": section.section_title or f"Section {section.section_no or section.sort_order}",
-                "instructions": section.instructions_text or "",
-                "content": rewrite_html_asset_urls(section.content_html, section_assets),
-                "audio": resolve_primary_asset_url(section.primary_audio_asset_id, section_assets, asset_type="audio"),
-                "groups": groups,
-            }
-        )
+        passages.append(section_payload)
 
     return {
         "module": paper.module_name or beta_exam_content_from_subject_type(paper.subject_type),
         "passages": passages,
+    }
+
+
+def serialize_mockexam_beta_passage(section: ExamSection) -> dict[str, Any] | None:
+    groups = [serialize_mockexam_beta_group(section, group) for group in get_active_sorted_records(section.groups)]
+    groups = [group for group in groups if group["questions"]]
+    if not groups:
+        return None
+
+    section_assets = get_active_sorted_records(section.assets)
+    return {
+        "id": section.section_id or f"S{section.section_no or section.sort_order}",
+        "title": section.section_title or f"Section {section.section_no or section.sort_order}",
+        "instructions": section.instructions_text or "",
+        "content": rewrite_html_asset_urls(section.content_html, section_assets),
+        "audio": resolve_primary_asset_url(section.primary_audio_asset_id, section_assets, asset_type="audio"),
+        "groups": groups,
     }
 
 
@@ -417,6 +418,13 @@ def serialize_mockexam_beta_question(
 
     payload: dict[str, Any] = {
         "id": question.question_code or question.question_id or f"Q-{question.exam_question_id}",
+        "exam_question_id": question.exam_question_id,
+        "question_no": question.question_no,
+        "stat_type": question.stat_type or group.stat_type or "",
+        "group_id": group.group_id or f"{section.section_id or 'section'}-G{group.sort_order}",
+        "exam_group_id": group.exam_group_id,
+        "exam_section_id": section.exam_section_id,
+        "exam_paper_id": section.exam_paper_id,
         "type": question_type,
         "stem": prompt_with_blank_html or prompt_html or build_question_fallback_html(question),
         "content": "",
@@ -1111,11 +1119,11 @@ def build_quick_practice_payload(
     if not selected:
         raise LookupError("当前筛选条件下没有可用题库")
 
-    payload = compose_payload_from_question_banks(selected, "随堂小练")
+    payload = compose_payload_from_question_banks(selected, "练习卷")
     return {
         "status": "ok",
         "exam_category": normalized_exam_category,
-        "label": "随堂小练",
+        "label": "练习卷",
         "payload": payload,
         "picked_items": [
             {
@@ -1507,6 +1515,17 @@ def normalize_text_value(value: Any) -> str:
     return text.lower()
 
 
+def build_question_preview_text(question: dict[str, Any], *, limit: int = 180) -> str:
+    raw_value = question.get("stem") or question.get("content") or ""
+    text = html.unescape(str(raw_value or ""))
+    text = re.sub(r"\[\[\s*[^\]]+\s*\]\]", "_____", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[: max(0, limit - 3)].rstrip()}..."
+
+
 def normalize_label_value(value: Any) -> str:
     return normalize_text_value(value).upper()
 
@@ -1815,11 +1834,14 @@ def evaluate_quiz_payload(payload: Any, answers_map: dict[str, Any]) -> dict[str
         details.append(
             {
                 "question_id": question_id,
+                "exam_question_id": question.get("exam_question_id"),
+                "question_no": question.get("question_no"),
                 "type": question_type,
+                "stat_type": question.get("stat_type") or question_type,
                 "answered": result["answered"],
                 "correct": result["correct"],
                 "gradable": result["gradable"],
-                "stem": normalize_text_value(question.get("stem") or question.get("content"))[:180],
+                "stem": build_question_preview_text(question),
             }
         )
 

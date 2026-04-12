@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, LoaderCircle, RotateCcw, Trophy } from "lucide-react";
+import { ChevronDown, ChevronRight, Heart, LoaderCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { getMockExamSubmissions } from "../api/mockexam";
+import { getMockExamFavorites } from "../api/mockexam";
 
 function formatTime(value) {
   if (!value) {
@@ -12,7 +12,6 @@ function formatTime(value) {
     return "";
   }
   return date.toLocaleString("zh-CN", {
-    year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -40,12 +39,7 @@ function getApiError(error, fallback) {
   return fallback;
 }
 
-export default function MockExamSubmissionHistoryPanel({
-  title = "成绩回看",
-  description = "这里保留最近交卷记录，可以直接查看结果或回看答题过程。",
-  limit = 10,
-  emptyText = "暂无成绩记录",
-}) {
+export default function MockExamFavoritesPanel() {
   const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -60,10 +54,10 @@ export default function MockExamSubmissionHistoryPanel({
 
     let active = true;
 
-    async function loadSubmissions() {
+    async function loadItems() {
       try {
         setLoading(true);
-        const response = await getMockExamSubmissions({ limit });
+        const response = await getMockExamFavorites({ limit: 20 });
         if (!active) {
           return;
         }
@@ -74,7 +68,7 @@ export default function MockExamSubmissionHistoryPanel({
           return;
         }
         setItems([]);
-        setMessage(getApiError(error, "成绩记录加载失败"));
+        setMessage(getApiError(error, "收藏列表加载失败"));
       } finally {
         if (active) {
           setLoading(false);
@@ -83,23 +77,22 @@ export default function MockExamSubmissionHistoryPanel({
       }
     }
 
-    void loadSubmissions();
-
+    void loadItems();
     return () => {
       active = false;
     };
-  }, [expanded, limit, loadedOnce]);
+  }, [expanded, loadedOnce]);
 
   return (
     <div className="mockexam-panel">
       <div className={`mockexam-panel-head ${expanded ? "" : "mockexam-panel-head-collapsed"}`}>
         <div>
-          <h3>{title}</h3>
-          <p>{description}</p>
+          <h3>收藏夹</h3>
+          <p>收藏的题目会保留阅读文章或听力材料的上下文。</p>
         </div>
         <div className="mockexam-panel-head-actions">
           <span className="mockexam-panel-badge">
-            <Trophy size={22} strokeWidth={2.1} />
+            <Heart size={22} strokeWidth={2.1} />
           </span>
           <button
             type="button"
@@ -117,7 +110,7 @@ export default function MockExamSubmissionHistoryPanel({
         <>
           {loading ? (
             <div className="mockexam-inline-note">
-              <LoaderCircle size={16} strokeWidth={2.1} className="spin" /> 正在加载成绩记录...
+              <LoaderCircle size={16} strokeWidth={2.1} className="spin" /> 正在加载收藏题目...
             </div>
           ) : null}
 
@@ -126,46 +119,30 @@ export default function MockExamSubmissionHistoryPanel({
           {!loading && !message ? (
             <div className="mockexam-history-list">
               {items.map((item) => (
-                <article key={item.submission_id} className="mockexam-history-card">
+                <article key={item.exam_question_id} className="mockexam-history-card">
                   <div className="mockexam-history-copy">
                     <div className="mockexam-history-tags">
-                      <span>{item.exam_category || "Mock Exam"}</span>
-                      <span>{item.source_kind === "paper_set" ? "组合试卷" : "单张试卷"}</span>
-                      {item.exam_content ? <span>{item.exam_content}</span> : null}
+                      <span>{item.exam_content || "IELTS"}</span>
+                      {item.question_no ? <span>Q{item.question_no}</span> : null}
                     </div>
-                    <h4>{item.title}</h4>
+                    <h4>{item.paper_title}</h4>
+                    <p>{item.preview_text || item.question_id}</p>
                     <p>{formatTime(item.create_time)}</p>
-                  </div>
-
-                  <div className="mockexam-history-score">
-                    <strong>{item.score_percent == null ? "--" : `${item.score_percent}%`}</strong>
-                    <span>
-                      答对 {item.correct_count || 0} / {item.gradable_questions || 0}
-                    </span>
-                    <span>答错 {item.wrong_count || 0}</span>
                   </div>
 
                   <div className="mockexam-history-actions">
                     <button
                       type="button"
                       className="mockexam-secondary-button"
-                      onClick={() => navigate(`/mockexam/results/${item.submission_id}`)}
+                      onClick={() => navigate(`/mockexam/questions/${item.exam_question_id}`)}
                     >
-                      查看结果
-                    </button>
-                    <button
-                      type="button"
-                      className="mockexam-tertiary-button"
-                      onClick={() => navigate(`/mockexam/run/submission-review/${item.submission_id}`)}
-                    >
-                      <RotateCcw size={15} strokeWidth={2.1} />
-                      <span>回看答题</span>
+                      查看题目
                     </button>
                   </div>
                 </article>
               ))}
 
-              {!items.length ? <div className="mockexam-beta-empty">{emptyText}</div> : null}
+              {!items.length ? <div className="mockexam-beta-empty">暂无收藏题目</div> : null}
             </div>
           ) : null}
         </>

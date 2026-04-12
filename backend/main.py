@@ -72,6 +72,9 @@ def on_startup():
     当前为了让你快速跑通，先使用 create_all
     """
     Base.metadata.create_all(bind=engine)
+    from backend.services.exam_import_service import resume_pending_import_jobs
+
+    resume_pending_import_jobs()
 
 @app.get("/")
 def root():

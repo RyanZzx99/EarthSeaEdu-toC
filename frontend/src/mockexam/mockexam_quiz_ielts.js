@@ -97,7 +97,36 @@
   let QuestionStore = null;
   let idx = null;
 
-  function clone(obj){ return JSON.parse(JSON.stringify(obj || {})); }
+  function clone(obj){
+    if(obj === undefined || obj === null){ return obj; }
+    if(typeof obj !== 'object'){ return obj; }
+    return JSON.parse(JSON.stringify(obj));
+  }
+  function normalizeMarkedValue(value){
+    if(value === true || value === false){ return value; }
+    if(typeof value === 'string'){
+      var normalized = value.trim().toLowerCase();
+      if(normalized === 'true' || normalized === '1'){ return true; }
+      if(normalized === 'false' || normalized === '0' || normalized === ''){ return false; }
+    }
+    if(typeof value === 'number'){
+      return value === 1;
+    }
+    return false;
+  }
+  function sanitizeMarkedStateMap(target){
+    if(!target || typeof target !== 'object' || Array.isArray(target)) return;
+    Object.keys(target).forEach(function(key){
+      target[key] = normalizeMarkedValue(target[key]);
+    });
+  }
+  function buildMarkedPayload(){
+    var payload = {};
+    Object.keys(marked || {}).forEach(function(key){
+      payload[key] = normalizeMarkedValue(marked[key]);
+    });
+    return payload;
+  }
   function safeParseDataset(payload){
     if(payload===null||payload===undefined) return null;
     if(typeof payload==='string'){
@@ -345,17 +374,24 @@
   var rawData = bootstrap.items || null;
   var QUIZ_SESSION_ID = bootstrap.sessionId || null;
   var QUIZ_STARTED_AT = bootstrap.sessionCreatedAt || null;
-  var QUESTION_BANK_ID = bootstrap.questionBankId || null;
-  var QUIZ_SOURCE_TYPE = bootstrap.sourceType || 'question-bank';
-  var QUIZ_SOURCE_ID = bootstrap.sourceId || QUESTION_BANK_ID || null;
+  var QUIZ_SOURCE_TYPE = bootstrap.sourceType || 'paper';
+  var QUIZ_SOURCE_ID = bootstrap.sourceId || null;
   var QUIZ_SOURCE_TITLE = bootstrap.sourceTitle || bootstrap.fileName || '';
   var QUIZ_EXAM_CATEGORY = bootstrap.examCategory || '';
   var QUIZ_EXAM_CONTENT = bootstrap.examContent || '';
-  var SUBMIT_URL = bootstrap.submitUrl || (QUESTION_BANK_ID ? '/api/v1/mockexam/question-banks/' + QUESTION_BANK_ID + '/submit' : '');
-  var INLINE_PAYLOAD = bootstrap.inlinePayload || null;
+  var SUBMIT_URL = bootstrap.submitUrl || '';
+  var EXAM_PAPER_ID = bootstrap.examPaperId || null;
+  var PROGRESS_ID = bootstrap.progressId || null;
+  var SAVE_PROGRESS_URL = bootstrap.saveProgressUrl || '';
+  var FAVORITE_TOGGLE_BASE_URL = bootstrap.favoriteToggleBaseUrl || '';
   var REVIEW_MODE = !!bootstrap.reviewMode;
   var INITIAL_RESULT = safeParseDataset(bootstrap.initialResult) || null;
+  var INITIAL_QUESTION_ID = bootstrap.initialQuestionId || null;
+  var INITIAL_QUESTION_INDEX = typeof bootstrap.initialQuestionIndex === 'number' ? bootstrap.initialQuestionIndex : null;
+  var INITIAL_QUESTION_NO = bootstrap.initialQuestionNo || null;
+  var favoriteQuestionIds = new Set((safeParseDataset(bootstrap.initialFavoriteQuestionIds) || []).map(function(value){ return String(value); }));
   var quizSubmitting = false;
+  var quizSaving = false;
   var quizSubmitted = REVIEW_MODE;
 
   function seedObjectState(target, source){
@@ -367,6 +403,7 @@
 
   seedObjectState(answers, safeParseDataset(bootstrap.initialAnswers) || {});
   seedObjectState(marked, safeParseDataset(bootstrap.initialMarked) || {});
+  sanitizeMarkedStateMap(marked);
 
   function decryptAESCBC(encryptedMessage, key) {
       if (key === void 0) key = "rcF3FMdBGh0XF7kQoL16DsswTYs78byL";
@@ -407,6 +444,27 @@
   examData = normalizeExamData(resolveBootstrapExamData(rawData));
   QuestionStore = buildQuestionStore(examData);
   idx = QuestionStore.length ? 0 : null;
+  if(QuestionStore.length){
+    if(INITIAL_QUESTION_INDEX != null && INITIAL_QUESTION_INDEX >= 0 && INITIAL_QUESTION_INDEX < QuestionStore.length){
+      idx = INITIAL_QUESTION_INDEX;
+    } else if(INITIAL_QUESTION_ID){
+      for(var bootstrapIndex=0; bootstrapIndex<QuestionStore.length; bootstrapIndex+=1){
+        var bootstrapQuestion = QuestionStore.get(bootstrapIndex);
+        if(bootstrapQuestion && String(bootstrapQuestion.id) === String(INITIAL_QUESTION_ID)){
+          idx = bootstrapIndex;
+          break;
+        }
+      }
+    } else if(INITIAL_QUESTION_NO){
+      for(var bootstrapNoIndex=0; bootstrapNoIndex<QuestionStore.length; bootstrapNoIndex+=1){
+        var bootstrapQuestionNo = QuestionStore.get(bootstrapNoIndex);
+        if(bootstrapQuestionNo && String(bootstrapQuestionNo.question_no || bootstrapQuestionNo.displayNo || '') === String(INITIAL_QUESTION_NO)){
+          idx = bootstrapNoIndex;
+          break;
+        }
+      }
+    }
+  }
 
   window.examAPI = {
     goToQuestion: function(i){ setCurrentQuestion(i); },
@@ -437,6 +495,9 @@
   var qBadge=document.getElementById('qBadge');
   var markBtn=document.getElementById('markBtn');
   var markIcon=document.getElementById('markIcon');
+  var favoriteBtn=document.getElementById('favoriteBtn');
+  var favoriteIcon=document.getElementById('favoriteIcon');
+  var saveBtn=document.getElementById('saveBtn');
   var lockBadge=document.getElementById('lockBadge');
   var progressEl=document.getElementById('progress');
   var navOverlay=document.getElementById('navOverlay');
@@ -452,6 +513,12 @@
     if(!passage) return '';
     var url = passage.audio || passage.audioUrl || passage.audio_url || '';
     return String(url || '').trim();
+  }
+  function safeTypesetMath(target){
+    if(!target || !window.MathJax || typeof window.MathJax.typesetPromise !== 'function'){
+      return;
+    }
+    window.MathJax.typesetPromise([target]).catch(function(err){ console.error(err); });
   }
   function findCorrectIndex(opts,answer){ var ansRaw=String(answer||'').trim(); if(!ansRaw) return -1; var asLabel=ansRaw.toUpperCase(); for(var i=0;i<opts.length;i++){ if(opts[i].label===asLabel) return i; }
     var ansNorm=normalizeText(ansRaw); for(var j=0;j<opts.length;j++){ if(normalizeText(opts[j].content)===ansNorm) return j; } return -1; }
@@ -746,7 +813,7 @@
       target.questions.forEach(function(question){ ensureDefaultAnswer(question); qList.appendChild(buildQuestionCard(question)); });
       passageContainer.appendChild(qList);
     }
-    MathJax.typesetPromise([questionPane]).catch(function(err){console.error(err);});
+    safeTypesetMath(questionPane);
   }
 
   function buildQuestionCard(question){
@@ -1126,7 +1193,7 @@
      if(el){ el.scrollIntoView({behavior:'smooth',block:'nearest'}); }
    }
 
-   function setCurrentQuestion(newIndex,opts){
+  function setCurrentQuestion(newIndex,opts){
      if(!QuestionStore||!QuestionStore.length) return;
      if(newIndex<0) newIndex=0;
      if(newIndex>=QuestionStore.length) newIndex=QuestionStore.length-1;
@@ -1141,6 +1208,7 @@
      if(!opts||opts.scroll!==false){ scrollToCard(current.id); }
      if(previous&&previous.passageId!==current.passageId){ showNotice('已进入 '+current.passageTitle,'info'); }
      updateMarkUI();
+     updateFavoriteUI();
      updateLockBadge(current);
      updateNavButtons();
    }
@@ -1171,7 +1239,7 @@
      pill.classList.toggle('hidden', !marked[qId]);
    }
 
-   function updateLockBadge(question){ lockBadge.classList.toggle('hidden',!(question&&(isLocked(question)||shouldRevealAnswers()))); }
+  function updateLockBadge(question){ lockBadge.classList.toggle('hidden',!(question&&(isLocked(question)||shouldRevealAnswers()))); }
 
   function updateMarkUI(){
      var current=examAPI.getQuestion(idx);
@@ -1186,16 +1254,164 @@
      updateMarkIndicator(current.id);
    }
 
-   function answeredCount(){
+   function getCurrentQuestion(){
+     return examAPI.getQuestion(idx);
+   }
+
+   function currentExamQuestionId(){
+     var current=getCurrentQuestion();
+     if(!current || current.exam_question_id==null){ return null; }
+     return String(current.exam_question_id);
+   }
+
+   function updateFavoriteUI(){
+     if(!favoriteBtn || !favoriteIcon){ return; }
+     var current=getCurrentQuestion();
+     if(!current || current.exam_question_id==null){
+       favoriteBtn.setAttribute('aria-pressed','false');
+       favoriteBtn.disabled=true;
+       favoriteIcon.textContent='☆';
+       return;
+     }
+     favoriteBtn.disabled=REVIEW_MODE||quizSaving;
+     var currentFavorite=favoriteQuestionIds.has(String(current.exam_question_id));
+     favoriteBtn.setAttribute('aria-pressed',currentFavorite?'true':'false');
+     favoriteBtn.classList.toggle('is-marked',currentFavorite);
+     favoriteIcon.textContent=currentFavorite?'★':'☆';
+   }
+
+  function answeredCount(){
      var total=0; if(!QuestionStore) return 0;
      for(var i=0;i<QuestionStore.length;i++){ var q=examAPI.getQuestion(i); if(q&&hasAnswer(q.id,q)) total++; }
      return total;
+   }
+
+   function formatRequestErrorMessage(data, fallback){
+     var detail = data && data.detail;
+     if(typeof detail === 'string' && detail.trim()){
+       return detail;
+     }
+     if(Array.isArray(detail) && detail.length){
+       var messages = detail.map(function(item){
+         if(typeof item === 'string' && item.trim()){
+           return item.trim();
+         }
+         if(item && typeof item.msg === 'string' && item.msg.trim()){
+           var loc = Array.isArray(item.loc) ? item.loc.join('.') : '';
+           return loc ? (loc + ': ' + item.msg.trim()) : item.msg.trim();
+         }
+         return '';
+       }).filter(Boolean);
+       if(messages.length){
+         return messages.join('\n');
+       }
+     }
+     if(detail && typeof detail.msg === 'string' && detail.msg.trim()){
+       return detail.msg.trim();
+     }
+     if(data && typeof data.message === 'string' && data.message.trim()){
+       return data.message.trim();
+     }
+     return fallback;
    }
 
    function updateProgress(){
      var total=examAPI.getLength();
      progressEl.textContent='Answered '+answeredCount()+' / '+total;
      if(navOverlay.classList.contains('visible')) buildNavigator();
+   }
+
+   async function authorizedJsonRequest(url, body){
+     var token = '';
+     if(window.localStorage){
+       token = window.localStorage.getItem('access_token') || token;
+     }
+     if(!token && window.sessionStorage){
+       token = window.sessionStorage.getItem('access_token') || '';
+     }
+     var headers = { 'Content-Type': 'application/json' };
+     if(token){
+       headers.Authorization = 'Bearer ' + token;
+     }
+     var resp = await fetch(url, {
+       method: 'POST',
+       headers: headers,
+       credentials: 'same-origin',
+       body: JSON.stringify(body || {})
+     });
+     var data = {};
+     try { data = await resp.json(); } catch(_e) {}
+     if(!resp.ok || !data || data.status !== 'ok'){
+       throw new Error(formatRequestErrorMessage(data, '请求失败，请稍后重试。'));
+     }
+     return data;
+   }
+
+   async function saveCurrentProgress(){
+     if(REVIEW_MODE || quizSubmitted || quizSaving){
+       return;
+     }
+     if(!SAVE_PROGRESS_URL){
+       alert('当前试卷不支持保存进度。');
+       return;
+     }
+     var current=getCurrentQuestion();
+     if(!current){
+       alert('当前没有可保存的题目。');
+       return;
+     }
+     quizSaving = true;
+     if(saveBtn){ saveBtn.disabled=true; saveBtn.textContent='保存中...'; }
+     if(favoriteBtn){ favoriteBtn.disabled=true; }
+     try{
+        var data = await authorizedJsonRequest(SAVE_PROGRESS_URL, {
+          progress_id: PROGRESS_ID,
+          payload: examData,
+          answers: answers,
+          marked: buildMarkedPayload(),
+          current_question_id: current.id || null,
+          current_question_index: idx,
+          current_question_no: String(current.question_no || current.displayNo || '')
+       });
+       var item = data.item || {};
+       if(item.progress_id){ PROGRESS_ID = item.progress_id; }
+       showNotice('已保存当前进度', 'success');
+       if(window.parent && window.parent !== window && item.progress_id){
+         window.parent.postMessage({
+           type: 'mockexam:saved',
+           progress_id: item.progress_id
+         }, '*');
+       }
+     }catch(err){
+       alert(err && err.message ? err.message : '保存失败，请稍后重试。');
+     }finally{
+       quizSaving = false;
+       if(saveBtn){ saveBtn.disabled=REVIEW_MODE||quizSubmitted; saveBtn.textContent='保存并退出'; }
+       updateFavoriteUI();
+     }
+   }
+
+   async function toggleFavoriteCurrentQuestion(){
+     if(REVIEW_MODE || quizSaving || !FAVORITE_TOGGLE_BASE_URL){
+       return;
+     }
+     var current=getCurrentQuestion();
+     if(!current || current.exam_question_id==null){
+       return;
+     }
+     var currentId=String(current.exam_question_id);
+     var nextFavorite=!favoriteQuestionIds.has(currentId);
+     try{
+       await authorizedJsonRequest(FAVORITE_TOGGLE_BASE_URL.replace('__EXAM_QUESTION_ID__', currentId), {
+         is_favorite: nextFavorite
+       });
+       if(nextFavorite){ favoriteQuestionIds.add(currentId); }
+       else { favoriteQuestionIds.delete(currentId); }
+       updateFavoriteUI();
+       showNotice(nextFavorite ? '已加入收藏' : '已取消收藏', 'success');
+     }catch(err){
+       alert(err && err.message ? err.message : '收藏操作失败，请稍后重试。');
+     }
    }
 
   async function submitCurrentSession(){
@@ -1211,41 +1427,13 @@
      quizSubmitting = true;
      actionBtn.disabled = true;
      actionBtn.textContent = 'Submitting...';
-     try{
-       var token = '';
-       if(window.localStorage){
-         token = window.localStorage.getItem('access_token') || token;
-       }
-       if(!token && window.sessionStorage){
-         token = window.sessionStorage.getItem('access_token') || '';
-       }
-       var headers = { 'Content-Type': 'application/json' };
-       if(token){
-         headers.Authorization = 'Bearer ' + token;
-       }
-       var submitBody = {
-         answers: answers,
-         marked: marked
-       };
-       if(INLINE_PAYLOAD){
-         submitBody.payload = INLINE_PAYLOAD;
-         submitBody.source_type = QUIZ_SOURCE_TYPE;
-         submitBody.source_id = QUIZ_SOURCE_ID == null ? null : String(QUIZ_SOURCE_ID);
-         submitBody.source_title = QUIZ_SOURCE_TITLE || '';
-         submitBody.exam_category = QUIZ_EXAM_CATEGORY || '';
-         submitBody.exam_content = QUIZ_EXAM_CONTENT || '';
-       }
-       var resp = await fetch(SUBMIT_URL, {
-         method: 'POST',
-         headers: headers,
-         credentials: 'same-origin',
-         body: JSON.stringify(submitBody)
-       });
-       var data = {};
-       try { data = await resp.json(); } catch(_e) {}
-       if(!resp.ok || !data || data.status !== 'ok'){
-         throw new Error((data && data.message) ? data.message : '提交失败，请稍后重试。');
-       }
+      try{
+        var submitBody = {
+          answers: answers,
+          marked: buildMarkedPayload(),
+          progress_id: PROGRESS_ID
+        };
+       var data = await authorizedJsonRequest(SUBMIT_URL, submitBody);
        quizSubmitted = true;
        quizSubmitting = false;
        answersVisible = true;
@@ -1311,6 +1499,8 @@
    progressEl.addEventListener('click',function(){ if(!navOverlay.classList.contains('visible')) buildNavigator(); navOverlay.classList.toggle('visible'); });
 
    markBtn.addEventListener('click',function(){ var current=examAPI.getQuestion(idx); if(!current || REVIEW_MODE || quizSubmitted) return; marked[current.id]=!marked[current.id]; updateMarkUI(); updateProgress(); });
+   if(favoriteBtn){ favoriteBtn.addEventListener('click',function(){ void toggleFavoriteCurrentQuestion(); }); }
+   if(saveBtn){ saveBtn.addEventListener('click',function(){ void saveCurrentProgress(); }); }
    prevBtn.onclick=function(){ if(examAPI.getLength()===0||idx===null) return; setCurrentQuestion(idx-1); };
    actionBtn.onclick=function(){
      if(examAPI.getLength()===0||idx===null) return;
@@ -1360,7 +1550,7 @@
        }
      }
      updateStimulusLayout(passage);
-     MathJax.typesetPromise([stimulusPane]).catch(function(err){ console.error(err); });
+     safeTypesetMath(stimulusPane);
    }
 
    function isStimulusEmpty(passage){
@@ -1379,7 +1569,7 @@
    }
 
    renderExam();
-   if(examAPI.getLength()>0){ setCurrentQuestion(0,{scroll:false}); }
+   if(examAPI.getLength()>0){ setCurrentQuestion(idx!=null?idx:0,{scroll:false}); }
    startOverlay.style.display='none';
    resumeQuiz();
    updateProgress();
@@ -1387,6 +1577,11 @@
    if(REVIEW_MODE && INITIAL_RESULT){
      showNotice('已进入成绩回看', 'info');
    }
+
+   if(saveBtn){
+     saveBtn.disabled=REVIEW_MODE||quizSubmitted;
+   }
+   updateFavoriteUI();
 
    if(toggleAnswersBtn){
      if(REVIEW_MODE){

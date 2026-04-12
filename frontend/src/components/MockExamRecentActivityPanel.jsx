@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, LoaderCircle, RotateCcw, Trophy } from "lucide-react";
+import { ChevronDown, ChevronRight, Clock3, LoaderCircle, PlayCircle, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { getMockExamSubmissions } from "../api/mockexam";
+import { discardMockExamProgress, getMockExamProgresses } from "../api/mockexam";
 
 function formatTime(value) {
   if (!value) {
@@ -12,7 +12,6 @@ function formatTime(value) {
     return "";
   }
   return date.toLocaleString("zh-CN", {
-    year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -40,12 +39,7 @@ function getApiError(error, fallback) {
   return fallback;
 }
 
-export default function MockExamSubmissionHistoryPanel({
-  title = "成绩回看",
-  description = "这里保留最近交卷记录，可以直接查看结果或回看答题过程。",
-  limit = 10,
-  emptyText = "暂无成绩记录",
-}) {
+export default function MockExamRecentActivityPanel() {
   const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -53,53 +47,47 @@ export default function MockExamSubmissionHistoryPanel({
   const [expanded, setExpanded] = useState(false);
   const [loadedOnce, setLoadedOnce] = useState(false);
 
+  async function loadItems() {
+    try {
+      setLoading(true);
+      const response = await getMockExamProgresses({ limit: 10 });
+      setItems(response.data?.items || []);
+      setMessage("");
+    } catch (error) {
+      setItems([]);
+      setMessage(getApiError(error, "最近活动加载失败"));
+    } finally {
+      setLoading(false);
+      setLoadedOnce(true);
+    }
+  }
+
   useEffect(() => {
     if (!expanded || loadedOnce) {
-      return undefined;
+      return;
     }
+    void loadItems();
+  }, [expanded, loadedOnce]);
 
-    let active = true;
-
-    async function loadSubmissions() {
-      try {
-        setLoading(true);
-        const response = await getMockExamSubmissions({ limit });
-        if (!active) {
-          return;
-        }
-        setItems(response.data?.items || []);
-        setMessage("");
-      } catch (error) {
-        if (!active) {
-          return;
-        }
-        setItems([]);
-        setMessage(getApiError(error, "成绩记录加载失败"));
-      } finally {
-        if (active) {
-          setLoading(false);
-          setLoadedOnce(true);
-        }
-      }
+  async function handleDiscard(progressId) {
+    try {
+      await discardMockExamProgress(progressId);
+      await loadItems();
+    } catch (error) {
+      setMessage(getApiError(error, "放弃进度失败"));
     }
-
-    void loadSubmissions();
-
-    return () => {
-      active = false;
-    };
-  }, [expanded, limit, loadedOnce]);
+  }
 
   return (
     <div className="mockexam-panel">
       <div className={`mockexam-panel-head ${expanded ? "" : "mockexam-panel-head-collapsed"}`}>
         <div>
-          <h3>{title}</h3>
-          <p>{description}</p>
+          <h3>最近活动</h3>
+          <p>这里保留未交卷的模考，保存后可以继续作答。</p>
         </div>
         <div className="mockexam-panel-head-actions">
           <span className="mockexam-panel-badge">
-            <Trophy size={22} strokeWidth={2.1} />
+            <Clock3 size={22} strokeWidth={2.1} />
           </span>
           <button
             type="button"
@@ -117,7 +105,7 @@ export default function MockExamSubmissionHistoryPanel({
         <>
           {loading ? (
             <div className="mockexam-inline-note">
-              <LoaderCircle size={16} strokeWidth={2.1} className="spin" /> 正在加载成绩记录...
+              <LoaderCircle size={16} strokeWidth={2.1} className="spin" /> 正在加载最近活动...
             </div>
           ) : null}
 
@@ -126,46 +114,43 @@ export default function MockExamSubmissionHistoryPanel({
           {!loading && !message ? (
             <div className="mockexam-history-list">
               {items.map((item) => (
-                <article key={item.submission_id} className="mockexam-history-card">
+                <article key={item.progress_id} className="mockexam-history-card">
                   <div className="mockexam-history-copy">
                     <div className="mockexam-history-tags">
-                      <span>{item.exam_category || "Mock Exam"}</span>
+                      <span>未完成</span>
                       <span>{item.source_kind === "paper_set" ? "组合试卷" : "单张试卷"}</span>
                       {item.exam_content ? <span>{item.exam_content}</span> : null}
                     </div>
                     <h4>{item.title}</h4>
-                    <p>{formatTime(item.create_time)}</p>
-                  </div>
-
-                  <div className="mockexam-history-score">
-                    <strong>{item.score_percent == null ? "--" : `${item.score_percent}%`}</strong>
-                    <span>
-                      答对 {item.correct_count || 0} / {item.gradable_questions || 0}
-                    </span>
-                    <span>答错 {item.wrong_count || 0}</span>
+                    <p>
+                      已答 {item.answered_count || 0} / {item.total_questions || 0}
+                      {item.current_question_no ? ` · 停在 ${item.current_question_no}` : ""}
+                      {item.last_active_time ? ` · ${formatTime(item.last_active_time)}` : ""}
+                    </p>
                   </div>
 
                   <div className="mockexam-history-actions">
                     <button
                       type="button"
                       className="mockexam-secondary-button"
-                      onClick={() => navigate(`/mockexam/results/${item.submission_id}`)}
+                      onClick={() => navigate(`/mockexam/run/progress/${item.progress_id}`)}
                     >
-                      查看结果
+                      <PlayCircle size={15} strokeWidth={2.1} />
+                      <span>继续作答</span>
                     </button>
                     <button
                       type="button"
                       className="mockexam-tertiary-button"
-                      onClick={() => navigate(`/mockexam/run/submission-review/${item.submission_id}`)}
+                      onClick={() => void handleDiscard(item.progress_id)}
                     >
-                      <RotateCcw size={15} strokeWidth={2.1} />
-                      <span>回看答题</span>
+                      <Trash2 size={15} strokeWidth={2.1} />
+                      <span>放弃</span>
                     </button>
                   </div>
                 </article>
               ))}
 
-              {!items.length ? <div className="mockexam-beta-empty">{emptyText}</div> : null}
+              {!items.length ? <div className="mockexam-beta-empty">暂无未完成试卷</div> : null}
             </div>
           ) : null}
         </>

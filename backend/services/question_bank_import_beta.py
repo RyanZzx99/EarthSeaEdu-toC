@@ -8,8 +8,10 @@ from dataclasses import dataclass
 from html import unescape
 from html.parser import HTMLParser
 from io import BytesIO
+from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
+from typing import Callable
 from zipfile import BadZipFile
 from zipfile import ZipFile
 
@@ -78,6 +80,12 @@ class UploadedImportFile:
 
 
 @dataclass(slots=True)
+class StoredImportFile:
+    filename: str
+    file_path: Path
+
+
+@dataclass(slots=True)
 class VirtualImportFile:
     logical_path: str
     raw_bytes: bytes
@@ -89,6 +97,20 @@ class ImportPackage:
     root_path: str
     manifest_path: str
     files: dict[str, VirtualImportFile]
+
+
+@dataclass(slots=True)
+class PreparedImportPackage:
+    package: ImportPackage
+    manifest: dict[str, Any]
+    manifest_passages: list[dict[str, Any]]
+    subject_type: str
+    book_code: str | None
+    test_no: int | None
+    bank_code: str
+    bank_name: str
+    paper_code: str
+    paper_name: str
 
 
 @dataclass(slots=True)
@@ -140,6 +162,8 @@ def import_question_bank_test_beta_impl(
     source_mode: str,
     uploaded_files: list[UploadedImportFile],
     entry_paths_json: str | None,
+    bank_name_override: str | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     normalized_source_mode = normalize_structured_import_source_mode(source_mode)
     normalized_uploaded_files = normalize_uploaded_import_files(uploaded_files)
@@ -168,9 +192,40 @@ def import_question_bank_test_beta_impl(
         "assets": 0,
     }
 
-    for package in packages:
+    def emit_progress(message: str) -> None:
+        if progress_callback is None:
+            return
+        progress_callback(
+            {
+                "resolved_file_count": len(virtual_files),
+                "manifest_count": len(packages),
+                "success_count": len(success_items),
+                "failure_count": len(failed_items),
+                "imported_bank_count": len(touched_bank_codes),
+                "imported_paper_count": len(success_items),
+                "imported_section_count": aggregate_counts["sections"],
+                "imported_group_count": aggregate_counts["groups"],
+                "imported_question_count": aggregate_counts["questions"],
+                "imported_answer_count": aggregate_counts["answers"],
+                "imported_blank_count": aggregate_counts["blanks"],
+                "imported_option_count": aggregate_counts["options"],
+                "imported_asset_count": aggregate_counts["assets"],
+                "progress_message": message,
+                "items": list(success_items),
+                "failures": list(failed_items),
+            }
+        )
+
+    emit_progress(f"已识别 {len(packages)} 个题包，开始导入")
+
+    total_packages = len(packages)
+    for package_index, package in enumerate(packages, start=1):
         try:
-            result = import_single_ielts_package(db, package=package)
+            result = import_single_ielts_package(
+                db,
+                package=package,
+                bank_name_override=bank_name_override,
+            )
             db.commit()
             touched_bank_codes.add(result.bank_code)
             success_items.append(
@@ -186,6 +241,9 @@ def import_question_bank_test_beta_impl(
             )
             for key, value in result.counts.items():
                 aggregate_counts[key] += value
+            emit_progress(
+                f"已完成 {package_index}/{total_packages} 个题包，成功 {len(success_items)} 个"
+            )
         except Exception as exc:  # noqa: BLE001
             db.rollback()
             failed_items.append(
@@ -193,6 +251,9 @@ def import_question_bank_test_beta_impl(
                     "package_root": package.root_path or ".",
                     "message": str(exc),
                 }
+            )
+            emit_progress(
+                f"已完成 {package_index}/{total_packages} 个题包，失败 {len(failed_items)} 个"
             )
 
     if not success_items:
@@ -353,7 +414,12 @@ def make_relative_path(full_path: str, root_path: str) -> str | None:
     return normalized_full_path[len(prefix) :]
 
 
-def import_single_ielts_package(db: Session, *, package: ImportPackage) -> PackageImportResult:
+def import_single_ielts_package(
+    db: Session,
+    *,
+    package: ImportPackage,
+    bank_name_override: str | None = None,
+) -> PackageImportResult:
     manifest = read_json_from_package(package, "manifest.json")
     manifest_passages = manifest.get("passages")
     if not isinstance(manifest_passages, list) or not manifest_passages:
@@ -362,6 +428,7 @@ def import_single_ielts_package(db: Session, *, package: ImportPackage) -> Packa
     subject_type = infer_subject_type(manifest=manifest, package=package)
     book_code, test_no = extract_book_and_test_numbers(manifest=manifest, package=package)
     bank_code, bank_name = build_bank_identity(manifest=manifest, package=package, book_code=book_code)
+    bank_name = normalize_string(bank_name_override) or bank_name
     paper_code, paper_name = build_paper_identity(
         manifest=manifest,
         package=package,
@@ -1320,6 +1387,714 @@ def resolve_package_asset_file(
         if virtual_file is not None:
             return virtual_file
     return None
+
+
+def import_question_bank_test_beta_impl(
+    db: Session,
+    *,
+    source_mode: str,
+    uploaded_files: list[UploadedImportFile],
+    entry_paths_json: str | None,
+    bank_name_override: str | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    normalized_source_mode = normalize_structured_import_source_mode(source_mode)
+    normalized_uploaded_files = normalize_uploaded_import_files(uploaded_files)
+    if not normalized_uploaded_files:
+        raise ValueError("请至少上传一个文件")
+
+    entry_paths = parse_entry_paths_json(entry_paths_json, expected_count=len(normalized_uploaded_files))
+    virtual_files = build_virtual_import_files(
+        uploaded_files=normalized_uploaded_files,
+        entry_paths=entry_paths,
+    )
+    return import_question_bank_test_beta_from_virtual_files_impl(
+        db,
+        source_mode=normalized_source_mode,
+        virtual_files=virtual_files,
+        uploaded_file_count=len(normalized_uploaded_files),
+        bank_name_override=bank_name_override,
+        progress_callback=progress_callback,
+    )
+
+
+def import_question_bank_test_beta_from_stored_files_impl(
+    db: Session,
+    *,
+    source_mode: str,
+    stored_files: list[StoredImportFile],
+    entry_paths_json: str | None,
+    bank_name_override: str | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    normalized_source_mode = normalize_structured_import_source_mode(source_mode)
+    if not stored_files:
+        raise ValueError("请至少上传一个文件")
+
+    entry_paths = parse_entry_paths_json(entry_paths_json, expected_count=len(stored_files))
+    virtual_files = build_virtual_import_files_from_stored_files(
+        stored_files=stored_files,
+        entry_paths=entry_paths,
+    )
+    return import_question_bank_test_beta_from_virtual_files_impl(
+        db,
+        source_mode=normalized_source_mode,
+        virtual_files=virtual_files,
+        uploaded_file_count=len(stored_files),
+        bank_name_override=bank_name_override,
+        progress_callback=progress_callback,
+    )
+
+
+def build_virtual_import_files_from_stored_files(
+    *,
+    stored_files: list[StoredImportFile],
+    entry_paths: list[str],
+) -> dict[str, VirtualImportFile]:
+    virtual_files: dict[str, VirtualImportFile] = {}
+    for index, stored_file in enumerate(stored_files):
+        filename = stored_file.filename
+        logical_path = normalize_import_path(entry_paths[index] if index < len(entry_paths) else filename)
+        logical_path = logical_path or normalize_import_path(filename)
+        if stored_file.file_path.suffix.lower() == ".zip":
+            archive_prefix = shorten_identifier(slugify_ascii(stored_file.file_path.stem) or f"archive_{index + 1}", 60)
+            try:
+                with ZipFile(stored_file.file_path) as zip_file:
+                    for zip_info in zip_file.infolist():
+                        if zip_info.is_dir():
+                            continue
+                        nested_path = normalize_import_path(f"{archive_prefix}/{zip_info.filename}")
+                        if not nested_path:
+                            continue
+                        add_virtual_import_file(
+                            virtual_files,
+                            logical_path=nested_path,
+                            raw_bytes=zip_file.read(zip_info.filename),
+                            origin_name=filename,
+                        )
+            except BadZipFile as exc:
+                raise ValueError(f"{filename} 不是合法 zip 压缩包") from exc
+            continue
+
+        if not logical_path:
+            raise ValueError(f"{filename} 的导入路径为空")
+        add_virtual_import_file(
+            virtual_files,
+            logical_path=logical_path,
+            raw_bytes=stored_file.file_path.read_bytes(),
+            origin_name=filename,
+        )
+    return virtual_files
+
+
+def import_question_bank_test_beta_from_virtual_files_impl(
+    db: Session,
+    *,
+    source_mode: str,
+    virtual_files: dict[str, VirtualImportFile],
+    uploaded_file_count: int,
+    bank_name_override: str | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    packages = discover_import_packages(virtual_files)
+    if not packages:
+        raise ValueError("导入内容中没有找到 manifest.json")
+
+    result_items: list[dict[str, Any]] = []
+    failed_items: list[dict[str, str]] = []
+    touched_bank_codes: set[str] = set()
+    skipped_count = 0
+    aggregate_counts = {
+        "sections": 0,
+        "groups": 0,
+        "questions": 0,
+        "answers": 0,
+        "blanks": 0,
+        "options": 0,
+        "assets": 0,
+    }
+
+    prepared_packages: list[PreparedImportPackage] = []
+    for package in packages:
+        try:
+            prepared_packages.append(
+                prepare_import_package(
+                    package=package,
+                    bank_name_override=bank_name_override,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            failed_items.append(
+                {
+                    "package_root": package.root_path or ".",
+                    "message": str(exc),
+                }
+            )
+
+    existing_paper_codes = load_existing_paper_codes(
+        db,
+        [prepared_package.paper_code for prepared_package in prepared_packages],
+    )
+    bank_cache = load_existing_banks(
+        db,
+        [prepared_package.bank_code for prepared_package in prepared_packages],
+    )
+
+    def emit_progress(message: str) -> None:
+        if progress_callback is None:
+            return
+        imported_count = len([item for item in result_items if item.get("import_status") == "imported"])
+        progress_callback(
+            {
+                "resolved_file_count": len(virtual_files),
+                "manifest_count": len(packages),
+                "success_count": imported_count,
+                "skipped_count": skipped_count,
+                "failure_count": len(failed_items),
+                "imported_bank_count": len(touched_bank_codes),
+                "imported_paper_count": imported_count,
+                "imported_section_count": aggregate_counts["sections"],
+                "imported_group_count": aggregate_counts["groups"],
+                "imported_question_count": aggregate_counts["questions"],
+                "imported_answer_count": aggregate_counts["answers"],
+                "imported_blank_count": aggregate_counts["blanks"],
+                "imported_option_count": aggregate_counts["options"],
+                "imported_asset_count": aggregate_counts["assets"],
+                "progress_message": message,
+                "items": list(result_items),
+                "failures": list(failed_items),
+            }
+        )
+
+    emit_progress(f"已识别 {len(packages)} 个题包，开始导入")
+
+    seen_batch_paper_codes: set[str] = set()
+    total_packages = len(prepared_packages)
+    for package_index, prepared_package in enumerate(prepared_packages, start=1):
+        package = prepared_package.package
+        if prepared_package.paper_code in seen_batch_paper_codes:
+            skipped_count += 1
+            result_items.append(
+                build_result_item(
+                    prepared_package=prepared_package,
+                    package_root=package.root_path,
+                    import_status="skipped_duplicate_batch",
+                )
+            )
+            emit_progress(
+                f"已完成 {package_index}/{total_packages} 个题包，批次内重复已跳过 {skipped_count} 个"
+            )
+            continue
+
+        seen_batch_paper_codes.add(prepared_package.paper_code)
+        if prepared_package.paper_code in existing_paper_codes:
+            skipped_count += 1
+            result_items.append(
+                build_result_item(
+                    prepared_package=prepared_package,
+                    package_root=package.root_path,
+                    import_status="skipped_existing",
+                )
+            )
+            emit_progress(
+                f"已完成 {package_index}/{total_packages} 个题包，库内已存在已跳过 {skipped_count} 个"
+            )
+            continue
+
+        try:
+            result = import_single_ielts_package(
+                db,
+                prepared_package=prepared_package,
+                bank_cache=bank_cache,
+            )
+            db.commit()
+            existing_paper_codes.add(prepared_package.paper_code)
+            touched_bank_codes.add(result.bank_code)
+            result_items.append(
+                build_result_item(
+                    prepared_package=prepared_package,
+                    package_root=package.root_path,
+                    import_status=result.import_status,
+                )
+            )
+            for key, value in result.counts.items():
+                aggregate_counts[key] += value
+            imported_count = len([item for item in result_items if item.get("import_status") == "imported"])
+            emit_progress(
+                f"已完成 {package_index}/{total_packages} 个题包，成功导入 {imported_count} 个"
+            )
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            failed_items.append(
+                {
+                    "package_root": package.root_path or ".",
+                    "message": str(exc),
+                }
+            )
+            emit_progress(
+                f"已完成 {package_index}/{total_packages} 个题包，失败 {len(failed_items)} 个"
+            )
+
+    imported_count = len([item for item in result_items if item.get("import_status") == "imported"])
+    if imported_count == 0 and skipped_count == 0:
+        message = "；".join(f"{item['package_root']}：{item['message']}" for item in failed_items[:5])
+        raise ValueError(message or "未成功导入任何题库")
+
+    return {
+        "source_mode": source_mode,
+        "uploaded_file_count": uploaded_file_count,
+        "resolved_file_count": len(virtual_files),
+        "manifest_count": len(packages),
+        "success_count": imported_count,
+        "skipped_count": skipped_count,
+        "failure_count": len(failed_items),
+        "imported_bank_count": len(touched_bank_codes),
+        "imported_paper_count": imported_count,
+        "imported_section_count": aggregate_counts["sections"],
+        "imported_group_count": aggregate_counts["groups"],
+        "imported_question_count": aggregate_counts["questions"],
+        "imported_answer_count": aggregate_counts["answers"],
+        "imported_blank_count": aggregate_counts["blanks"],
+        "imported_option_count": aggregate_counts["options"],
+        "imported_asset_count": aggregate_counts["assets"],
+        "items": result_items,
+        "failures": failed_items,
+    }
+
+
+def build_result_item(
+    *,
+    prepared_package: PreparedImportPackage,
+    package_root: str,
+    import_status: str,
+) -> dict[str, Any]:
+    return {
+        "bank_code": prepared_package.bank_code,
+        "bank_name": prepared_package.bank_name,
+        "paper_code": prepared_package.paper_code,
+        "paper_name": prepared_package.paper_name,
+        "subject_type": prepared_package.subject_type,
+        "import_status": import_status,
+        "package_root": package_root or ".",
+    }
+
+
+def prepare_import_package(
+    *,
+    package: ImportPackage,
+    bank_name_override: str | None = None,
+) -> PreparedImportPackage:
+    manifest = read_json_from_package(package, "manifest.json")
+    manifest_passages = manifest.get("passages")
+    if not isinstance(manifest_passages, list) or not manifest_passages:
+        raise ValueError("manifest.json 缺少 passages[]")
+
+    subject_type = infer_subject_type(manifest=manifest, package=package)
+    book_code, test_no = extract_book_and_test_numbers(manifest=manifest, package=package)
+    bank_code, bank_name = build_bank_identity(manifest=manifest, package=package, book_code=book_code)
+    bank_name = normalize_string(bank_name_override) or bank_name
+    paper_code, paper_name = build_paper_identity(
+        manifest=manifest,
+        package=package,
+        subject_type=subject_type,
+        book_code=book_code,
+        test_no=test_no,
+        bank_code=bank_code,
+    )
+    return PreparedImportPackage(
+        package=package,
+        manifest=manifest,
+        manifest_passages=manifest_passages,
+        subject_type=subject_type,
+        book_code=book_code,
+        test_no=test_no,
+        bank_code=bank_code,
+        bank_name=bank_name,
+        paper_code=paper_code,
+        paper_name=paper_name,
+    )
+
+
+def load_existing_paper_codes(db: Session, paper_codes: list[str]) -> set[str]:
+    normalized_codes = sorted({normalize_string(code) for code in paper_codes if normalize_string(code)})
+    if not normalized_codes:
+        return set()
+    rows = (
+        db.query(ExamPaper.paper_code)
+        .filter(ExamPaper.paper_code.in_(normalized_codes))
+        .filter(ExamPaper.delete_flag == "1")
+        .all()
+    )
+    return {row.paper_code for row in rows}
+
+
+def load_existing_banks(db: Session, bank_codes: list[str]) -> dict[str, ExamBank]:
+    normalized_codes = sorted({normalize_string(code) for code in bank_codes if normalize_string(code)})
+    if not normalized_codes:
+        return {}
+    rows = (
+        db.query(ExamBank)
+        .filter(ExamBank.bank_code.in_(normalized_codes))
+        .filter(ExamBank.delete_flag == "1")
+        .all()
+    )
+    return {row.bank_code: row for row in rows}
+
+
+def discover_import_packages(virtual_files: dict[str, VirtualImportFile]) -> list[ImportPackage]:
+    manifest_paths = sorted(
+        path
+        for path in virtual_files
+        if PurePosixPath(path).name.lower() == "manifest.json"
+    )
+    if not manifest_paths:
+        return []
+
+    root_by_manifest_path = {
+        manifest_path: normalize_import_path(str(PurePosixPath(manifest_path).parent))
+        for manifest_path in manifest_paths
+    }
+    package_roots = set(root_by_manifest_path.values())
+    package_files_by_root: dict[str, dict[str, VirtualImportFile]] = {
+        package_root: {}
+        for package_root in package_roots
+    }
+
+    for full_path, item in virtual_files.items():
+        package_root = resolve_package_root_for_path(full_path, package_roots)
+        if package_root is None:
+            continue
+        relative_path = make_relative_path(full_path, package_root)
+        if relative_path is None:
+            continue
+        package_files_by_root[package_root][relative_path] = item
+
+    return [
+        ImportPackage(
+            root_path=root_by_manifest_path[manifest_path],
+            manifest_path=manifest_path,
+            files=package_files_by_root.get(root_by_manifest_path[manifest_path], {}),
+        )
+        for manifest_path in manifest_paths
+    ]
+
+
+def resolve_package_root_for_path(full_path: str, package_roots: set[str]) -> str | None:
+    normalized_full_path = normalize_import_path(full_path)
+    if not normalized_full_path:
+        return "" if "" in package_roots else None
+
+    current_path = PurePosixPath(normalized_full_path).parent
+    while True:
+        candidate_root = normalize_import_path(str(current_path))
+        if candidate_root in package_roots:
+            return candidate_root
+        if str(current_path) in {"", "."}:
+            break
+        current_path = current_path.parent
+
+    return "" if "" in package_roots else None
+
+
+def import_single_ielts_package(
+    db: Session,
+    *,
+    prepared_package: PreparedImportPackage,
+    bank_cache: dict[str, ExamBank],
+) -> PackageImportResult:
+    package = prepared_package.package
+    manifest = prepared_package.manifest
+    manifest_passages = prepared_package.manifest_passages
+
+    bank = get_or_create_exam_bank(
+        db,
+        bank_code=prepared_package.bank_code,
+        bank_name=prepared_package.bank_name,
+        subject_type=prepared_package.subject_type,
+        source_name=package.root_path or manifest.get("paper") or manifest.get("module") or "import",
+        bank_cache=bank_cache,
+    )
+
+    paper = ExamPaper(
+        exam_bank_id=bank.exam_bank_id,
+        paper_code=prepared_package.paper_code,
+        paper_name=prepared_package.paper_name,
+        module_name=normalize_string(manifest.get("module")),
+        subject_type=prepared_package.subject_type,
+        book_code=prepared_package.book_code,
+        test_no=prepared_package.test_no,
+        status=1,
+        delete_flag="1",
+    )
+    db.add(paper)
+    db.flush()
+
+    counts = {
+        "sections": 0,
+        "groups": 0,
+        "questions": 0,
+        "answers": 0,
+        "blanks": 0,
+        "options": 0,
+        "assets": 0,
+    }
+
+    for section_index, manifest_passage in enumerate(manifest_passages, start=1):
+        if not isinstance(manifest_passage, dict):
+            continue
+
+        source_file = normalize_string(manifest_passage.get("file"))
+        if not source_file:
+            raise ValueError(f"{package.root_path or '.'} 的 manifest.json 存在缺少 file 的 section")
+
+        section_doc = read_json_from_package(package, source_file)
+        section_payload = resolve_section_payload(
+            section_doc=section_doc,
+            expected_section_id=normalize_string(manifest_passage.get("id")),
+        )
+
+        section = ExamSection(
+            exam_paper_id=paper.exam_paper_id,
+            section_id=normalize_string(section_payload.get("id")) or normalize_string(manifest_passage.get("id")),
+            section_no=parse_section_no(section_payload.get("id")) or section_index,
+            section_title=normalize_string(section_payload.get("title")) or normalize_string(manifest_passage.get("title")),
+            content_html=normalize_string(section_payload.get("content")),
+            content_text=html_to_text(section_payload.get("content")),
+            instructions_html=normalize_string(section_payload.get("instructions")),
+            instructions_text=html_to_text(section_payload.get("instructions")),
+            sort_order=section_index,
+            source_file=source_file,
+            status=1,
+            delete_flag="1",
+        )
+        db.add(section)
+        db.flush()
+        counts["sections"] += 1
+
+        section_audio_assets = create_assets_for_owner(
+            db,
+            package=package,
+            paper=paper,
+            owner_type="section",
+            source_paths=[normalize_string(section_payload.get("audio"))],
+            section=section,
+            asset_role="primary_audio",
+            source_context_path=source_file,
+        )
+        if section_audio_assets:
+            section.primary_audio_asset_id = section_audio_assets[0].exam_asset_id
+            counts["assets"] += len(section_audio_assets)
+
+        section_image_assets = create_assets_for_owner(
+            db,
+            package=package,
+            paper=paper,
+            owner_type="section",
+            source_paths=extract_image_sources(section.instructions_html) + extract_image_sources(section.content_html),
+            section=section,
+            asset_role="primary_image",
+            source_context_path=source_file,
+        )
+        if section_image_assets:
+            section.primary_image_asset_id = section_image_assets[0].exam_asset_id
+            counts["assets"] += len(section_image_assets)
+
+        groups = section_payload.get("groups")
+        if not isinstance(groups, list):
+            groups = []
+
+        for group_index, group_payload in enumerate(groups, start=1):
+            if not isinstance(group_payload, dict):
+                continue
+
+            group_content_html = extract_group_content_html(group_payload)
+            raw_type = normalize_string(group_payload.get("type"))
+            stat_type = infer_stat_type(raw_type=raw_type, group_payload=group_payload)
+            blank_ids = collect_group_blank_ids(group_payload)
+            raw_question_ids = collect_group_question_ids(group_payload)
+            shared_options = extract_group_shared_options(group_payload)
+            group = ExamGroup(
+                exam_section_id=section.exam_section_id,
+                group_id=normalize_string(group_payload.get("id")),
+                group_title=normalize_string(group_payload.get("title")),
+                raw_type=raw_type,
+                stat_type=stat_type,
+                instructions_html=normalize_string(group_payload.get("instructions")),
+                instructions_text=html_to_text(group_payload.get("instructions")),
+                content_html=group_content_html,
+                content_text=html_to_text(group_content_html),
+                has_shared_options=1 if shared_options else 0,
+                has_blanks=1 if blank_ids else 0,
+                primary_image_asset_id=None,
+                structure_json={
+                    "blank_ids": blank_ids,
+                    "raw_question_ids": raw_question_ids,
+                },
+                sort_order=group_index,
+                status=1,
+                delete_flag="1",
+            )
+            db.add(group)
+            db.flush()
+            counts["groups"] += 1
+
+            group_image_assets = create_assets_for_owner(
+                db,
+                package=package,
+                paper=paper,
+                owner_type="group",
+                source_paths=extract_image_sources(group.instructions_html) + extract_image_sources(group.content_html),
+                section=section,
+                group=group,
+                asset_role="primary_image",
+                source_context_path=source_file,
+            )
+            if group_image_assets:
+                group.primary_image_asset_id = group_image_assets[0].exam_asset_id
+                counts["assets"] += len(group_image_assets)
+
+            option_rows: list[ExamGroupOption] = []
+            for option_index, raw_option in enumerate(shared_options, start=1):
+                option_html = normalize_string(raw_option)
+                option_key = extract_option_key(option_html, fallback_index=option_index)
+                option_text = strip_option_prefix(html_to_text(option_html), option_key=option_key)
+                option_rows.append(
+                    ExamGroupOption(
+                        exam_group_id=group.exam_group_id,
+                        option_key=option_key,
+                        option_html=option_html,
+                        option_text=option_text,
+                        sort_order=option_index,
+                        status=1,
+                        delete_flag="1",
+                    )
+                )
+            if option_rows:
+                db.add_all(option_rows)
+                counts["options"] += len(option_rows)
+
+            import_questions_for_group(
+                db,
+                package=package,
+                source_context_path=source_file,
+                paper=paper,
+                section=section,
+                group=group,
+                group_payload=group_payload,
+                counts=counts,
+            )
+
+    return PackageImportResult(
+        bank_code=bank.bank_code,
+        bank_name=bank.bank_name,
+        paper_code=paper.paper_code,
+        paper_name=paper.paper_name,
+        subject_type=paper.subject_type,
+        import_status="imported",
+        counts=counts,
+    )
+
+
+def get_or_create_exam_bank(
+    db: Session,
+    *,
+    bank_code: str,
+    bank_name: str,
+    subject_type: str,
+    source_name: str,
+    bank_cache: dict[str, ExamBank] | None = None,
+) -> ExamBank:
+    if bank_cache is None:
+        bank_cache = {}
+
+    bank = bank_cache.get(bank_code)
+    if bank is None:
+        bank = ExamBank(
+            bank_code=bank_code,
+            bank_name=bank_name,
+            exam_type="IELTS",
+            subject_scope=subject_type,
+            source_name=source_name,
+            status=1,
+            delete_flag="1",
+        )
+        db.add(bank)
+        db.flush()
+        bank_cache[bank_code] = bank
+        return bank
+
+    bank.bank_name = bank_name or bank.bank_name
+    bank.subject_scope = merge_subject_scope(bank.subject_scope, subject_type)
+    bank.source_name = source_name or bank.source_name
+    bank.status = 1
+    bank.delete_flag = "1"
+    return bank
+
+
+def create_assets_for_owner(
+    db: Session,
+    *,
+    package: ImportPackage,
+    paper: ExamPaper,
+    owner_type: str,
+    source_paths: list[str],
+    asset_role: str,
+    section: ExamSection | None = None,
+    group: ExamGroup | None = None,
+    question: ExamQuestion | None = None,
+    source_context_path: str | None = None,
+) -> list[ExamAsset]:
+    created_assets: list[ExamAsset] = []
+    deduped_paths: list[str] = []
+    seen_paths: set[str] = set()
+    for raw_source_path in source_paths:
+        normalized_source_path = normalize_string(raw_source_path)
+        if normalized_source_path and normalized_source_path not in seen_paths:
+            seen_paths.add(normalized_source_path)
+            deduped_paths.append(normalized_source_path)
+
+    for index, source_path in enumerate(deduped_paths, start=1):
+        role = asset_role if index == 1 else "inline_image"
+        storage_path: str | None = None
+        asset_url = source_path if is_external_asset_url(source_path) else ""
+        if not asset_url:
+            storage_path = build_asset_storage_path(
+                paper=paper,
+                owner_type=owner_type,
+                source_path=source_path,
+                section=section,
+                group=group,
+                question=question,
+            )
+            persisted = persist_package_asset_file(
+                package=package,
+                source_path=source_path,
+                storage_path=storage_path,
+                source_context_path=source_context_path,
+            )
+            asset_url = build_exam_asset_url(storage_path) if persisted else ""
+        created_assets.append(
+            ExamAsset(
+                exam_section_id=section.exam_section_id if section else None,
+                exam_group_id=group.exam_group_id if group else None,
+                exam_question_id=question.exam_question_id if question else None,
+                owner_type=owner_type,
+                asset_type=infer_asset_type(source_path),
+                asset_role=role,
+                asset_name=PurePosixPath(source_path).name or f"asset_{index}",
+                source_path=source_path,
+                storage_path=storage_path,
+                asset_url=asset_url,
+                sort_order=index,
+                status=1,
+                delete_flag="1",
+            )
+        )
+
+    if created_assets:
+        db.add_all(created_assets)
+        db.flush()
+    return created_assets
 
 
 def stringify_raw_answer(answer: Any) -> str:

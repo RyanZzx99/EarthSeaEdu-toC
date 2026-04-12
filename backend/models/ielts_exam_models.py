@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
-
 from sqlalchemy import BigInteger
 from sqlalchemy import CHAR
 from sqlalchemy import DateTime
@@ -20,10 +18,6 @@ from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
 
 from backend.config.db_conf import Base
-
-if TYPE_CHECKING:
-    from backend.models.question_bank_models import QuestionBank
-
 
 class ExamBank(Base):
     __tablename__ = "exam_bank"
