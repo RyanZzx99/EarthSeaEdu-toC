@@ -463,12 +463,13 @@ export function updateAiRuntimeConfig(configKey, data, adminKey) {
   });
 }
 
-export function importQuestionBank(formData, adminKey) {
+export function importQuestionBank(formData, adminKey, options = {}) {
   return request.post("/api/v1/auth/question-banks/import", formData, {
     headers: {
       "X-Admin-Key": adminKey,
     },
-    timeout: 120000,
+    timeout: 0,
+    onUploadProgress: options.onUploadProgress,
   });
 }
 
