@@ -225,6 +225,68 @@ function createImportBetaItems(fileList) {
   }));
 }
 
+function formatFileSize(size) {
+  const numericSize = Number(size || 0);
+  if (!Number.isFinite(numericSize) || numericSize <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  let value = numericSize;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const fixed = value >= 100 || unitIndex === 0 ? 0 : value >= 10 ? 1 : 2;
+  return `${value.toFixed(fixed)} ${units[unitIndex]}`;
+}
+
+function formatAdminRequestError(error, fallbackMessage) {
+  const response = error?.response;
+  const status = response?.status;
+  const detail = response?.data?.detail;
+
+  if (Array.isArray(detail)) {
+    const joinedDetail = detail
+      .map((item) => {
+        if (typeof item === "string") {
+          return item;
+        }
+        if (item?.msg) {
+          return item.msg;
+        }
+        return JSON.stringify(item);
+      })
+      .filter(Boolean)
+      .join("；");
+    return status ? `请求失败（${status}）：${joinedDetail || fallbackMessage}` : joinedDetail || fallbackMessage;
+  }
+
+  if (typeof detail === "string" && detail.trim()) {
+    return status ? `请求失败（${status}）：${detail}` : detail;
+  }
+
+  if (error?.code === "ECONNABORTED") {
+    return "上传超时：文件过大或网络过慢，请重试，或优先使用压缩包导入";
+  }
+
+  if (status === 413) {
+    return "上传失败（413）：请求体过大，请改用更小批次或压缩包导入";
+  }
+
+  if (status) {
+    return `请求失败（${status}）：${error?.message || fallbackMessage}`;
+  }
+
+  if (typeof error?.message === "string" && error.message.trim()) {
+    return error.message;
+  }
+
+  return fallbackMessage;
+}
+
 function SectionNavButton({ item, isActive, onClick }) {
   return (
     <motion.button
@@ -481,6 +543,7 @@ export default function AdminConsolePage() {
   const [lastRuleStatusResult, setLastRuleStatusResult] = useState({});
   const [questionBankImportBetaMessage, setQuestionBankImportBetaMessage] = useState("");
   const [questionBankImportBetaResult, setQuestionBankImportBetaResult] = useState(null);
+  const [questionBankImportBetaUploadProgress, setQuestionBankImportBetaUploadProgress] = useState(null);
   const [generatedItems, setGeneratedItems] = useState([]);
   const [lastIssued, setLastIssued] = useState({});
   const [inviteList, setInviteList] = useState([]);
@@ -709,6 +772,7 @@ export default function AdminConsolePage() {
   function handleQuestionBankImportBetaModeChange(nextMode) {
     setQuestionBankImportBetaMessage("");
     setQuestionBankImportBetaResult(null);
+    setQuestionBankImportBetaUploadProgress(null);
     setQuestionBankImportBetaForm((previous) => ({
       ...previous,
       source_mode: nextMode,
@@ -719,6 +783,7 @@ export default function AdminConsolePage() {
   function handleQuestionBankImportBetaFileChange(fileList) {
     setQuestionBankImportBetaMessage("");
     setQuestionBankImportBetaResult(null);
+    setQuestionBankImportBetaUploadProgress(null);
     setQuestionBankImportBetaForm((previous) => ({
       ...previous,
       items: createImportBetaItems(fileList),
@@ -728,6 +793,7 @@ export default function AdminConsolePage() {
   async function handleImportQuestionBankBeta() {
     setErrorMessage("");
     setQuestionBankImportBetaMessage("");
+    setQuestionBankImportBetaUploadProgress(null);
     if (!ensureAdminKey()) return;
     if (!questionBankImportBetaForm.items.length) {
       setErrorMessage("请先选择要导入的文件");
@@ -748,8 +814,29 @@ export default function AdminConsolePage() {
       });
 
       setQuestionBankImportBetaMessage(`正在上传并创建导入任务：${questionBankImportBetaForm.items.length} 个文件`);
-      const response = await importQuestionBank(formData, adminKey);
+      const response = await importQuestionBank(formData, adminKey, {
+        onUploadProgress: (progressEvent) => {
+          const total = Number(progressEvent?.total || 0);
+          const loaded = Number(progressEvent?.loaded || 0);
+          const percent = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : null;
+
+          setQuestionBankImportBetaUploadProgress({
+            loaded,
+            total,
+            percent,
+          });
+
+          if (percent !== null && percent >= 100) {
+            setQuestionBankImportBetaMessage("文件已上传，正在创建导入任务...");
+          } else if (percent !== null) {
+            setQuestionBankImportBetaMessage(`正在上传文件并创建导入任务：${percent}%`);
+          } else {
+            setQuestionBankImportBetaMessage(`正在上传并创建导入任务：${questionBankImportBetaForm.items.length} 个文件`);
+          }
+        },
+      });
       setQuestionBankImportBetaResult(response.data);
+      setQuestionBankImportBetaUploadProgress(null);
       setQuestionBankImportBetaForm((previous) => ({
         ...previous,
         items: [],
@@ -758,7 +845,8 @@ export default function AdminConsolePage() {
     } catch (error) {
       setQuestionBankImportBetaResult(null);
       setQuestionBankImportBetaMessage("");
-      setErrorMessage(error?.response?.data?.detail || "题库导入执行失败");
+      setQuestionBankImportBetaUploadProgress(null);
+      setErrorMessage(formatAdminRequestError(error, "题库导入执行失败"));
     } finally {
       setLoadingQuestionBankImportBeta(false);
     }
@@ -1515,6 +1603,44 @@ export default function AdminConsolePage() {
                 {questionBankImportBetaForm.items.length ? (
                   <div className="result-box">
                     {buildImportBetaFileSummary(questionBankImportBetaForm.items)}
+                  </div>
+                ) : null}
+
+                {loadingQuestionBankImportBeta && questionBankImportBetaUploadProgress ? (
+                  <div
+                    className="result-box"
+                    style={{
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "100%",
+                        height: "10px",
+                        borderRadius: "999px",
+                        background: "#e5e7eb",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${questionBankImportBetaUploadProgress.percent || 0}%`,
+                          height: "100%",
+                          background: "linear-gradient(90deg, #2563eb 0%, #0ea5e9 100%)",
+                          transition: "width 0.2s ease",
+                        }}
+                      />
+                    </div>
+                    <div style={{ fontSize: "13px", color: "#4b5563" }}>
+                      <strong>上传进度：</strong>
+                      {questionBankImportBetaUploadProgress.percent !== null
+                        ? `${questionBankImportBetaUploadProgress.percent}%`
+                        : "上传中"}
+                      {`（${formatFileSize(questionBankImportBetaUploadProgress.loaded)} / ${formatFileSize(
+                        questionBankImportBetaUploadProgress.total
+                      )}）`}
+                    </div>
                   </div>
                 ) : null}
 
