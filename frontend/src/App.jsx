@@ -4,8 +4,10 @@ import { getMe } from "./api/auth";
 import AdminConsolePage from "./pages/AdminConsolePage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
+import MockExamQuestionDetailPage from "./pages/MockExamQuestionDetailPage";
 import MockExamPage from "./pages/MockExamPage";
 import MockExamRunnerPage from "./pages/MockExamRunnerPage";
+import MockExamSubmissionResultPage from "./pages/MockExamSubmissionResultPage";
 import ProfilePage from "./pages/ProfilePage";
 import TeacherMockExamPage from "./pages/TeacherMockExamPage";
 import TeacherPage from "./pages/TeacherPage";
@@ -179,10 +181,10 @@ export default function App() {
         }
       />
       <Route
-        path="/mockexam/run/:questionBankId"
+        path="/mockexam/questions/:examQuestionId"
         element={
           <RequireAuth authState={authState}>
-            <Navigate to="/mockexam" replace />
+            <MockExamQuestionDetailPage />
           </RequireAuth>
         }
       />
@@ -191,6 +193,14 @@ export default function App() {
         element={
           <RequireAuth authState={authState}>
             <MockExamRunnerPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam/results/:submissionId"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamSubmissionResultPage />
           </RequireAuth>
         }
       />

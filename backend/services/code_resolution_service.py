@@ -439,7 +439,11 @@ def apply_subject_code_resolution_to_payload(
             raw_text = _extract_subject_lookup_text(row, config)
 
             provided_code_result = (
-                _resolve_code_by_exact_code(db, config.dictionary, provided_code)
+                _resolve_subject_code_from_provided_value(
+                    db,
+                    config,
+                    provided_code,
+                )
                 if provided_code
                 else None
             )
@@ -675,6 +679,87 @@ def _resolve_subject_name(
         mapped_code=None,
         mapping_status="unresolved",
     )
+
+
+def _resolve_subject_code_from_provided_value(
+    db: Session,
+    config: SubjectResolutionConfig,
+    raw_code: str | None,
+) -> CodeResolutionResult:
+    """先校验 provided code，本身非法时再按课程别名兜底一次。"""
+
+    exact_result = _resolve_code_by_exact_code(
+        db,
+        config.dictionary,
+        raw_code,
+    )
+    if exact_result.resolved:
+        return exact_result
+
+    for candidate_text in _build_subject_code_alias_lookup_candidates(raw_code):
+        alias_mapped_code = config.alias_map.get(candidate_text)
+        if not alias_mapped_code:
+            continue
+
+        alias_result = _resolve_code_by_exact_code(
+            db,
+            config.dictionary,
+            alias_mapped_code,
+        )
+        if alias_result.resolved:
+            return CodeResolutionResult(
+                raw_text=raw_code,
+                normalized_text=candidate_text,
+                mapped_code=alias_result.mapped_code,
+                mapping_status="resolved",
+                matched_source=f"{config.dictionary.table_name}.provided_code_alias_map",
+                matched_label=raw_code,
+            )
+
+    return exact_result
+
+
+def _build_subject_code_alias_lookup_candidates(raw_code: str | None) -> list[str]:
+    """把 code-like 输入展开成可命中 alias_map 的候选文本。"""
+
+    normalized_code = normalize_resolution_text(raw_code)
+    if not normalized_code:
+        return []
+
+    candidates: list[str] = [normalized_code]
+    prefix_candidates = (
+        "al ",
+        "a level ",
+        "alevel ",
+        "ap ",
+        "ib ",
+        "chs ",
+        "chinese high school ",
+    )
+    for prefix in prefix_candidates:
+        if normalized_code.startswith(prefix):
+            stripped = normalized_code[len(prefix) :].strip()
+            if stripped:
+                candidates.append(stripped)
+
+    raw_code_value = raw_code.strip() if isinstance(raw_code, str) else ""
+    raw_prefix_candidates = (
+        "AL_",
+        "A_LEVEL_",
+        "ALEVEL_",
+        "AP_",
+        "IB_",
+        "CHS_",
+        "CHINESE_HIGH_SCHOOL_",
+    )
+    upper_raw_code = raw_code_value.upper()
+    for prefix in raw_prefix_candidates:
+        if upper_raw_code.startswith(prefix):
+            stripped = normalize_resolution_text(raw_code_value[len(prefix) :])
+            if stripped:
+                candidates.append(stripped)
+
+    return list(dict.fromkeys(candidates))
 
 
 def _extract_subject_lookup_text(

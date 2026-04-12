@@ -222,9 +222,16 @@
               <svg id="markIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-4 h-4 flag-icon" fill="currentColor"><path d="M5 2.75a.75.75 0 0 1 1.5 0V21a.75.75 0 0 1-1.5 0V2.75z"></path><path d="M7 3.5h10l-3 3 3 3H7z"></path></svg>
               <span>Mark for Review</span>
             </button>
+            <button id="favoriteBtn" class="text-slate-700 hover:text-slate-900 text-sm inline-flex items-center gap-2" aria-label="Favorite Question" aria-pressed="false">
+              <span id="favoriteIcon">☆</span>
+              <span>收藏题目</span>
+            </button>
             <span id="lockBadge" class="hidden select-none rounded-full bg-slate-900/90 text-white text-[11px] px-2 py-0.5">答案已锁定</span>
           </div>
-          <button id="toggleAnswers" class="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700 hover:border-slate-500" aria-pressed="false">显示答案</button>
+          <div class="flex items-center gap-2">
+            <button id="saveBtn" class="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700 hover:border-slate-500">保存并退出</button>
+            <button id="toggleAnswers" class="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700 hover:border-slate-500" aria-pressed="false">显示答案</button>
+          </div>
         </div>
         <div id="questionAudioWrap" class="passage-audio hidden">
           <div class="text-[11px] uppercase tracking-wide text-slate-500 mb-2">Listening Audio</div>

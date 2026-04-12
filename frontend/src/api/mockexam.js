@@ -35,50 +35,94 @@ export function getMockExamOptions() {
   return request.get("/api/v1/mockexam/options");
 }
 
-export function getMockExamQuestionBanks(params) {
-  return request.get("/api/v1/mockexam/question-banks", {
+export function getMockExamPapers(params) {
+  return request.get("/api/v1/mockexam/papers", {
     params,
   });
 }
 
-export function getMockExamQuestionBank(questionBankId) {
-  return request.get(`/api/v1/mockexam/question-banks/${questionBankId}`);
+export function getMockExamPaper(examPaperId) {
+  return request.get(`/api/v1/mockexam/papers/${examPaperId}`);
 }
 
-export function submitMockExam(questionBankId, data) {
-  return request.post(`/api/v1/mockexam/question-banks/${questionBankId}/submit`, data);
-}
-
-export function getMockExamExamSets(params) {
-  return request.get("/api/v1/mockexam/exam-sets", {
+export function getMockExamPaperSets(params) {
+  return request.get("/api/v1/mockexam/paper-sets", {
     params,
   });
 }
 
-export function getMockExamExamSet(examSetId) {
-  return request.get(`/api/v1/mockexam/exam-sets/${examSetId}`);
+export function getMockExamPaperSet(mockexamPaperSetId) {
+  return request.get(`/api/v1/mockexam/paper-sets/${mockexamPaperSetId}`);
 }
 
-export function createMockExamExamSet(data) {
-  return request.post("/api/v1/mockexam/exam-sets", data);
+export function submitMockExamPaper(examPaperId, data) {
+  return request.post(`/api/v1/mockexam/papers/${examPaperId}/submit`, data);
 }
 
-export function updateMockExamExamSetStatus(examSetId, data) {
-  return request.post(`/api/v1/mockexam/exam-sets/${examSetId}/status`, data);
+export function submitMockExamPaperSet(mockexamPaperSetId, data) {
+  return request.post(`/api/v1/mockexam/paper-sets/${mockexamPaperSetId}/submit`, data);
 }
 
-export function deleteMockExamExamSet(examSetId) {
-  return request.delete(`/api/v1/mockexam/exam-sets/${examSetId}`);
+export function getMockExamSubmissions(params) {
+  return request.get("/api/v1/mockexam/submissions", {
+    params,
+  });
 }
 
-export function submitMockExamExamSet(examSetId, data) {
-  return request.post(`/api/v1/mockexam/exam-sets/${examSetId}/submit`, data);
+export function getMockExamSubmission(submissionId) {
+  return request.get(`/api/v1/mockexam/submissions/${submissionId}`);
 }
 
-export function buildMockExamQuickPractice(data) {
-  return request.post("/api/v1/mockexam/quick-practice/build", data);
+export function getMockExamProgresses(params) {
+  return request.get("/api/v1/mockexam/progress", {
+    params,
+  });
 }
 
-export function evaluateInlineMockExam(data) {
-  return request.post("/api/v1/mockexam/evaluate", data);
+export function getMockExamProgress(progressId) {
+  return request.get(`/api/v1/mockexam/progress/${progressId}`);
+}
+
+export function saveMockExamProgress(examPaperId, data) {
+  return request.post(`/api/v1/mockexam/papers/${examPaperId}/progress`, data);
+}
+
+export function saveMockExamPaperSetProgress(mockexamPaperSetId, data) {
+  return request.post(`/api/v1/mockexam/paper-sets/${mockexamPaperSetId}/progress`, data);
+}
+
+export function discardMockExamProgress(progressId) {
+  return request.post(`/api/v1/mockexam/progress/${progressId}/discard`);
+}
+
+export function getMockExamFavorites(params) {
+  return request.get("/api/v1/mockexam/favorites", {
+    params,
+  });
+}
+
+export function toggleMockExamFavorite(examQuestionId, data) {
+  return request.post(`/api/v1/mockexam/questions/${examQuestionId}/favorite`, data);
+}
+
+export function getMockExamWrongQuestions(params) {
+  return request.get("/api/v1/mockexam/wrong-questions", {
+    params,
+  });
+}
+
+export function getMockExamQuestionDetail(examQuestionId) {
+  return request.get(`/api/v1/mockexam/questions/${examQuestionId}`);
+}
+
+export function getTeacherMockExamPaperSets() {
+  return request.get("/api/v1/teacher/mockexam/paper-sets");
+}
+
+export function createTeacherMockExamPaperSet(data) {
+  return request.post("/api/v1/teacher/mockexam/paper-sets", data);
+}
+
+export function updateTeacherMockExamPaperSetStatus(mockexamPaperSetId, data) {
+  return request.post(`/api/v1/teacher/mockexam/paper-sets/${mockexamPaperSetId}/status`, data);
 }

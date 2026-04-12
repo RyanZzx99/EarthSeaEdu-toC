@@ -14,6 +14,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      "/exam-assets": {
+        // 中文注释：本地题库音频/图片也走后端静态挂载
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
 });

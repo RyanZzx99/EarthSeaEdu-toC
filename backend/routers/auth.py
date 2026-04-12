@@ -75,7 +75,6 @@ from backend.schemas.auth import UpdateNicknameRuleTargetStatusRequest
 from backend.schemas.auth import UpdateInviteCodeStatusRequest
 from backend.schemas.auth import UpdateAiPromptConfigRequest
 from backend.schemas.auth import UpdateAiRuntimeConfigRequest
-from backend.schemas.auth import QuestionBankListResponse
 from backend.schemas.auth import UpdateUserStatusRequest
 from backend.schemas.auth import UserProfileResponse
 from backend.schemas.auth import WechatInviteRegisterRequest
@@ -122,8 +121,9 @@ from backend.services.ai_prompt_admin_service import list_ai_prompt_configs
 from backend.services.ai_prompt_admin_service import update_ai_prompt_config
 from backend.services.ai_runtime_config_service import list_ai_runtime_configs
 from backend.services.ai_runtime_config_service import update_ai_runtime_config
-from backend.services.question_bank_service import create_question_bank
-from backend.services.question_bank_service import list_question_banks
+from backend.services.exam_import_service import QueuedImportFile
+from backend.services.exam_import_service import get_import_job_detail
+from backend.services.exam_import_service import import_question_bank
 
 # 导入微信服务
 from backend.services.wechat_service import build_wechat_qr_authorize_url
@@ -1702,70 +1702,56 @@ def update_ai_runtime_config_api(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/question-banks/upload")
-async def upload_question_bank_api(
-    file_name: str | None = Form(default=None),
-    exam_category: str = Form(...),
-    exam_content: str = Form(...),
-    file: UploadFile = File(...),
+@router.post("/question-banks/import")
+def import_question_bank_api(
+    source_mode: str = Form(...),
+    bank_name: str | None = Form(default=None),
+    entry_paths_json: str | None = Form(default=None),
+    files: list[UploadFile] = File(...),
     x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
     db: Session = Depends(get_db),
 ):
     verify_invite_admin_key(x_admin_key)
 
-    raw_bytes = await file.read()
+    uploaded_files: list[QueuedImportFile] = []
+    for index, file in enumerate(files, start=1):
+        uploaded_files.append(
+            QueuedImportFile(
+                filename=file.filename or f"file_{index}",
+                file_obj=file.file,
+            )
+        )
 
     try:
-        row = create_question_bank(
+        return import_question_bank(
             db=db,
-            title=file_name,
-            upload_file_name=file.filename or "",
-            exam_category=exam_category,
-            exam_content=exam_content,
-            file_bytes=raw_bytes,
+            source_mode=source_mode,
+            bank_name=bank_name,
+            uploaded_files=uploaded_files,
+            entry_paths_json=entry_paths_json,
         )
-        return {
-            "id": row.id,
-            "file_name": row.file_name,
-            "exam_category": row.exam_category,
-            "exam_content": row.exam_content,
-            "status": row.status,
-            "create_time": row.create_time,
-            "update_time": row.update_time,
-        }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        for file in files:
+            try:
+                file.file.close()
+            except Exception:
+                continue
 
 
-@router.get("/question-banks", response_model=QuestionBankListResponse)
-def list_question_banks_api(
-    page: int = Query(default=1, ge=1, description="页码"),
-    page_size: int = Query(default=10, ge=1, le=100, description="每页条数"),
+@router.get("/question-banks/import-jobs/{job_id}")
+def get_import_question_bank_job_api(
+    job_id: int,
     x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
     db: Session = Depends(get_db),
 ):
     verify_invite_admin_key(x_admin_key)
-
-    rows, total = list_question_banks(
-        db=db,
-        page=page,
-        page_size=page_size,
-    )
-    return {
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "items": [
-            {
-                "id": row.id,
-                "file_name": row.file_name,
-                "exam_category": row.exam_category,
-                "exam_content": row.exam_content,
-                "status": row.status,
-                "create_time": row.create_time,
-                "update_time": row.update_time,
-            }
-            for row in rows
-        ],
-    }
+    try:
+        return get_import_job_detail(
+            db=db,
+            job_id=job_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 

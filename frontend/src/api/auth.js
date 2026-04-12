@@ -463,17 +463,17 @@ export function updateAiRuntimeConfig(configKey, data, adminKey) {
   });
 }
 
-export function uploadQuestionBank(formData, adminKey) {
-  return request.post("/api/v1/auth/question-banks/upload", formData, {
+export function importQuestionBank(formData, adminKey) {
+  return request.post("/api/v1/auth/question-banks/import", formData, {
     headers: {
       "X-Admin-Key": adminKey,
     },
+    timeout: 120000,
   });
 }
 
-export function listQuestionBanks(params, adminKey) {
-  return request.get("/api/v1/auth/question-banks", {
-    params,
+export function getQuestionBankImportJob(jobId, adminKey) {
+  return request.get(`/api/v1/auth/question-banks/import-jobs/${jobId}`, {
     headers: {
       "X-Admin-Key": adminKey,
     },

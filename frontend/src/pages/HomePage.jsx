@@ -399,6 +399,7 @@ export default function HomePage() {
   const [activeSection, setActiveSection] = useState("hero");
   const [showChat, setShowChat] = useState(false);
   const [showProfileResult, setShowProfileResult] = useState(false);
+  const [aiRestoreReady, setAiRestoreReady] = useState(false);
   const [chatEnded, setChatEnded] = useState(false);
   const [profileData, setProfileData] = useState(null);
 
@@ -480,6 +481,10 @@ export default function HomePage() {
       return;
     }
 
+    if (!aiRestoreReady) {
+      return;
+    }
+
     if (localStorage.getItem(AI_CHAT_OPEN_PANEL_KEY) !== "1") {
       return;
     }
@@ -492,7 +497,7 @@ export default function HomePage() {
     setShowProfileResult(false);
     setShowChat(true);
     setUiHint("可以继续补充信息，我会基于当前会话继续整理档案。");
-  }, [profile?.user_id, aiSessionId, messages.length, profileData]);
+  }, [profile?.user_id, aiSessionId, messages.length, profileData, aiRestoreReady]);
 
   useEffect(() => {
     // 涓枃娉ㄩ噴锛?    // 鑷姩缁彂鎺掗槦娑堟伅鏃讹紝涔熻鎷垮埌鏈€鏂扮殑鈥滄槸鍚︿粛鍦ㄦ祦寮忕敓鎴愨€濈姸鎬併€?    assistantStreamingRef.current = assistantStreaming;
@@ -697,6 +702,7 @@ export default function HomePage() {
     let cancelled = false;
 
     async function bootstrapPage() {
+      setAiRestoreReady(false);
       try {
         const response = await getMe();
         if (cancelled) {
@@ -720,6 +726,10 @@ export default function HomePage() {
         }
 
         setConnectionError(error?.response?.data?.detail || "首页初始化失败，请稍后重试。");
+      } finally {
+        if (!cancelled) {
+          setAiRestoreReady(true);
+        }
       }
     }
 
@@ -1708,7 +1718,7 @@ export default function HomePage() {
             </motion.div>
 
             <AnimatePresence initial={false} mode="popLayout">
-              {showChat && !showProfileResult ? (
+              {aiRestoreReady && showChat && !showProfileResult ? (
                 <motion.div
                   key="chat-shell"
                   className="home-ai-shell"
@@ -1865,7 +1875,7 @@ export default function HomePage() {
                 </motion.div>
               ) : null}
 
-              {createProfileLoading && !showProfileResult ? (
+              {aiRestoreReady && createProfileLoading && !showProfileResult ? (
                 <motion.div
                   key="profile-loading"
                   className="home-radar-loading-shell"
@@ -1884,7 +1894,7 @@ export default function HomePage() {
                 </motion.div>
               ) : null}
 
-              {showProfileResult && profileData ? (
+              {aiRestoreReady && showProfileResult && profileData ? (
                 <motion.div
                   key="profile-result"
                   className="home-radar-shell"
