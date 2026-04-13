@@ -33,6 +33,7 @@ import {
   updateUserStatus,
 } from "../api/auth";
 import { getQuestionBankImportJob } from "../api/auth";
+import { LoadingOverlay } from "../components/LoadingPage";
 
 const sectionGroups = [
   {
@@ -588,6 +589,129 @@ export default function AdminConsolePage() {
         .map((item) => `${item.relativePath}-${item.file.lastModified}-${item.file.size}`)
         .join("|")
     : "question-bank-import-beta-empty";
+  const adminBusyOverlay = useMemo(() => {
+    if (loadingQuestionBankImportBeta) {
+      return {
+        message: "正在创建导入任务",
+        submessage: "请稍候，文件正在上传并准备进入导入队列",
+      };
+    }
+    if (loadingGenerate) {
+      return {
+        message: "正在生成邀请码",
+        submessage: "请稍候，正在创建当前邀请码批次",
+      };
+    }
+    if (loadingIssue) {
+      return {
+        message: "正在发放邀请码",
+        submessage: "请稍候，正在绑定邀请码与手机号",
+      };
+    }
+    if (loadingQuery) {
+      return {
+        message: "正在查询邀请码",
+        submessage: "请稍候，正在拉取邀请码列表",
+      };
+    }
+    if (loadingGroupCreate) {
+      return {
+        message: "正在创建规则分组",
+        submessage: "请稍候，正在保存当前分组配置",
+      };
+    }
+    if (loadingGroupList) {
+      return {
+        message: "正在刷新规则分组",
+        submessage: "请稍候，正在拉取最新分组数据",
+      };
+    }
+    if (loadingWordRuleCreate) {
+      return {
+        message: "正在创建词条规则",
+        submessage: "请稍候，正在保存当前词条规则",
+      };
+    }
+    if (loadingWordRuleList) {
+      return {
+        message: "正在查询词条规则",
+        submessage: "请稍候，正在拉取词条规则列表",
+      };
+    }
+    if (loadingContactCreate) {
+      return {
+        message: "正在创建联系方式规则",
+        submessage: "请稍候，正在保存当前联系方式规则",
+      };
+    }
+    if (loadingContactList) {
+      return {
+        message: "正在查询联系方式规则",
+        submessage: "请稍候，正在拉取联系方式规则列表",
+      };
+    }
+    if (loadingRuleStatus) {
+      return {
+        message: "正在更新规则状态",
+        submessage: "请稍候，正在保存当前规则状态",
+      };
+    }
+    if (loadingAuditLogs) {
+      return {
+        message: "正在查询审核日志",
+        submessage: "请稍候，正在拉取最新审核记录",
+      };
+    }
+    if (loadingRuntimeConfigSave) {
+      return {
+        message: "正在保存模型配置",
+        submessage: "请稍候，正在更新 AI 运行时配置",
+      };
+    }
+    if (loadingRuntimeConfigList) {
+      return {
+        message: "正在刷新模型配置",
+        submessage: "请稍候，正在拉取 AI 运行时配置",
+      };
+    }
+    if (loadingPromptSave) {
+      return {
+        message: "正在保存提示词",
+        submessage: "请稍候，正在更新 Prompt 配置",
+      };
+    }
+    if (loadingPromptList) {
+      return {
+        message: "正在刷新提示词列表",
+        submessage: "请稍候，正在拉取 Prompt 配置",
+      };
+    }
+    if (loadingUserStatus) {
+      return {
+        message: "正在修改用户状态",
+        submessage: "请稍候，正在保存当前账号状态",
+      };
+    }
+    return null;
+  }, [
+    loadingAuditLogs,
+    loadingContactCreate,
+    loadingContactList,
+    loadingGenerate,
+    loadingGroupCreate,
+    loadingGroupList,
+    loadingIssue,
+    loadingPromptList,
+    loadingPromptSave,
+    loadingQuery,
+    loadingQuestionBankImportBeta,
+    loadingRuleStatus,
+    loadingRuntimeConfigList,
+    loadingRuntimeConfigSave,
+    loadingUserStatus,
+    loadingWordRuleCreate,
+    loadingWordRuleList,
+  ]);
 
   useEffect(() => {
     const currentJobId = questionBankImportBetaResult?.job_id;
@@ -623,7 +747,7 @@ export default function AdminConsolePage() {
           return;
         }
 
-        setQuestionBankImportBetaMessage(nextJob.progress_message || "导入任务处理中...");
+            setQuestionBankImportBetaMessage(nextJob.progress_message || "导入任务正在执行");
       } catch (error) {
         if (!active) {
           return;
@@ -1269,6 +1393,13 @@ export default function AdminConsolePage() {
 
   return (
     <div className="admin-shell">
+      {adminBusyOverlay ? (
+        <LoadingOverlay
+          message={adminBusyOverlay.message}
+          submessage={adminBusyOverlay.submessage}
+        />
+      ) : null}
+
       <motion.header
         className="admin-topbar"
         initial={{ y: -18, opacity: 0 }}
@@ -1345,10 +1476,10 @@ export default function AdminConsolePage() {
                 <p>刷新常用基础数据，便于后续下拉选择和编辑。</p>
                 <div className="admin-button-row">
                   <button type="button" className="primary-btn" disabled={loadingGroupList} onClick={handleListGroups}>
-                    {loadingGroupList ? "刷新中..." : "刷新规则分组"}
+                    刷新规则分组
                   </button>
                   <button type="button" className="secondary-btn" disabled={loadingAuditLogs} onClick={handleListAuditLogs}>
-                    {loadingAuditLogs ? "刷新中..." : "刷新审核日志"}
+                    刷新审核日志
                   </button>
                 </div>
               </div>
@@ -1401,11 +1532,7 @@ export default function AdminConsolePage() {
                 </div>
                 <div className="admin-button-row">
                   <button type="button" className="primary-btn" disabled={loadingGenerate} onClick={handleGenerate}>
-                    {loadingGenerate
-                      ? "生成中..."
-                      : generateForm.invite_scene === "teacher_portal"
-                        ? "生成教师邀请码"
-                        : "生成注册邀请码"}
+                    {generateForm.invite_scene === "teacher_portal" ? "生成教师邀请码" : "生成注册邀请码"}
                   </button>
                 </div>
                 <div className="admin-divider" />
@@ -1414,7 +1541,7 @@ export default function AdminConsolePage() {
                   <Field label="目标手机号"><input className="input" value={issueForm.mobile} onChange={(event) => setIssueForm((previous) => ({ ...previous, mobile: event.target.value }))} placeholder="11 位手机号" /></Field>
                 </div>
                 <div className="admin-button-row">
-                  <button type="button" className="primary-btn" disabled={loadingIssue} onClick={handleIssue}>{loadingIssue ? "发放中..." : "发放邀请码"}</button>
+                  <button type="button" className="primary-btn" disabled={loadingIssue} onClick={handleIssue}>发放邀请码</button>
                 </div>
               </AdminPanel>
 
@@ -1467,7 +1594,7 @@ export default function AdminConsolePage() {
                   <Field label="返回条数"><input className="input" type="number" min="1" max="200" value={queryForm.limit} onChange={(event) => setQueryForm((previous) => ({ ...previous, limit: event.target.value }))} /></Field>
                 </div>
                 <div className="admin-button-row">
-                  <button type="button" className="primary-btn" disabled={loadingQuery} onClick={handleQuery}>{loadingQuery ? "查询中..." : "查询邀请码"}</button>
+                  <button type="button" className="primary-btn" disabled={loadingQuery} onClick={handleQuery}>查询邀请码</button>
                 </div>
                 {inviteList.length ? (
                   <div className="table-wrap">
@@ -1651,7 +1778,7 @@ export default function AdminConsolePage() {
                     disabled={loadingQuestionBankImportBeta}
                     onClick={handleImportQuestionBankBeta}
                   >
-                    {loadingQuestionBankImportBeta ? "创建任务中..." : "开始导入"}
+                    开始导入
                   </button>
                 </div>
 
@@ -1710,7 +1837,7 @@ export default function AdminConsolePage() {
             icon={Tags}
             title="昵称规则中心"
             subtitle="把分组、词条、联系方式规则和状态管理集中在一个运营分区。"
-            actions={<button type="button" className="secondary-btn" disabled={loadingGroupList} onClick={handleListGroups}>{loadingGroupList ? "刷新中..." : "刷新分组列表"}</button>}
+            actions={<button type="button" className="secondary-btn" disabled={loadingGroupList} onClick={handleListGroups}>刷新分组列表</button>}
           >
             <div className="admin-workbench-grid admin-workbench-grid--two">
               <AdminPanel title="规则分组管理" description="新建风控分组，并查看当前已启用或草稿中的分组。">
@@ -1723,7 +1850,7 @@ export default function AdminConsolePage() {
                   <Field label="分组说明"><input className="input" value={groupForm.description} onChange={(event) => setGroupForm((previous) => ({ ...previous, description: event.target.value }))} placeholder="说明这个分组的运营用途" /></Field>
                 </div>
                 <div className="admin-button-row">
-                  <button type="button" className="primary-btn" disabled={loadingGroupCreate} onClick={handleCreateGroup}>{loadingGroupCreate ? "创建中..." : "创建规则分组"}</button>
+                  <button type="button" className="primary-btn" disabled={loadingGroupCreate} onClick={handleCreateGroup}>创建规则分组</button>
                 </div>
                 <div className="admin-divider" />
                 <div className="admin-filter-grid">
@@ -1741,7 +1868,7 @@ export default function AdminConsolePage() {
                   </Field>
                 </div>
                 <div className="admin-button-row">
-                  <button type="button" className="secondary-btn" disabled={loadingGroupList} onClick={handleListGroups}>{loadingGroupList ? "查询中..." : "查询分组列表"}</button>
+                  <button type="button" className="secondary-btn" disabled={loadingGroupList} onClick={handleListGroups}>查询分组列表</button>
                 </div>
                 {groupList.length ? (
                   <div className="table-wrap">
@@ -1784,7 +1911,7 @@ export default function AdminConsolePage() {
                   <Field label="更新状态"><select className="input" value={ruleStatusForm.status} onChange={(event) => setRuleStatusForm((previous) => ({ ...previous, status: event.target.value }))}>{groupStatusOptions.map((item) => <option key={item} value={item}>{formatStatus(item)}</option>)}</select></Field>
                 </div>
                 <div className="admin-button-row">
-                  <button type="button" className="primary-btn" disabled={loadingRuleStatus} onClick={handleUpdateRuleStatus}>{loadingRuleStatus ? "更新中..." : "更新规则状态"}</button>
+                  <button type="button" className="primary-btn" disabled={loadingRuleStatus} onClick={handleUpdateRuleStatus}>更新规则状态</button>
                 </div>
                 {lastRuleStatusResult.id ? (
                   <div className="result-box">
@@ -1807,7 +1934,7 @@ export default function AdminConsolePage() {
                   <Field label="备注"><input className="input" value={wordRuleForm.note} onChange={(event) => setWordRuleForm((previous) => ({ ...previous, note: event.target.value }))} placeholder="可留空" /></Field>
                 </div>
                 <div className="admin-button-row">
-                  <button type="button" className="primary-btn" disabled={loadingWordRuleCreate} onClick={handleCreateWordRule}>{loadingWordRuleCreate ? "创建中..." : "创建词条规则"}</button>
+                  <button type="button" className="primary-btn" disabled={loadingWordRuleCreate} onClick={handleCreateWordRule}>创建词条规则</button>
                 </div>
                 <div className="admin-divider" />
                 <div className="admin-filter-grid">
@@ -1818,7 +1945,7 @@ export default function AdminConsolePage() {
                   <Field label="返回条数"><input className="input" type="number" min="1" max="200" value={wordRuleQueryForm.limit} onChange={(event) => setWordRuleQueryForm((previous) => ({ ...previous, limit: event.target.value }))} /></Field>
                 </div>
                 <div className="admin-button-row">
-                  <button type="button" className="secondary-btn" disabled={loadingWordRuleList} onClick={handleListWordRules}>{loadingWordRuleList ? "查询中..." : "查询词条规则"}</button>
+                  <button type="button" className="secondary-btn" disabled={loadingWordRuleList} onClick={handleListWordRules}>查询词条规则</button>
                 </div>
                 {wordRuleList.length ? (
                   <div className="table-wrap">
@@ -1858,7 +1985,7 @@ export default function AdminConsolePage() {
                   <Field label="备注"><input className="input" value={contactPatternForm.note} onChange={(event) => setContactPatternForm((previous) => ({ ...previous, note: event.target.value }))} placeholder="可留空" /></Field>
                 </div>
                 <div className="admin-button-row">
-                  <button type="button" className="primary-btn" disabled={loadingContactCreate} onClick={handleCreateContactPattern}>{loadingContactCreate ? "创建中..." : "创建联系方式规则"}</button>
+                  <button type="button" className="primary-btn" disabled={loadingContactCreate} onClick={handleCreateContactPattern}>创建联系方式规则</button>
                 </div>
                 <div className="admin-divider" />
                 <div className="admin-filter-grid">
@@ -1869,7 +1996,7 @@ export default function AdminConsolePage() {
                   <Field label="返回条数"><input className="input" type="number" min="1" max="200" value={contactPatternQueryForm.limit} onChange={(event) => setContactPatternQueryForm((previous) => ({ ...previous, limit: event.target.value }))} /></Field>
                 </div>
                 <div className="admin-button-row">
-                  <button type="button" className="secondary-btn" disabled={loadingContactList} onClick={handleListContactPatterns}>{loadingContactList ? "查询中..." : "查询联系方式规则"}</button>
+                  <button type="button" className="secondary-btn" disabled={loadingContactList} onClick={handleListContactPatterns}>查询联系方式规则</button>
                 </div>
                 {contactPatternList.length ? (
                   <div className="table-wrap">
@@ -1907,7 +2034,7 @@ export default function AdminConsolePage() {
                   <Field label="返回条数"><input className="input" type="number" min="1" max="200" value={auditLogQueryForm.limit} onChange={(event) => setAuditLogQueryForm((previous) => ({ ...previous, limit: event.target.value }))} /></Field>
                 </div>
                 <div className="admin-button-row">
-                  <button type="button" className="primary-btn" disabled={loadingAuditLogs} onClick={handleListAuditLogs}>{loadingAuditLogs ? "查询中..." : "查询审核日志"}</button>
+                  <button type="button" className="primary-btn" disabled={loadingAuditLogs} onClick={handleListAuditLogs}>查询审核日志</button>
                 </div>
                 {auditLogList.length ? (
                   <div className="table-wrap">
@@ -1940,7 +2067,7 @@ export default function AdminConsolePage() {
             icon={Waves}
             title="AI 模型配置"
             subtitle="集中维护 Base URL、默认模型、超时和运行时密钥。"
-            actions={<button type="button" className="secondary-btn" disabled={loadingRuntimeConfigList} onClick={handleListAiRuntimeConfigs}>{loadingRuntimeConfigList ? "加载中..." : "刷新配置列表"}</button>}
+            actions={<button type="button" className="secondary-btn" disabled={loadingRuntimeConfigList} onClick={handleListAiRuntimeConfigs}>刷新配置列表</button>}
           >
             <div className="admin-section-stack">
               <AdminPanel title="运行时配置列表" description="点击某个配置键后，在下方展开编辑界面。敏感值只展示掩码。">
@@ -2003,7 +2130,7 @@ export default function AdminConsolePage() {
                     </Field>
                   </div>
                   <div className="admin-button-row">
-                    <button type="button" className="primary-btn" disabled={loadingRuntimeConfigSave} onClick={() => handleSaveAiRuntimeConfig()}>{loadingRuntimeConfigSave ? "保存中..." : "保存运行时配置"}</button>
+                    <button type="button" className="primary-btn" disabled={loadingRuntimeConfigSave} onClick={() => handleSaveAiRuntimeConfig()}>保存运行时配置</button>
                     <button type="button" className="secondary-btn" disabled={loadingRuntimeConfigSave} onClick={() => handleSaveAiRuntimeConfig({ clearOverride: true })}>恢复 .env 默认值</button>
                   </div>
                 </AdminPanel>
@@ -2016,7 +2143,7 @@ export default function AdminConsolePage() {
             icon={FileCode2}
             title="AI 提示词中心"
             subtitle="直接查看 Prompt 列表，点击某个 prompt_key 在下方展开编辑。"
-            actions={<button type="button" className="secondary-btn" disabled={loadingPromptList} onClick={handleListAiPrompts}>{loadingPromptList ? "加载中..." : "刷新 Prompt 列表"}</button>}
+            actions={<button type="button" className="secondary-btn" disabled={loadingPromptList} onClick={handleListAiPrompts}>刷新 Prompt 列表</button>}
           >
             <div className="admin-section-stack">
               <AdminPanel title="Prompt 列表" description="这里展示当前已加载的 Prompt，点击某一项即可编辑。">
@@ -2092,7 +2219,7 @@ export default function AdminConsolePage() {
                     </Field>
                   </div>
                   <div className="admin-button-row">
-                    <button type="button" className="primary-btn" disabled={loadingPromptSave} onClick={handleSaveAiPrompt}>{loadingPromptSave ? "保存中..." : "保存 Prompt 修改"}</button>
+                    <button type="button" className="primary-btn" disabled={loadingPromptSave} onClick={handleSaveAiPrompt}>保存 Prompt 修改</button>
                   </div>
                 </AdminPanel>
               ) : null}
@@ -2108,7 +2235,7 @@ export default function AdminConsolePage() {
                   <Field label="目标状态"><select className="input" value={userStatusForm.status} onChange={(event) => setUserStatusForm((previous) => ({ ...previous, status: event.target.value }))}><option value="active">{formatStatus("active")}</option><option value="disabled">{formatStatus("disabled")}</option></select></Field>
                 </div>
                 <div className="admin-button-row">
-                  <button type="button" className="primary-btn" disabled={loadingUserStatus} onClick={handleUpdateUserStatus}>{loadingUserStatus ? "保存中..." : "修改用户状态"}</button>
+                  <button type="button" className="primary-btn" disabled={loadingUserStatus} onClick={handleUpdateUserStatus}>修改用户状态</button>
                 </div>
               </AdminPanel>
 

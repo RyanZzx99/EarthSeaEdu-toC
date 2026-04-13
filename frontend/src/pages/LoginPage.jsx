@@ -13,6 +13,7 @@ import {
   wechatBindMobile,
   wechatLogin,
 } from "../api/auth";
+import { LoadingOverlay } from "../components/LoadingPage";
 import { setAccessToken } from "../utils/authStorage";
 import { validatePasswordRule } from "../utils/passwordValidation";
 
@@ -266,6 +267,49 @@ export default function LoginPage() {
     if (activeTab === "temp_register") return "\u901a\u8fc7\u624b\u673a\u53f7\u3001\u5bc6\u7801\u548c\u9080\u8bf7\u7801\u5feb\u901f\u5b8c\u6210\u6ce8\u518c\u5e76\u76f4\u63a5\u767b\u5f55";
     return "\u767b\u5f55\u60a8\u7684\u5b66\u4e60\u8d26\u6237\uff0c\u7ee7\u7eed\u63a2\u7d22\u4e4b\u65c5";
   }, [activeTab]);
+
+  const busyOverlay = useMemo(() => {
+    if (loading) {
+      if (activeTab === "wechat") {
+        return {
+          message: "正在打开微信登录",
+          submessage: "请稍候，正在跳转到微信授权页面",
+        };
+      }
+      if (activeTab === "bind_mobile") {
+        return {
+          message: "正在完成绑定",
+          submessage: "请稍候，正在提交手机号绑定信息",
+        };
+      }
+      if (activeTab === "temp_register" || activeTab === "wechat_invite_register") {
+        return {
+          message: "正在创建账号",
+          submessage: "请稍候，正在处理当前注册请求",
+        };
+      }
+      return {
+        message: "正在登录",
+        submessage: "请稍候，正在验证当前账号信息",
+      };
+    }
+
+    if (sendCodeLoading) {
+      return {
+        message: "正在发送验证码",
+        submessage: "请稍候，验证码正在发送到你的手机",
+      };
+    }
+
+    if (inviteCheckLoading || bindInviteCheckLoading) {
+      return {
+        message: "正在检查账号状态",
+        submessage: "请稍候，正在判断当前手机号的注册与邀请码状态",
+      };
+    }
+
+    return null;
+  }, [activeTab, bindInviteCheckLoading, inviteCheckLoading, loading, sendCodeLoading]);
 
   const formVariants = {
     initial: { opacity: 1, x: 0 },
@@ -659,6 +703,13 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen w-full flex" style={{ background: "#ffffff" }}>
+      {busyOverlay ? (
+        <LoadingOverlay
+          message={busyOverlay.message}
+          submessage={busyOverlay.submessage}
+        />
+      ) : null}
+
       <motion.div
         className="hidden lg:flex relative flex-col justify-between p-12 overflow-hidden"
         style={{ background: "linear-gradient(135deg, #0a1220 0%, #0f1a2e 50%, #121826 100%)" }}
@@ -801,7 +852,7 @@ export default function LoginPage() {
                 </div>
 
                 <motion.button type="button" onClick={handlePasswordLogin} className="login-submit-button w-full py-3 rounded-2xl mt-1" style={{ cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }} whileHover={!loading ? { scale: 1.015, boxShadow: "0 6px 20px rgba(26,39,68,0.35)" } : {}} whileTap={!loading ? { scale: 0.98 } : {}}>
-                  {loading ? "登录中..." : "登录"}
+                  登录
                 </motion.button>
               </motion.div>
             ) : null}
@@ -841,7 +892,7 @@ export default function LoginPage() {
                       <input type="text" placeholder="请输入验证码" maxLength={6} value={smsCode} onChange={(event) => setSmsCode(event.target.value.replace(/\D/g, ""))} onFocus={() => setCodeFocused(true)} onBlur={() => setCodeFocused(false)} className="login-plain-input flex-1 outline-none bg-transparent" />
                     </AnimatedInput>
                     <motion.button type="button" onClick={handleSendLoginCode} className="login-code-button rounded-2xl px-4 whitespace-nowrap" style={{ cursor: countdown > 0 || smsPhone.length !== 11 || sendCodeLoading ? "not-allowed" : "pointer" }}>
-                      {countdown > 0 ? `${countdown}s 后重发` : sendCodeLoading ? "发送中..." : "获取验证码"}
+                      {countdown > 0 ? `${countdown}s 后重发` : "获取验证码"}
                     </motion.button>
                   </div>
                 </div>
@@ -864,9 +915,7 @@ export default function LoginPage() {
                 ) : null}
 
                 <p className="login-helper-text">
-                  {inviteCheckLoading
-                    ? "正在检查该手机号是否需要邀请码..."
-                    : smsNeedInvite === true
+                  {smsNeedInvite === true
                       ? "该手机号尚未注册，首次注册需填写邀请码。"
                       : smsNeedInvite === false
                         ? "该手机号已注册，可直接使用验证码登录。"
@@ -874,7 +923,7 @@ export default function LoginPage() {
                 </p>
 
                 <motion.button type="button" onClick={handleSmsLogin} className="login-submit-button w-full py-3 rounded-2xl mt-2" style={{ cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>
-                  {loading ? "提交中..." : "登录 / 注册"}
+                  登录 / 注册
                 </motion.button>
               </motion.div>
             ) : null}
@@ -951,7 +1000,7 @@ export default function LoginPage() {
                 </p>
 
                 <motion.button type="button" onClick={handleTempRegisterLogin} className="login-submit-button w-full py-3 rounded-2xl mt-1" style={{ cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }} whileHover={!loading ? { scale: 1.015, boxShadow: "0 6px 20px rgba(26,39,68,0.35)" } : {}} whileTap={!loading ? { scale: 0.98 } : {}}>
-                  {loading ? "提交中..." : "注册并登录"}
+                  注册并登录
                 </motion.button>
               </motion.div>
             ) : null}
@@ -971,7 +1020,7 @@ export default function LoginPage() {
                 </div>
 
                 <motion.button type="button" onClick={handleWechatAuthorize} className="login-wechat-button w-full py-3 rounded-2xl" style={{ cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>
-                  {loading ? "正在打开微信扫码页..." : "打开微信扫码登录"}
+                  打开微信扫码登录
                 </motion.button>
 
                 <div className="flex items-center gap-3 w-full">
@@ -1012,7 +1061,7 @@ export default function LoginPage() {
                 </p>
 
                 <motion.button type="button" onClick={handleWechatInviteRegister} className="login-submit-button w-full py-3 rounded-2xl mt-1" style={{ cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>
-                  {loading ? "提交中..." : "完成注册并登录"}
+                  完成注册并登录
                 </motion.button>
 
                 <button
@@ -1065,7 +1114,7 @@ export default function LoginPage() {
                       <input type="text" placeholder="请输入验证码" maxLength={6} value={bindCode} onChange={(event) => setBindCode(event.target.value.replace(/\D/g, ""))} onFocus={() => setBindCodeFocused(true)} onBlur={() => setBindCodeFocused(false)} className="login-plain-input flex-1 outline-none bg-transparent" />
                     </AnimatedInput>
                     <motion.button type="button" onClick={handleSendBindCode} className="login-code-button rounded-2xl px-4 whitespace-nowrap" style={{ cursor: bindCountdown > 0 || bindPhone.length !== 11 || sendCodeLoading ? "not-allowed" : "pointer" }}>
-                      {bindCountdown > 0 ? `${bindCountdown}s 后重发` : sendCodeLoading ? "发送中..." : "获取验证码"}
+                      {bindCountdown > 0 ? `${bindCountdown}s 后重发` : "获取验证码"}
                     </motion.button>
                   </div>
                 </div>
@@ -1088,9 +1137,7 @@ export default function LoginPage() {
                 ) : null}
 
                 <p className="login-helper-text">
-                  {bindInviteCheckLoading
-                    ? "正在检查该手机号是否需要邀请码..."
-                    : bindNeedInvite === true
+                  {bindNeedInvite === true
                       ? "该手机号尚未注册，首次绑定需填写邀请码。"
                       : bindNeedInvite === false
                         ? "该手机号已注册，可直接绑定，无需邀请码。"
@@ -1098,7 +1145,7 @@ export default function LoginPage() {
                 </p>
 
                 <motion.button type="button" onClick={handleBindMobile} className="login-submit-button w-full py-3 rounded-2xl mt-1" style={{ cursor: loading ? "wait" : "pointer", opacity: loading ? 0.7 : 1 }}>
-                  {loading ? "绑定中..." : "完成绑定"}
+                  完成绑定
                 </motion.button>
               </motion.div>
             ) : null}

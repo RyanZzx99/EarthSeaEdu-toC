@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import { LoaderCircle } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { getMe } from "../api/auth";
 import {
@@ -9,6 +8,7 @@ import {
   getMockExamProgress,
   getMockExamSubmission,
 } from "../api/mockexam";
+import { LoadingPage } from "../components/LoadingPage";
 import { buildMockExamIeltsSrcDoc } from "../mockexam/mockexamFrame";
 import "../mockexam/mockexam.css";
 
@@ -248,14 +248,7 @@ export default function MockExamRunnerPage() {
   }, [navigate, sourceId, sourceType]);
 
   if (loading) {
-    return (
-      <div className="mockexam-runner-state">
-        <div className="mockexam-runner-card">
-          <LoaderCircle size={18} strokeWidth={2.2} className="spin" />
-          <span>Loading mock exam paper...</span>
-        </div>
-      </div>
-    );
+    return <LoadingPage message="正在进入考试" submessage="请稍候，正在准备当前试卷内容" />;
   }
 
   if (!frameSrcDoc) {

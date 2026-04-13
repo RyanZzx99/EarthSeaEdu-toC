@@ -29,6 +29,7 @@ import {
   saveAiChatArchiveForm,
   syncAiChatDraftFromOfficial,
 } from "../api/aiChat";
+import { InlineLoading, LoadingOverlay } from "../components/LoadingPage";
 import { clearAccessToken } from "../utils/authStorage";
 import { validatePasswordRule } from "../utils/passwordValidation";
 const AI_CHAT_BIZ_DOMAIN = "student_profile_build";
@@ -944,6 +945,52 @@ export default function ProfilePage() {
     () => buildArchiveSectionKeys(detailTableNames, availableLanguageDetailTables.length > 0),
     [detailTableNames, availableLanguageDetailTables.length]
   );
+  const profileBusyOverlay = useMemo(() => {
+    if (logoutLoading) {
+      return { message: "正在退出登录", submessage: "请稍候，正在安全退出当前账号" };
+    }
+    if (bindMobileSaving) {
+      return { message: "正在绑定手机号", submessage: "请稍候，正在保存当前手机号信息" };
+    }
+    if (updateNicknameLoading) {
+      return { message: "正在保存昵称", submessage: "请稍候，正在更新当前昵称" };
+    }
+    if (checkNicknameLoading) {
+      return { message: "正在检查昵称", submessage: "请稍候，正在确认昵称是否可用" };
+    }
+    if (checkPasswordLoading || forgotPasswordCheckLoading) {
+      return { message: "正在检查密码", submessage: "请稍候，正在校验当前密码规则" };
+    }
+    if (setPasswordLoading || forgotPasswordSaving) {
+      return { message: "正在保存密码", submessage: "请稍候，正在更新你的登录密码" };
+    }
+    if (forgotPasswordSendingCode) {
+      return { message: "正在发送验证码", submessage: "请稍候，验证码正在发送到你的手机" };
+    }
+    if (archiveSaving) {
+      return { message: "正在保存档案", submessage: "请稍候，正在同步最新档案内容" };
+    }
+    if (archiveRegenerating) {
+      return { message: "正在生成六维图", submessage: "请稍候，系统正在刷新当前六维评分" };
+    }
+    if (archiveDraftSyncing) {
+      return { message: "正在同步档案", submessage: "请稍候，系统正在同步当前正式档案" };
+    }
+    return null;
+  }, [
+    archiveDraftSyncing,
+    archiveRegenerating,
+    archiveSaving,
+    bindMobileSaving,
+    checkNicknameLoading,
+    checkPasswordLoading,
+    forgotPasswordCheckLoading,
+    forgotPasswordSaving,
+    forgotPasswordSendingCode,
+    logoutLoading,
+    setPasswordLoading,
+    updateNicknameLoading,
+  ]);
 
   useEffect(() => {
     void fetchProfile();
@@ -1636,7 +1683,7 @@ export default function ProfilePage() {
           </button>
         </div>
 
-        {loading ? <div className="loading-box">正在加载用户信息...</div> : null}
+        {loading ? null : null}
         {errorMessage ? <div className="error-box">{errorMessage}</div> : null}
 
         {!loading && profile ? (
@@ -1685,10 +1732,10 @@ export default function ProfilePage() {
 
                     <div className="inline-actions">
                       <button type="button" className="secondary-btn inline-btn" disabled={checkNicknameLoading} onClick={handleCheckNickname}>
-                        {checkNicknameLoading ? "检查中..." : "检查昵称是否可用"}
+                        检查昵称是否可用
                       </button>
                       <button type="button" className="primary-btn inline-btn" disabled={updateNicknameLoading} onClick={handleUpdateNickname}>
-                        {updateNicknameLoading ? "保存中..." : "保存昵称"}
+                        保存昵称
                       </button>
                       <button type="button" className="secondary-btn inline-btn" disabled={updateNicknameLoading || checkNicknameLoading} onClick={() => setShowNicknameEditor(false)}>
                         取消
@@ -1741,10 +1788,10 @@ export default function ProfilePage() {
 
                 <div className="inline-actions">
                   <button type="button" className="secondary-btn" disabled={checkPasswordLoading} onClick={handleCheckPassword}>
-                    {checkPasswordLoading ? "检查中..." : "检查密码是否可用"}
+                        检查密码是否可用
                   </button>
                   <button type="button" className="primary-btn" disabled={setPasswordLoading} onClick={handleSetPassword}>
-                    {setPasswordLoading ? "提交中..." : "保存密码"}
+                        保存密码
                   </button>
                   <button type="button" className="secondary-btn" disabled={setPasswordLoading || checkPasswordLoading} onClick={() => setShowPasswordEditor(false)}>
                     取消
@@ -1764,7 +1811,7 @@ export default function ProfilePage() {
             刷新用户信息
           </button>
           <button type="button" className="danger-btn" disabled={logoutLoading} onClick={handleLogout}>
-            {logoutLoading ? "退出中..." : "退出登录"}
+            退出登录
           </button>
         </div>
       </div>
@@ -1784,7 +1831,7 @@ export default function ProfilePage() {
           </button>
         </div>
 
-        {loading ? <div className="loading-box">正在加载用户信息...</div> : null}
+        {loading ? null : null}
         {errorMessage ? <div className="error-box">{errorMessage}</div> : null}
 
         {!loading && profile ? (
@@ -1833,7 +1880,7 @@ export default function ProfilePage() {
                   />
                   <div className="inline-actions">
                     <button type="button" className="primary-btn inline-btn" disabled={bindMobileSaving} onClick={handleBindMyMobile}>
-                      {bindMobileSaving ? "\u4fdd\u5b58\u4e2d..." : profile.mobile ? "\u4fdd\u5b58\u624b\u673a\u53f7" : "\u7ed1\u5b9a\u624b\u673a\u53f7"}
+                      {profile.mobile ? "\u4fdd\u5b58\u624b\u673a\u53f7" : "\u7ed1\u5b9a\u624b\u673a\u53f7"}
                     </button>
                     {profile.mobile ? (
                       <button
@@ -1887,10 +1934,10 @@ export default function ProfilePage() {
 
                     <div className="inline-actions">
                       <button type="button" className="secondary-btn inline-btn" disabled={checkNicknameLoading} onClick={handleCheckNickname}>
-                        {checkNicknameLoading ? "检查中..." : "检查昵称是否可用"}
+                        检查昵称是否可用
                       </button>
                       <button type="button" className="primary-btn inline-btn" disabled={updateNicknameLoading} onClick={handleUpdateNickname}>
-                        {updateNicknameLoading ? "保存中..." : "保存昵称"}
+                        保存昵称
                       </button>
                       <button type="button" className="secondary-btn inline-btn" disabled={updateNicknameLoading || checkNicknameLoading} onClick={() => setShowNicknameEditor(false)}>
                         取消
@@ -1966,7 +2013,7 @@ export default function ProfilePage() {
                       placeholder="请输入新密码"
                     />
                     <button type="button" className="secondary-btn inline-btn" disabled={checkPasswordLoading || !passwordForm.new_password} onClick={handleCheckPassword}>
-                      {checkPasswordLoading ? "检查中..." : "检查密码是否可用"}
+                        检查密码是否可用
                     </button>
                   </div>
                   <input
@@ -1982,7 +2029,7 @@ export default function ProfilePage() {
 
                   <div className="inline-actions">
                     <button type="button" className="primary-btn inline-btn" disabled={setPasswordLoading} onClick={handleSetPassword}>
-                      {setPasswordLoading ? "提交中..." : "保存密码"}
+                        保存密码
                     </button>
                     <button
                       type="button"
@@ -2011,7 +2058,7 @@ export default function ProfilePage() {
 
             <div className="profile-account-footer">
               <button type="button" className="danger-btn" disabled={logoutLoading} onClick={handleLogout}>
-                {logoutLoading ? "退出中..." : "退出登录"}
+                退出登录
               </button>
             </div>
           </div>
@@ -2060,11 +2107,7 @@ export default function ProfilePage() {
                     disabled={forgotPasswordSendingCode || forgotPasswordCodeCountdown > 0}
                     onClick={handleSendForgotPasswordCode}
                   >
-                    {forgotPasswordSendingCode
-                      ? "发送中..."
-                      : forgotPasswordCodeCountdown > 0
-                        ? `${forgotPasswordCodeCountdown}s后重发`
-                        : "获取验证码"}
+                    {forgotPasswordCodeCountdown > 0 ? `${forgotPasswordCodeCountdown}s后重发` : "获取验证码"}
                   </button>
                 </div>
 
@@ -2087,7 +2130,7 @@ export default function ProfilePage() {
                     disabled={forgotPasswordSaving || forgotPasswordCheckLoading || !forgotPasswordForm.new_password}
                     onClick={handleCheckForgotPasswordPassword}
                   >
-                    {forgotPasswordCheckLoading ? "检查中..." : "检查密码是否可用"}
+                    检查密码是否可用
                   </button>
                 </div>
 
@@ -2109,7 +2152,7 @@ export default function ProfilePage() {
 
                 <div className="inline-actions">
                   <button type="button" className="primary-btn inline-btn" disabled={forgotPasswordSaving} onClick={handleResetPasswordBySms}>
-                    {forgotPasswordSaving ? "保存中..." : "保存修改"}
+                    保存修改
                   </button>
                   <button type="button" className="secondary-btn inline-btn" disabled={forgotPasswordSaving} onClick={closeForgotPasswordDialog}>
                     取消
@@ -2643,14 +2686,7 @@ export default function ProfilePage() {
                 disabled={saveDisabled}
                 onClick={handleSaveArchiveForm}
               >
-                {archiveSaving ? (
-                  <>
-                    <span className="profile-floating-button-spinner" />
-                    {"\u6b63\u5728\u4fdd\u5b58..."}
-                  </>
-                ) : (
-                  "\u4fdd\u5b58\u4fee\u6539"
-                )}
+                {"\u4fdd\u5b58\u4fee\u6539"}
               </button>
 
               <button
@@ -2661,24 +2697,7 @@ export default function ProfilePage() {
                 disabled={regenerateDisabled}
                 onClick={handleRegenerateArchiveRadar}
               >
-                {archiveRegenerating ? (
-                  <>
-                    <span className="profile-floating-button-spinner" />
-                    {"\u6b63\u5728\u751f\u6210..."}
-                  </>
-                ) : archiveRegenerateBusy ? (
-                  <>
-                    <span className="profile-floating-button-spinner" />
-                    {"\u6b63\u5728\u540c\u6b65..."}
-                  </>
-                ) : archiveRegenerateBusy ? (
-                  <>
-                    <span className="profile-floating-button-spinner" />
-                    {"\u6b63\u5728\u540c\u6b65..."}
-                  </>
-                ) : (
-                  "\u91cd\u65b0\u751f\u6210\u516d\u7ef4\u56fe"
-                )}
+                {"\u91cd\u65b0\u751f\u6210\u516d\u7ef4\u56fe"}
               </button>
             </div>
           </>
@@ -2712,8 +2731,7 @@ export default function ProfilePage() {
 
         {archiveLoading ? (
           <div className="profile-archive-loading">
-            <div className="profile-archive-loading-spinner" />
-            <span>正在加载正式档案...</span>
+            <InlineLoading message="正在准备正式档案" />
           </div>
         ) : null}
         {archiveErrorMessage ? <div className="error-box">{archiveErrorMessage}</div> : null}
@@ -2864,14 +2882,7 @@ export default function ProfilePage() {
                 disabled={saveDisabled}
                 onClick={handleSaveArchiveForm}
               >
-                {archiveSaving ? (
-                  <>
-                    <span className="profile-floating-button-spinner" />
-                    正在保存...
-                  </>
-                ) : (
-                  "保存修改"
-                )}
+                保存修改
               </button>
 
               <button
@@ -2882,14 +2893,7 @@ export default function ProfilePage() {
                 disabled={regenerateDisabled}
                 onClick={handleRegenerateArchiveRadar}
               >
-                {archiveRegenerating ? (
-                  <>
-                    <span className="profile-floating-button-spinner" />
-                    正在生成...
-                  </>
-                ) : (
-                  "重新生成六维图"
-                )}
+                重新生成六维图
               </button>
             </div>
           </>
@@ -2898,8 +2902,19 @@ export default function ProfilePage() {
     );
   }
 
+  if (loading && !profile) {
+    return null;
+  }
+
   return (
     <div className="profile-shell">
+      {profileBusyOverlay ? (
+        <LoadingOverlay
+          message={profileBusyOverlay.message}
+          submessage={profileBusyOverlay.submessage}
+        />
+      ) : null}
+
       <aside className="profile-sidebar">
         <div className="profile-sidebar-card">
           <div className="profile-sidebar-avatar">{getDisplayInitial(profile?.nickname, profile?.mobile)}</div>

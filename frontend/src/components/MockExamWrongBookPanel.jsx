@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, LoaderCircle } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { getMockExamWrongQuestions } from "../api/mockexam";
+import { InlineLoading } from "./LoadingPage";
 
 function formatTime(value) {
   if (!value) {
@@ -110,7 +111,7 @@ export default function MockExamWrongBookPanel() {
         <>
           {loading ? (
             <div className="mockexam-inline-note">
-              <LoaderCircle size={16} strokeWidth={2.1} className="spin" /> 正在加载错题本...
+              <InlineLoading message="正在准备错题本" size="sm" />
             </div>
           ) : null}
 

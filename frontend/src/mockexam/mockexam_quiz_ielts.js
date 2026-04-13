@@ -1361,7 +1361,7 @@
        return;
      }
      quizSaving = true;
-     if(saveBtn){ saveBtn.disabled=true; saveBtn.textContent='保存中...'; }
+      if(saveBtn){ saveBtn.disabled=true; saveBtn.textContent='保存并退出'; }
      if(favoriteBtn){ favoriteBtn.disabled=true; }
      try{
         var data = await authorizedJsonRequest(SAVE_PROGRESS_URL, {

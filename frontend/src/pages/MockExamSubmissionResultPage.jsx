@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, LoaderCircle, RotateCcw } from "lucide-react";
+import { ArrowLeft, RotateCcw } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { getMockExamSubmission } from "../api/mockexam";
 import "../mockexam/mockexam.css";
@@ -108,14 +108,7 @@ export default function MockExamSubmissionResultPage() {
   );
 
   if (loading) {
-    return (
-      <div className="mockexam-runner-state">
-        <div className="mockexam-runner-card">
-          <LoaderCircle size={18} strokeWidth={2.2} className="spin" />
-          <span>正在加载成绩结果...</span>
-        </div>
-      </div>
-    );
+    return <div className="mockexam-page"><div className="mockexam-shell" /></div>;
   }
 
   if (!submission) {

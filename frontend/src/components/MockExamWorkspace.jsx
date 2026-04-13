@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { LoaderCircle } from "lucide-react";
 import { getMockExamOptions, getMockExamPapers, getMockExamPaperSets } from "../api/mockexam";
+import { InlineLoading } from "./LoadingPage";
 
 function openExamWindow(targetUrl) {
   const openedWindow = window.open("", "_blank");
@@ -60,7 +60,6 @@ export default function MockExamWorkspace({
   const [items, setItems] = useState([]);
   const [loadingBootstrap, setLoadingBootstrap] = useState(true);
   const [loadingItems, setLoadingItems] = useState(false);
-  const [startingSourceId, setStartingSourceId] = useState("");
   const [message, setMessage] = useState("");
 
   const contentOptions = useMemo(() => {
@@ -161,7 +160,9 @@ export default function MockExamWorkspace({
         setMessage(
           getApiError(
             error,
-            sourceMode === "paper-set" ? "组合试卷列表加载失败，请稍后重试。" : "单张试卷列表加载失败，请稍后重试。"
+            sourceMode === "paper-set"
+              ? "组合试卷列表加载失败，请稍后重试。"
+              : "单张试卷列表加载失败，请稍后重试。"
           )
         );
       } finally {
@@ -185,14 +186,13 @@ export default function MockExamWorkspace({
       return;
     }
 
-    setStartingSourceId(resolvedSourceId);
     const opened = openExamWindow(`/mockexam/run/${sourceMode}/${resolvedSourceId}`);
     if (!opened) {
       setMessage("浏览器拦截了新页面，请允许弹窗后重试。");
-    } else {
-      setMessage("");
+      return;
     }
-    setStartingSourceId("");
+
+    setMessage("");
   }
 
   return (
@@ -221,7 +221,9 @@ export default function MockExamWorkspace({
                 ...previous,
                 exam_category: nextCategory,
                 exam_content:
-                  sourceMode === "paper-set" ? "" : options.content_options_map?.[nextCategory]?.[0] || "",
+                  sourceMode === "paper-set"
+                    ? ""
+                    : options.content_options_map?.[nextCategory]?.[0] || "",
                 source_id: "",
               }));
             }}
@@ -274,7 +276,10 @@ export default function MockExamWorkspace({
               <option value="">{sourceMode === "paper-set" ? "暂无组合试卷" : "暂无单张试卷"}</option>
             ) : null}
             {items.map((item) => (
-              <option key={buildSourceId(item, sourceMode)} value={buildSourceId(item, sourceMode)}>
+              <option
+                key={buildSourceId(item, sourceMode)}
+                value={buildSourceId(item, sourceMode)}
+              >
                 {buildSourceLabel(item, sourceMode)}
               </option>
             ))}
@@ -289,14 +294,20 @@ export default function MockExamWorkspace({
           disabled={loadingBootstrap || loadingItems || !form.source_id}
           onClick={handleStart}
         >
-          {startingSourceId && startingSourceId === String(form.source_id) ? "正在打开..." : buttonLabel}
+          {buttonLabel}
         </button>
       </div>
 
       {loadingItems ? (
         <div className="mockexam-inline-note">
-          <LoaderCircle size={16} strokeWidth={2.1} className="spin" />
-          {sourceMode === "paper-set" ? "正在加载组合试卷..." : "正在加载单张试卷..."}
+          <InlineLoading
+            message={
+              sourceMode === "paper-set"
+                ? "正在准备组合试卷列表"
+                : "正在准备单张试卷列表"
+            }
+            size="sm"
+          />
         </div>
       ) : null}
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Heart, LoaderCircle } from "lucide-react";
+import { ArrowLeft, Heart } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { getMockExamQuestionDetail, toggleMockExamFavorite } from "../api/mockexam";
 import "../mockexam/mockexam.css";
@@ -175,14 +175,7 @@ export default function MockExamQuestionDetailPage() {
   }
 
   if (loading) {
-    return (
-      <div className="mockexam-runner-state">
-        <div className="mockexam-runner-card">
-          <LoaderCircle size={18} strokeWidth={2.2} className="spin" />
-          <span>正在加载题目详情...</span>
-        </div>
-      </div>
-    );
+    return <div className="mockexam-page"><div className="mockexam-shell" /></div>;
   }
 
   if (!detail) {
