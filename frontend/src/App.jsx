@@ -6,6 +6,7 @@ import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import MockExamQuestionDetailPage from "./pages/MockExamQuestionDetailPage";
 import MockExamPage from "./pages/MockExamPage";
+import MockExamPracticePage from "./pages/MockExamPracticePage";
 import MockExamRunnerPage from "./pages/MockExamRunnerPage";
 import MockExamSubmissionResultPage from "./pages/MockExamSubmissionResultPage";
 import ProfilePage from "./pages/ProfilePage";
@@ -177,6 +178,14 @@ export default function App() {
         element={
           <RequireAuth authState={authState}>
             <MockExamPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam/practice"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamPracticePage />
           </RequireAuth>
         }
       />
