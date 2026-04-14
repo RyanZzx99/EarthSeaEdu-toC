@@ -1,0 +1,294 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>考题预览</title>
+
+  <!-- MathJax 配置 -->
+  <script>window.MathJax={tex:{inlineMath:[["$","$"],["\\(","\\)"]],displayMath:[["$$","$$"],["\\[","\\]"]]},options:{renderActions:{addMenu:[],assistiveMml:[],addToMathjax:[]}},startup:{typeset:false}};</script>
+  <script src="{{ url_for('static', filename='js/tex-mml-chtml.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/crypto-js.min.js') }}"></script>
+
+  <!-- Tailwind & 自定义 CSS -->
+  <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+  <style>
+    :root{ --contentScale:100%; }
+
+    /* —— 水印 —— */
+    #watermark { display: none; }
+    .watermark-tile { position: absolute; transform: rotate(-45deg); font-size: 2rem; color: rgba(0,0,0,.02); white-space: nowrap; pointer-events: none; user-select: none; }
+
+    /* —— 启动浮层 —— */
+    #startOverlay{position:fixed;inset:0;background:rgba(0,0,0,.7);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:50}
+    #startOverlay h1{margin-bottom:1.5rem;font-size:2rem}
+    #startOverlay button{padding:.75rem 1.5rem;background:#0f172a;border:none;border-radius:.5rem;font-size:1.125rem;cursor:pointer}
+
+    /* —— 退出全屏遮罩 —— */
+    #pauseOverlay{position:fixed;inset:0;background:rgba(0,0,0,.3);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;z-index:40}
+    #pauseOverlay.visible{display:flex}
+    #pauseOverlay button{margin-top:1rem;padding:.5rem 1rem;background:#0f172a;border:none;border-radius:.25rem;color:#fff;cursor:pointer}
+
+    /* —— Question Navigator（模态） —— */
+    #navOverlay{position:fixed;inset:0;z-index:60;display:none}
+    #navOverlay.visible{display:block}
+    #navPanel{position:absolute;left:50%;transform:translateX(-50%);bottom:6rem;width:min(100%,1100px);background:rgba(255,255,255,0.92);backdrop-filter:blur(8px);border:1px solid #e5e7eb;border-radius:1rem;box-shadow:0 10px 40px rgba(2,6,23,.15);}
+    #navBody{max-height:40vh;overflow-y:auto;}
+    .qbtn{height:2.375rem;border-radius:.5rem;border:1px solid #e5e7eb;display:flex;align-items:center;justify-content:center;font-weight:600}
+    .qbtn.current{border-color:#0f172a;box-shadow:0 0 0 1px #0f172a inset}
+    .qbtn.answered{background:#ecfdf5;border-color:#10b98199}
+    .qbtn.marked{background:#fff7ed;border-color:#f59e0b99}
+
+    /* —— 休息遮罩 —— */
+    #breakScreen{position:fixed;inset:0;background:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;z-index:20}
+    #breakScreen.visible{display:flex}
+
+    /* —— 选项选中效果 —— */
+    .choice-selected{border-color:#000;}
+    .choice-radio{display:inline-flex;align-items:center;justify-content:center;width:1.25em;height:1.25em;border-radius:9999px;border:1px solid #cbd5e1;font-size:.85em;font-weight:700}
+    .choice-selected .choice-radio{background:#000;color:#fff;border-color:#000}
+
+    /* —— 字号缩放只作用于中间内容 —— */
+    .scalable{ font-size: var(--contentScale); }
+
+    /* —— 无 stimulus 时，题目区域居中且占 4/5 屏宽 —— */
+    #questionPane.centered{ width:80vw; max-width:1400px; margin-left:auto; margin-right:auto; }
+    #stage.no-stimulus #stimulusPane{ display:none; }
+    #stage.no-stimulus #questionPane{ grid-column:1 / -1; width:80vw; max-width:1400px; margin-left:auto; margin-right:auto; }
+    @media (max-width: 767px){
+      #stage.no-stimulus #questionPane{ width:100%; }
+    }
+
+    /* —— 浮窗（分区/难度切换提示） —— */
+    .toast{
+      position:fixed;bottom:6rem;left:50%;transform:translate(-50%, 0);
+      padding:.625rem 1rem;border-radius:.75rem;
+      background:#0f172a;color:#fff;box-shadow:0 10px 30px rgba(2,6,23,.18);z-index:70;
+    }
+
+    /* —— 标记小旗更明显 —— */
+    #markBtn .flag-icon{ color:#94a3b8; transition: transform .15s ease, filter .2s ease, color .15s ease; }
+    #markBtn.is-marked .flag-icon{ color:#d97706; filter: drop-shadow(0 0 6px rgba(217,119,6,.45)); transform: translateY(-1px) scale(1.05); }
+    .flag-icon.pop{ animation: pop .2s ease-out; }
+    @keyframes pop{ 0%{transform:scale(.9);} 60%{transform:scale(1.12);} 100%{transform:scale(1.05);} }
+
+    /* —— 选项锁定但保持黑色 —— */
+    button.option-btn[disabled]{ opacity:1 !important; color:#000 !important; cursor:default !important; }
+    button.option-btn[disabled] .choice-radio{ border-color:#000 !important; }
+
+    /* —— 浮窗在下方 & 动效 —— */
+    .toast{ bottom:6rem; top:auto; }
+    .toast-info { background: #000000; }
+    .toast-success { background:#16a34a; }
+    .toast-warning { background:#f59e0b; }
+    .toast-error { background:#dc2626; }
+    .toast-enter{ animation: float-in-up .25s ease-out both; }
+    .toast-leave{ animation: float-out-down .3s ease-in forwards; }
+    @keyframes float-in-up{ from{ opacity:0; transform:translate(-50%, 8px);} to{ opacity:1; transform:translate(-50%, 0);} }
+    @keyframes float-out-down{ from{ opacity:1; transform:translate(-50%, 0);} to{ opacity:0; transform:translate(-50%, 10px);} }
+
+    /* —— 统一按钮（选项）基线字号，避免与普通文本基线不一致 —— */
+    button.option-btn{ font-size:1rem; line-height:1.6; font-weight:400; }
+    button.option-btn .option-html p{ margin:.25em 0; }
+	
+	table, th, td {
+      border: 1px solid black;
+	  border-collapse: collapse;
+	}
+	
+    .content-reset :where(h1,h2,h3,h4,h5,h6){ font-size:1em; line-height:1.45; font-weight:600; margin:.35em 0 .25em; }
+    .content-reset :where(p,li,blockquote){ font-size:1em; line-height:1.75; }
+    .content-reset :where(ul,ol){ padding-left:1.2em; }
+    .content-reset :where(code,kbd,samp){ font-size:.95em; }
+
+    /* —— IELTS 分组布局 —— */
+    .passage-block{border:1px solid #e2e8f0;border-radius:1.5rem;background:#fff;padding:1.5rem;box-shadow:0 6px 20px rgba(15,23,42,.06);}
+    .passage-block header{display:flex;flex-direction:column;gap:.35rem;}
+    .passage-grid{display:flex;flex-direction:column;gap:1.5rem;}
+    @media (min-width:1024px){.passage-grid{display:grid;grid-template-columns:5fr 7fr;gap:1.5rem;}}
+    .question-card{border:1px solid #e5e7eb;border-radius:1rem;background:#fff;padding:1.25rem;transition:border-color .2s ease,box-shadow .2s ease;scroll-margin-top:120px;}
+    .question-card.current-question{border-color:#0f172a;box-shadow:0 10px 35px rgba(15,23,42,.12);}
+    .question-card .badge{display:inline-flex;height:1.75rem;width:1.75rem;border-radius:999px;align-items:center;justify-content:center;font-weight:600;background:#0f172a;color:#fff;font-size:.85rem;}
+    .mark-pill{font-size:.75rem;padding:.1rem .6rem;border-radius:999px;border:1px solid #f59e0b;background:#fff7ed;color:#92400e;}
+    .mark-pill.hidden{display:none;}
+    .passage-block.active{border-color:#0f172a;box-shadow:0 10px 35px rgba(15,23,42,.15);}
+    .passage-pill{font-size:.75rem;padding:.3rem .8rem;border-radius:999px;border:1px solid #cbd5e1;background:#f8fafc;color:#0f172a;font-weight:600;}
+    #stimulusPane,#questionPane{height:calc(100vh - 11rem);max-height:calc(100vh - 11rem);overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;}
+    #questionPane{position:relative;}
+    .answer-panel{margin-top:1rem;padding:1rem;border-radius:1rem;border:1px solid #cbd5e1;background:#f8fafc;color:#0f172a;}
+    .answer-panel h4{font-size:.85rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.35rem;color:#475569;}
+
+    .option-btn.choice-selected {background: rgba(15, 23, 42, .06);}
+    .option-btn.option-correct{border-color:#059669 !important;box-shadow:0 0 0 1px #059669 inset;background:rgba(16,185,129,.08);}
+    .option-btn.option-correct .choice-radio{background:#059669;color:#fff;border-color:#059669;}
+    .option-btn.option-wrong{border-color:#dc2626 !important;box-shadow:0 0 0 1px #dc2626 inset;background:rgba(220,38,38,.08);}
+    .option-btn.option-wrong .choice-radio{background:#dc2626;color:#fff;border-color:#dc2626;}
+    .tfng-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.5rem;}
+    .tfng-option{border:1px solid #d4d4d8;border-radius:999px;padding:.6rem 1rem;text-align:center;font-weight:600;transition:all .2s ease;}
+    .tfng-option.choice-selected{border-color:#0f172a;background:#0f172a;color:#fff;}
+    .tfng-option.option-correct{border-color:#059669;background:rgba(16,185,129,.08);color:#065f46;}
+    .tfng-option.option-wrong{border-color:#dc2626;background:rgba(220,38,38,.08);color:#991b1b;}
+    .essay-input{min-height:140px;}
+    .input-wrong{border-color:#dc2626 !important;box-shadow:0 0 0 1px #dc2626 inset;}
+    .blank-input{display:inline-block;min-width:6rem;border:none;border-bottom:2px solid #0f172a;background:transparent;padding:0 .25rem;margin:0 .15rem;text-align:center;}
+    .blank-input:disabled{opacity:1;}
+    .blank-input.option-correct{border-bottom-color:#059669;color:#065f46;}
+    .blank-input.option-wrong{border-bottom-color:#dc2626;color:#991b1b;}
+    .blank-solution{display:inline-block;margin:0 .25rem;color:#dc2626;font-size:.9em;}
+    .matching-block{display:flex;flex-direction:column;gap:1rem;}
+    .matching-options{border:1px solid #e5e7eb;border-radius:.75rem;background:#f8fafc;padding:.75rem;}
+    .matching-option-line{display:flex;gap:.5rem;align-items:flex-start;}
+    .matching-option-line .label{font-weight:700;min-width:1.2rem;}
+    .matching-rows{display:flex;flex-direction:column;gap:.75rem;}
+    .matching-row{display:flex;flex-direction:column;gap:.5rem;border:1px solid #e5e7eb;border-radius:.75rem;padding:.75rem;}
+    @media (min-width:768px){ .matching-row{flex-direction:row;align-items:flex-start;gap:1rem;} }
+    .matching-row .prompt{flex:1;min-width:220px;}
+    .matching-buttons{display:flex;flex-wrap:wrap;gap:.5rem;}
+    .matching-btn{border:1px solid #d4d4d8;border-radius:999px;padding:.35rem .7rem;font-weight:600;transition:all .2s ease;}
+    .matching-btn.choice-selected{border-color:#0f172a;background:#0f172a;color:#fff;}
+    .matching-btn.option-correct{border-color:#059669;background:rgba(16,185,129,.08);color:#065f46;}
+    .matching-btn.option-wrong{border-color:#dc2626;background:rgba(220,38,38,.08);color:#991b1b;}
+    .passage-audio{border:1px solid #e2e8f0;border-radius:.9rem;padding:.75rem;background:#f8fafc;}
+    .passage-audio audio{width:100%;}
+  </style>
+</head>
+<body class="min-h-screen flex flex-col bg-white relative">
+  <!-- —— 水印 —— -->
+  <div id="watermark" data-email="{{ email }}">{{ email }}</div>
+
+  <!-- —— 启动浮层 —— -->
+  <div id="startOverlay">
+    <h1>正在进入练习</h1>
+    <p class="mb-4">请稍候，正在准备当前试卷内容</p>
+    <button id="startBtn">立即进入</button>
+  </div>
+
+  <!-- —— 退出全屏遮罩 —— -->
+  <div id="pauseOverlay">
+    <h2 class="text-2xl">已退出全屏，答题已暂停</h2>
+    <p>请点击下方按钮恢复全屏</p>
+    <button id="resumeBtn">继续答题</button>
+  </div>
+
+  <!-- —— 休息遮罩 —— -->
+  <div id="breakScreen">
+    <h2 class="text-xl mb-4">休息时间</h2>
+    <div id="breakTimer" class="font-mono text-2xl mb-4">10:00</div>
+    <button id="skipBtn" class="bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded">跳过休息</button>
+  </div>
+
+  <!-- ───────────────────────────────────────────────── TOP BAR ───────────────────────────────────────────────── -->
+  <header class="sticky top-0 z-40 border-b bg-white/85 backdrop-blur">
+    <div class="mx-auto w-full px-6 xl:px-12 py-3 flex items-center justify-between relative">
+      <!-- 左：Section/Module 标签 -->
+      <div id="sectionLabel" class="text-sm font-semibold"></div>
+
+      <!-- 中：Timer -->
+      <div class="absolute left-1/2 -translate-x-1/2">
+        <div id="timer" class="font-mono tabular-nums text-lg">00:00</div>
+      </div>
+
+      <!-- 右：字号控制 -->
+      <div class="flex items-center gap-2">
+        <div class="inline-flex items-center overflow-hidden rounded-full border border-slate-200 shadow-sm" role="group" aria-label="Font size controls">
+          <button id="decreaseFont" class="px-3 h-8 text-sm text-slate-700 hover:bg-slate-50 focus:outline-none">A–</button>
+          <div class="w-px h-5 bg-slate-200"></div>
+          <button id="increaseFont" class="px-3 h-8 text-sm text-slate-700 hover:bg-slate-50 focus:outline-none">A+</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ───────────────────────────────────────────────── MAIN ───────────────────────────────────────────────── -->
+  <main id="stage" class="flex-1">
+    <div class="mx-auto w-full px-6 xl:px-12 py-6 grid grid-cols-12 gap-6">
+      <!-- 左：Stimulus -->
+      <section id="stimulusPane" class="col-span-12 md:col-span-6 border rounded-2xl p-6 overflow-y-auto min-h-[40vh] scalable content-reset">
+        <header class="mb-4 border-b pb-3">
+          <p id="stimulusModule" class="text-xs uppercase tracking-wide text-slate-500">Module</p>
+          <h2 id="stimulusTitle" class="text-xl font-semibold text-slate-900">请选择题目查看文章</h2>
+          <p id="stimulusInstructions" class="text-sm text-slate-600 mt-1"></p>
+        </header>
+        <article id="stimulusContent" class="prose max-w-none text-slate-900 space-y-4">
+          <p class="text-slate-500">左侧区域会在你切换题卡或段落时自动显示对应的阅读材料。</p>
+        </article>
+      </section>
+
+      <!-- 右：题干与选项 -->
+      <section id="questionPane" class="col-span-12 md:col-span-6 border rounded-2xl p-6 flex flex-col overflow-y-auto min-h-[40vh]">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-3">
+          <div class="flex items-center gap-3">
+            <span id="qBadge" class="inline-flex h-6 w-6 items-center justify-center rounded bg-slate-900 text-white text-xs font-semibold">1</span>
+            <button id="markBtn" class="text-slate-700 hover:text-slate-900 text-sm inline-flex items-center gap-2" aria-label="Mark for Review" aria-pressed="false">
+              <svg id="markIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-4 h-4 flag-icon" fill="currentColor"><path d="M5 2.75a.75.75 0 0 1 1.5 0V21a.75.75 0 0 1-1.5 0V2.75z"></path><path d="M7 3.5h10l-3 3 3 3H7z"></path></svg>
+              <span>Mark for Review</span>
+            </button>
+            <button id="favoriteBtn" class="text-slate-700 hover:text-slate-900 text-sm inline-flex items-center gap-2" aria-label="Favorite Question" aria-pressed="false">
+              <span id="favoriteIcon">☆</span>
+              <span>收藏题目</span>
+            </button>
+            <span id="lockBadge" class="hidden select-none rounded-full bg-slate-900/90 text-white text-[11px] px-2 py-0.5">答案已锁定</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="saveBtn" class="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700 hover:border-slate-500">保存并退出</button>
+            <button id="toggleAnswers" class="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700 hover:border-slate-500" aria-pressed="false">显示答案</button>
+          </div>
+        </div>
+        <div id="questionAudioWrap" class="passage-audio hidden">
+          <div class="text-[11px] uppercase tracking-wide text-slate-500 mb-2">Listening Audio</div>
+          <audio id="questionAudio" controls preload="none"></audio>
+        </div>
+        <div id="passageContainer" class="flex flex-col gap-3"></div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ───────────────────────────────────────────────── BOTTOM BAR ───────────────────────────────────────────────── -->
+  <footer class="sticky bottom-0 z-40 border-t bg-white/90 backdrop-blur">
+    <div class="mx-auto w-full px-6 xl:px-12 py-3 grid grid-cols-3 items-center">
+      <!-- 左：姓名（左下角） -->
+      <div class="text-left text-sm text-slate-700">{{ email }}</div>
+
+      <!-- 中：Question 面板按钮（切题菜单） -->
+      <div class="flex items-center justify-center">
+        <button id="progress" class="inline-flex items-center gap-2 rounded-full bg-slate-900 text-white px-4 py-2 text-sm shadow-md">
+          Question 0 of 0
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M12 15.5 5 8.5l1.4-1.4L12 12.7l5.6-5.6L19 8.5z"/></svg>
+        </button>
+      </div>
+
+      <!-- 右：Prev / Next（右下角） -->
+      <div class="flex items-center justify-end gap-2">
+        <button id="prevBtn" class="rounded-lg border px-4 py-2 text-sm disabled:opacity-40" disabled>Back</button>
+        <button id="actionBtn" class="rounded-lg bg-slate-900 text-white px-4 py-2 text-sm shadow-md disabled:opacity-40" disabled>Next</button>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Question Navigator 模态 -->
+  <div id="navOverlay">
+    <div id="navBackdrop" class="absolute inset-0 bg-black/30"></div>
+    <div id="navPanel" class="mx-4 p-4">
+      <div class="flex items-center justify-between">
+        <div class="text-sm font-semibold">Question Navigator</div>
+        <button id="navClose" class="text-sm text-slate-600 hover:text-slate-900">Close</button>
+      </div>
+      <div id="navBody" class="mt-3 space-y-4"></div>
+      <div class="mt-3 flex items-center gap-4 text-xs text-slate-600">
+        <div class="inline-flex items-center gap-1"><span class="h-3 w-3 rounded-sm bg-emerald-50 border border-emerald-500/60 inline-block"></span> Answered</div>
+        <div class="inline-flex items-center gap-1"><span class="h-3 w-3 rounded-sm bg-orange-50 border border-yellow-500/60 inline-block"></span> Marked</div>
+        <div class="inline-flex items-center gap-1"><span class="h-3 w-3 rounded-sm bg-white border border-slate-200 inline-block"></span> Blank</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.QUIZ_BOOTSTRAP = {
+      items: {{ items | safe }},
+      sessionId: {{ session_id|tojson }},
+      sessionCreatedAt: {{ session_created_at|tojson }},
+      email: {{ email|tojson }}
+    };
+  </script>
+  <script src="../static/js/quiz_ielts.js"></script>
+</body>
+</html>
