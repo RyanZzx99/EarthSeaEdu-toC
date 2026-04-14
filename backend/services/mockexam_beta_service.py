@@ -36,6 +36,7 @@ from backend.services.mockexam_service import flatten_questions_for_score
 from backend.services.mockexam_service import get_mockexam_beta_paper
 from backend.services.mockexam_service import infer_question_type
 from backend.services.mockexam_service import normalize_mockexam_beta_exam_content
+from backend.services.mockexam_service import repair_mockexam_payload
 from backend.services.mockexam_service import serialize_mockexam_beta_group
 from backend.services.mockexam_service import serialize_mockexam_beta_group_options
 from backend.services.mockexam_service import serialize_mockexam_beta_passage
@@ -559,6 +560,7 @@ def serialize_beta_mockexam_submission_detail(submission: MockExamSubmission) ->
         payload_json=submission.payload_json,
     )
     answers_map = build_answers_map_from_rows(submission.answers)
+    payload = repair_mockexam_payload(submission.payload_json)
     return {
         "submission_id": submission.mockexam_submission_id,
         "exam_paper_id": submission.exam_paper_id,
@@ -569,10 +571,10 @@ def serialize_beta_mockexam_submission_detail(submission: MockExamSubmission) ->
         "exam_category": submission.exam_category,
         "exam_content": submission.exam_content,
         "create_time": submission.create_time,
-        "payload": copy.deepcopy(submission.payload_json),
+        "payload": payload,
         "answers": answers_map,
         "marked": build_marked_map_from_rows(submission.question_states),
-        "result": evaluate_quiz_payload(submission.payload_json, answers_map),
+        "result": evaluate_quiz_payload(payload, answers_map),
     }
 
 
@@ -660,9 +662,10 @@ def serialize_beta_mockexam_progress_item(progress: MockExamProgress) -> dict[st
 
 
 def serialize_beta_mockexam_progress_detail(progress: MockExamProgress) -> dict[str, Any]:
+    payload = repair_mockexam_payload(progress.payload_json)
     return {
         **serialize_beta_mockexam_progress_item(progress),
-        "payload": copy.deepcopy(progress.payload_json),
+        "payload": payload,
         "answers": build_answers_map_from_rows(progress.answers),
         "marked": build_marked_map_from_rows(progress.question_states),
     }
@@ -694,7 +697,7 @@ def save_beta_mockexam_progress(
     progress_id: int | None = None,
 ) -> MockExamProgress:
     paper = get_mockexam_beta_paper(db, exam_paper_id=exam_paper_id)
-    safe_payload = copy.deepcopy(payload) if payload is not None else build_mockexam_beta_payload(paper)
+    safe_payload = repair_mockexam_payload(payload) if payload is not None else build_mockexam_beta_payload(paper)
     safe_answers_map = answers_map if isinstance(answers_map, dict) else {}
     safe_marked_map = marked_map if isinstance(marked_map, dict) else {}
     result = evaluate_quiz_payload(safe_payload, safe_answers_map)
@@ -769,7 +772,7 @@ def save_beta_mockexam_paper_set_progress(
         db,
         mockexam_paper_set_id=mockexam_paper_set_id,
     )
-    safe_payload = copy.deepcopy(payload) if payload is not None else default_payload
+    safe_payload = repair_mockexam_payload(payload) if payload is not None else repair_mockexam_payload(default_payload)
     safe_answers_map = answers_map if isinstance(answers_map, dict) else {}
     safe_marked_map = marked_map if isinstance(marked_map, dict) else {}
     safe_paper_code = build_paper_set_paper_code(mockexam_paper_set_id)
@@ -869,7 +872,7 @@ def submit_beta_mockexam_paper(
         if progress.exam_paper_id != exam_paper_id:
             raise ValueError("未完成记录与当前试卷不匹配")
         if progress.payload_json:
-            payload = copy.deepcopy(progress.payload_json)
+            payload = repair_mockexam_payload(progress.payload_json)
 
     safe_answers_map = answers_map if isinstance(answers_map, dict) else {}
     safe_marked_map = marked_map if isinstance(marked_map, dict) else {}
@@ -911,7 +914,7 @@ def submit_beta_mockexam_paper_set(
         raise ValueError("当前模拟考试暂未开放该考试类别")
 
     progress: MockExamProgress | None = None
-    payload = default_payload
+    payload = repair_mockexam_payload(default_payload)
     if progress_id:
         progress = get_active_beta_mockexam_progress(db, user_id=user_id, progress_id=progress_id)
         source_meta = extract_record_source_meta(
@@ -921,7 +924,7 @@ def submit_beta_mockexam_paper_set(
         if source_meta["source_kind"] != PAPER_SET_SOURCE_KIND or source_meta["paper_set_id"] != mockexam_paper_set_id:
             raise ValueError("未完成记录与当前组合试卷不匹配")
         if progress.payload_json:
-            payload = copy.deepcopy(progress.payload_json)
+            payload = repair_mockexam_payload(progress.payload_json)
 
     safe_answers_map = answers_map if isinstance(answers_map, dict) else {}
     safe_marked_map = marked_map if isinstance(marked_map, dict) else {}

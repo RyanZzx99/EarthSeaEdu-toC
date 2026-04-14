@@ -26,6 +26,8 @@ from backend.models.ielts_exam_models import ExamQuestion
 from backend.models.ielts_exam_models import ExamQuestionAnswer
 from backend.models.ielts_exam_models import ExamQuestionBlank
 from backend.models.ielts_exam_models import ExamSection
+from backend.services.mockexam_service import normalize_blank_placeholder_spacing_html
+from backend.services.mockexam_service import normalize_blank_question_fragment_html
 from backend.utils.exam_asset_storage import build_exam_asset_url
 from backend.utils.exam_asset_storage import resolve_exam_asset_abspath
 
@@ -691,9 +693,9 @@ def import_questions_for_group(
             question_no=question_no,
             raw_type=group.raw_type,
             stat_type=group.stat_type,
-            stem_html=normalize_string(source_question.get("stem")),
+            stem_html=normalize_blank_placeholder_spacing_html(normalize_string(source_question.get("stem"))),
             stem_text=html_to_text(source_question.get("stem")),
-            content_html=normalize_string(source_question.get("content")),
+            content_html=normalize_blank_placeholder_spacing_html(normalize_string(source_question.get("content"))),
             content_text=html_to_text(source_question.get("content")),
             source_blank_id=None,
             sort_order=question_sort_order,
@@ -746,7 +748,7 @@ def import_blank_questions(
     counts: dict[str, int],
     question_sort_order: int,
 ) -> int:
-    full_content_html = normalize_string(source_question.get("content"))
+    full_content_html = normalize_blank_placeholder_spacing_html(normalize_string(source_question.get("content")))
     for blank_index, blank_payload in enumerate(blanks, start=1):
         if not isinstance(blank_payload, dict):
             continue
@@ -988,7 +990,7 @@ def parse_section_no(value: Any) -> int | None:
 
 
 def extract_group_content_html(group_payload: dict[str, Any]) -> str:
-    direct_content = normalize_string(group_payload.get("content"))
+    direct_content = normalize_blank_placeholder_spacing_html(normalize_string(group_payload.get("content")))
     if direct_content:
         return direct_content
     questions = group_payload.get("questions")
@@ -998,7 +1000,7 @@ def extract_group_content_html(group_payload: dict[str, Any]) -> str:
     for question in questions:
         if not isinstance(question, dict):
             continue
-        content = normalize_string(question.get("content"))
+        content = normalize_blank_placeholder_spacing_html(normalize_string(question.get("content")))
         if content and content not in collected:
             collected.append(content)
     return "\n".join(collected)
@@ -1110,9 +1112,13 @@ def extract_blank_fragment_html(*, full_content_html: str, blank_id: str, questi
         pattern = re.compile(rf"(<{tag}\b[^>]*>.*?\[\[{safe_blank_id}\]\].*?</{tag}>)", re.I | re.S)
         match = pattern.search(full_content_html)
         if match:
-            return replace_blank_placeholder(match.group(1), blank_id)
+            return normalize_blank_question_fragment_html(
+                replace_blank_placeholder(match.group(1), blank_id)
+            )
     if f"[[{blank_id}]]" in full_content_html:
-        return replace_blank_placeholder(full_content_html, blank_id)
+        return normalize_blank_question_fragment_html(
+            replace_blank_placeholder(full_content_html, blank_id)
+        )
     return build_blank_fallback_html(blank_id, question_no)
 
 

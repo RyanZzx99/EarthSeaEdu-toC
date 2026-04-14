@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import html
 import json
 import re
@@ -357,10 +358,12 @@ def build_mockexam_beta_payload(paper: ExamPaper) -> dict[str, Any]:
             continue
         passages.append(section_payload)
 
-    return {
+    return repair_mockexam_payload(
+        {
         "module": paper.module_name or beta_exam_content_from_subject_type(paper.subject_type),
         "passages": passages,
-    }
+        }
+    )
 
 
 def serialize_mockexam_beta_passage(section: ExamSection) -> dict[str, Any] | None:
@@ -524,6 +527,7 @@ def resolve_mockexam_beta_question_prompt_html(
             fragment_html = question.stem_html or question.content_html or ""
         if fragment_html:
             fragment_html = rewrite_html_asset_urls(fragment_html, assets)
+            fragment_html = normalize_blank_question_fragment_html(fragment_html)
             normalized_fragment_html = normalize_fragment_blank_placeholders(
                 fragment_html,
                 question.source_blank_id,
@@ -539,6 +543,7 @@ def resolve_mockexam_beta_question_prompt_html(
             )
 
     prompt_html = rewrite_html_asset_urls(question.stem_html or question.content_html, assets)
+    prompt_html = normalize_blank_question_fragment_html(prompt_html)
     return prompt_html, prompt_html
 
 
@@ -558,6 +563,43 @@ def extract_precise_blank_fragment_html(full_content_html: str | None, blank_id:
         if match:
             return match.group(0)
     return ""
+
+
+def normalize_blank_placeholder_spacing_html(content_html: str | None) -> str:
+    html = str(content_html or "")
+    if not html:
+        return ""
+    html = re.sub(
+        r"(?<=[A-Za-z0-9])(\{\{\s*[^}]+\s*\}\}|\[\[\s*[^\]]+\s*\]\])",
+        r" \1",
+        html,
+    )
+    html = re.sub(
+        r"(\{\{\s*[^}]+\s*\}\}|\[\[\s*[^\]]+\s*\]\])(?=[A-Za-z0-9])",
+        r"\1 ",
+        html,
+    )
+    return html
+
+
+def flatten_table_fragment_to_inline_html(content_html: str | None) -> str:
+    html = str(content_html or "").strip()
+    if not html or not re.search(r"<(?:tr|td|th)\b", html, re.I):
+        return html
+
+    cells = [
+        str(match).strip()
+        for match in re.findall(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", html, re.I | re.S)
+        if str(match).strip()
+    ]
+    if not cells:
+        return html
+    return " ".join(cells)
+
+
+def normalize_blank_question_fragment_html(content_html: str | None) -> str:
+    html = flatten_table_fragment_to_inline_html(content_html)
+    return normalize_blank_placeholder_spacing_html(html).strip()
 
 
 def replace_specific_blank_placeholder(content_html: str | None, blank_id: str | None) -> str:
@@ -585,7 +627,9 @@ def normalize_fragment_blank_placeholders(
             return match.group(0) if keep_active_blank else "_____"
         return "_____"
 
-    return re.sub(r"\{\{\s*([^}]+)\s*\}\}|\[\[\s*([^\]]+)\s*\]\]", replace_match, html)
+    return normalize_blank_question_fragment_html(
+        re.sub(r"\{\{\s*([^}]+)\s*\}\}|\[\[\s*([^\]]+)\s*\]\]", replace_match, html)
+    )
 
 
 def rewrite_html_asset_urls(content_html: str | None, assets: list[ExamAsset] | None) -> str:
@@ -657,6 +701,47 @@ def build_blank_question_content(question: ExamQuestion) -> str:
     if blank is not None:
         return f"<p>[[{blank.blank_id}]]</p>"
     return build_question_fallback_html(question)
+
+
+def repair_mockexam_payload(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+
+    safe_payload = copy.deepcopy(payload)
+    passages = safe_payload.get("passages")
+    if not isinstance(passages, list):
+        return safe_payload
+
+    for passage in passages:
+        if not isinstance(passage, dict):
+            continue
+        direct_questions = passage.get("questions")
+        if isinstance(direct_questions, list):
+            for question in direct_questions:
+                if not isinstance(question, dict):
+                    continue
+                if infer_question_type(question) != "cloze_inline":
+                    continue
+                question["stem"] = normalize_blank_question_fragment_html(question.get("stem"))
+                question["content"] = normalize_blank_question_fragment_html(question.get("content"))
+        groups = passage.get("groups")
+        if not isinstance(groups, list):
+            continue
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            questions = group.get("questions")
+            if not isinstance(questions, list):
+                continue
+            for question in questions:
+                if not isinstance(question, dict):
+                    continue
+                if infer_question_type(question) != "cloze_inline":
+                    continue
+                question["stem"] = normalize_blank_question_fragment_html(question.get("stem"))
+                question["content"] = normalize_blank_question_fragment_html(question.get("content"))
+
+    return safe_payload
 
 
 def get_active_sorted_records(records: list[Any] | None) -> list[Any]:
