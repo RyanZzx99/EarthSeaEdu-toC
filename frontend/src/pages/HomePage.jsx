@@ -40,11 +40,11 @@ const AI_CHAT_SESSION_CACHE_KEY = "latest_ai_chat_session_id";
 const AI_CHAT_OPEN_PANEL_KEY = "open_ai_chat_panel";
 
 const examLinks = [
-  { name: "托福报名", url: "https://www.ets.org/toefl", accent: "#2c4a8a", badge: "TOEFL" },
-  { name: "雅思报名", url: "https://www.ielts.org", accent: "#10b981", badge: "IELTS" },
-  { name: "GRE Academic 报名", url: "https://www.ets.org/gre", accent: "#f59e0b", badge: "GRE A" },
-  { name: "GRE General Test 报名", url: "https://www.ets.org/gre", accent: "#8b5cf6", badge: "GRE G" },
-  { name: "LanguageCert Academic 报名", url: "https://www.languagecert.org", accent: "#ec4899", badge: "LCA" },
+  { name: "托福报名", url: "https://toefl.neea.cn/", accent: "#2c4a8a", badge: "TOEFL" },
+  { name: "雅思报名", url: "https://ielts.neea.edu.cn/", accent: "#10b981", badge: "IELTS" },
+  { name: "GRE Academic 报名", url: "https://gre.neea.cn/", accent: "#f59e0b", badge: "GRE A" },
+  { name: "GRE General Test 报名", url: "https://gre.neea.cn/", accent: "#8b5cf6", badge: "GRE G" },
+  { name: "LanguageCert Academic 报名", url: "https://www.languagecert.com.cn/goods.php", accent: "#ec4899", badge: "LCA" },
 ];
 
 const sectionItems = [
