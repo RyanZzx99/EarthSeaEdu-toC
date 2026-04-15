@@ -1691,7 +1691,6 @@ export function PracticeExercisePage(props) {
               <div className="practice-exam-help-list">
                 <div>所有题目可在中间区域连续作答，点击题号可以快速定位。</div>
                 <div>橙色题号表示当前题目，蓝色题号表示已作答。</div>
-                <div>题组收藏已接真实接口，可在 instruction 卡片上操作。</div>
                 <div>“显示答案”开启后会锁定作答，仅用于练习查看。</div>
                 <div>先划词再点顶部“显示翻译”，译文会显示在选中段落附近。</div>
               </div>

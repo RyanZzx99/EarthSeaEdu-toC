@@ -61,6 +61,49 @@ function formatDateLabel(value) {
   });
 }
 
+function formatQuestionTypeLabel(value) {
+  const type = String(value || "").trim().toLowerCase();
+  const labels = {
+    single: "单选题",
+    single_choice: "单选题",
+    multiple: "多选题",
+    multiple_choice: "多选题",
+    multiple_select: "多选题",
+    tfng: "判断题",
+    true_false_not_given: "判断题",
+    yes_no_not_given: "判断题",
+    blank: "填空题",
+    cloze_inline: "完形填空",
+    sentence_completion: "句子填空",
+    form_completion: "表格填空",
+    note_completion: "笔记填空",
+    summary_completion: "摘要填空",
+    table_completion: "表格填空",
+    matching: "匹配题",
+    map_labeling: "地图题",
+    diagram_labeling: "图表题",
+    short_answer: "简答题",
+    essay: "写作题",
+  };
+  return labels[type] || "完形填空";
+}
+
+function normalizePreviewText(value) {
+  return String(value || "")
+    .replace(/\{\{\s*([^}]+)\s*\}\}|\[\[\s*([^\]]+)\s*\]\]/g, "_____")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/p>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function compareByLatestTime(left, right) {
   const leftTime = new Date(left?.latestTime || 0).getTime();
   const rightTime = new Date(right?.latestTime || 0).getTime();
@@ -109,6 +152,8 @@ function normalizeQuestionFavorite(item) {
     groupTitle: item?.group_title || item?.section_title || "未命名题组",
     questionId: item?.question_id ? String(item.question_id) : "",
     questionNo: item?.question_no ? String(item.question_no) : "",
+    questionTypeLabel: formatQuestionTypeLabel(item?.stat_type || item?.question_type),
+    previewText: normalizePreviewText(item?.preview_text) || "当前题目",
     createTime: item?.create_time || null,
     createTimeLabel: formatDateLabel(item?.create_time),
   };
@@ -175,6 +220,7 @@ export default function MockExamFavoritesPage() {
       const current = groupMap.get(key);
       if (current) {
         current.questionIds.add(item.examQuestionId);
+        current.questions.push(item);
         if (item.createTime && (!current.latestTime || new Date(item.createTime) > new Date(current.latestTime))) {
           current.latestTime = item.createTime;
           current.latestTimeLabel = item.createTimeLabel;
@@ -196,6 +242,7 @@ export default function MockExamFavoritesPage() {
         latestTime: item.createTime,
         latestTimeLabel: item.createTimeLabel,
         questionIds: new Set(item.examQuestionId ? [item.examQuestionId] : []),
+        questions: [item],
         firstQuestionId: item.questionId || "",
         firstQuestionNo: item.questionNo || "",
       });
@@ -447,7 +494,7 @@ export default function MockExamFavoritesPage() {
                         disabled={!path || busyKey === entity.key}
                       >
                         <Eye size={14} />
-                        <span>查看</span>
+                        <span>开始答题</span>
                       </button>
                       <button
                         type="button"
@@ -460,6 +507,27 @@ export default function MockExamFavoritesPage() {
                       </button>
                     </div>
                   </div>
+                  {entity.kind === "group" && Array.isArray(entity.questions) && entity.questions.length ? (
+                    <div className="favorites-question-list">
+                      {entity.questions.map((question) => (
+                        <div
+                          key={`${entity.key}:${question.examQuestionId || question.questionId}`}
+                          className="favorites-question-row"
+                        >
+                          <div className="favorites-question-copy">
+                            <div className="favorites-question-top">
+                              <span className="favorites-question-no">
+                                Q{question.questionNo || "--"}
+                              </span>
+                              <span className="favorites-question-type">{question.questionTypeLabel}</span>
+                            </div>
+                            <h4>{question.previewText}</h4>
+                            <p>收藏时间：{question.createTimeLabel}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </motion.article>
               );
             })}
