@@ -232,7 +232,7 @@ function renderInlineHtml(content, blanks, answerMap, disabled, revealAnswers, o
   );
 }
 
-function QuestionAnswerReveal({ question, evaluation }) {
+function QuestionAnswerReveal({ question, evaluation, hideReferenceAnswer = false }) {
   const correctText = getAnswerDisplayText(question);
   const modelAnswer = String(question?.modelAnswer || "").trim();
   const analysis = String(question?.analysis || question?.explanation || "").trim();
@@ -257,13 +257,13 @@ function QuestionAnswerReveal({ question, evaluation }) {
         <div className="practice-exam-answer-title">答题状态</div>
         <div className={`practice-exam-answer-state${stateClass}`}>{stateText}</div>
       </div>
-      {correctText ? (
+      {!hideReferenceAnswer && correctText ? (
         <div>
           <div className="practice-exam-answer-title">参考答案</div>
           <div className="practice-exam-answer-text">{correctText}</div>
         </div>
       ) : null}
-      {modelAnswer && modelAnswer !== correctText ? (
+      {!hideReferenceAnswer && modelAnswer && modelAnswer !== correctText ? (
         <div>
           <div className="practice-exam-answer-title">范文示例</div>
           <div className="practice-exam-answer-text">{modelAnswer}</div>
@@ -528,7 +528,7 @@ function QuestionBlock({
         <OptionQuestion
           question={question}
           answerValue={answerValue}
-          revealAnswers={revealAnswers || reviewMode}
+          revealAnswers={revealAnswers}
           disabled={locked}
           onChange={(value) => onSetAnswer(question, value)}
         />
@@ -550,7 +550,7 @@ function QuestionBlock({
             question.blanks,
             answerValue || {},
             locked,
-            revealAnswers || reviewMode,
+            revealAnswers,
             (blankId, value) =>
               onSetAnswer(question, { ...(answerValue || {}), [blankId]: value })
           )}
@@ -561,14 +561,18 @@ function QuestionBlock({
         <MatchingQuestion
           question={question}
           answerValue={answerValue}
-          revealAnswers={revealAnswers || reviewMode}
+          revealAnswers={revealAnswers}
           disabled={locked}
           onChange={(value) => onSetAnswer(question, value)}
         />
       ) : null}
 
       {reviewMode ? (
-        <QuestionAnswerReveal question={question} evaluation={evaluation} />
+        <QuestionAnswerReveal
+          question={question}
+          evaluation={evaluation}
+          hideReferenceAnswer
+        />
       ) : null}
     </article>
   );
@@ -603,6 +607,8 @@ export function PracticeExercisePage(props) {
     onToggleQuestionFavorite,
     onToggleQuestionFavoriteGroup,
     onSubmit,
+    initialScrollQuestionId = "",
+    initialScrollQuestionNo = "",
   } = props;
 
   const [showMaterialTranslation, setShowMaterialTranslation] = useState(false);
@@ -668,6 +674,8 @@ export function PracticeExercisePage(props) {
   const questionCount = questions.length;
   const materialHtml = ensureHtml(currentPassage?.content || "");
   const materialInstructions = ensureHtml(currentPassage?.instructions || "");
+  const hasMaterialContent = Boolean(stripHtml(currentPassage?.content || ""));
+  const shouldShowMaterialCard = !audioSources.length || hasMaterialContent;
   const questionPanePercent = 100 - materialPanePercent;
 
   function clampMaterialPanePercent(value) {
@@ -699,6 +707,28 @@ export function PracticeExercisePage(props) {
       element.scrollIntoView({ behavior, block: "start" });
     }
   }
+
+  useEffect(() => {
+    if ((!initialScrollQuestionId && !initialScrollQuestionNo) || !questions.length) {
+      return undefined;
+    }
+
+    const targetQuestion =
+      questions.find((item) => String(item?.id || "") === String(initialScrollQuestionId)) ||
+      questions.find(
+        (item) =>
+          String(getQuestionNoValue(item) || item?.displayNo || "") === String(initialScrollQuestionNo)
+      );
+    if (!targetQuestion) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      scrollToQuestion(targetQuestion, "auto");
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [initialScrollQuestionId, initialScrollQuestionNo, questions]);
 
   useEffect(() => {
     if (!audioSources.length) {
@@ -1038,7 +1068,8 @@ export function PracticeExercisePage(props) {
               </div>
             ) : null}
 
-            <div className="practice-exam-material-card">
+            {shouldShowMaterialCard ? (
+              <div className="practice-exam-material-card">
               {currentPassage?.title ? (
                 <div className="practice-exam-material-label">{currentPassage.title}</div>
               ) : null}
@@ -1056,7 +1087,8 @@ export function PracticeExercisePage(props) {
               ) : (
                 <div className="practice-exam-empty">暂无材料</div>
               )}
-            </div>
+              </div>
+            ) : null}
 
             {showMaterialTranslation ? (
               <div className="practice-exam-translation-card">

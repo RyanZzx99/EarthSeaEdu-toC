@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { Bell, House, Settings } from "lucide-react";
+import { ArrowLeft, Bell, House, Settings } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { getMe } from "../api/auth";
 
-const MODE_ITEMS = [
-  { key: "exam", label: "模考模式", path: "/mockexam" },
+const DEFAULT_MODE_ITEMS = [
+  { key: "exam", label: "模拟考试", path: "/mockexam" },
   { key: "practice", label: "练习模式", path: "/mockexam/practice" },
 ];
 
@@ -22,9 +22,14 @@ function getDisplayInitial(profile) {
   return rawValue.slice(0, 1).toUpperCase() || "L";
 }
 
-export default function MockExamModeHeader({ activeMode = "exam" }) {
+export default function MockExamModeHeader({
+  activeMode = "exam",
+  tabs = null,
+  backButton = null,
+}) {
   const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
+  const tabItems = Array.isArray(tabs) ? tabs : DEFAULT_MODE_ITEMS;
 
   useEffect(() => {
     let active = true;
@@ -45,7 +50,6 @@ export default function MockExamModeHeader({ activeMode = "exam" }) {
     }
 
     void bootstrap();
-
     return () => {
       active = false;
     };
@@ -59,47 +63,53 @@ export default function MockExamModeHeader({ activeMode = "exam" }) {
       transition={{ duration: 0.28 }}
     >
       <div className="home-topbar-inner">
-        <button
-          type="button"
-          className="mockexam-topbar-brand"
-          onClick={() => navigate("/")}
-          aria-label="返回首页"
-        >
-          <div className="home-brand">
-            <div className="home-brand-mark">录</div>
-            <div className="home-brand-text">录途 LutoolBox</div>
-          </div>
-        </button>
-
-        <nav className="mockexam-topbar-tabs" aria-label="模考模式切换">
-          {MODE_ITEMS.map((item) => (
+        <div className="mockexam-topbar-left">
+          {backButton ? (
             <button
-              key={item.key}
               type="button"
-              className={`mockexam-topbar-tab${activeMode === item.key ? " active" : ""}`}
-              onClick={() => navigate(item.path)}
+              className="mockexam-topbar-back"
+              onClick={() => navigate(backButton.path)}
             >
-              {item.label}
+              <ArrowLeft size={16} strokeWidth={2.1} />
+              <span>{backButton.label}</span>
             </button>
-          ))}
-        </nav>
+          ) : null}
 
-        <div className="home-top-actions">
           <button
             type="button"
-            className="mockexam-topbar-home"
+            className="mockexam-topbar-brand"
             onClick={() => navigate("/")}
+            aria-label="返回首页"
           >
+            <div className="home-brand">
+              <div className="home-brand-mark">L</div>
+              <div className="home-brand-text">LutoolBox</div>
+            </div>
+          </button>
+        </div>
+
+        {tabItems.length ? (
+          <nav className="mockexam-topbar-tabs" aria-label="mockexam-header-tabs">
+            {tabItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={`mockexam-topbar-tab${activeMode === item.key ? " active" : ""}`}
+                onClick={() => navigate(item.path)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+        ) : null}
+
+        <div className="home-top-actions">
+          <button type="button" className="mockexam-topbar-home" onClick={() => navigate("/")}>
             <House size={16} strokeWidth={2.1} />
             <span>返回首页</span>
           </button>
 
-          <button
-            type="button"
-            className="home-top-icon-button"
-            aria-label="通知"
-            onClick={() => {}}
-          >
+          <button type="button" className="home-top-icon-button" aria-label="通知" onClick={() => {}}>
             <span className="home-top-icon-wrap">
               <Bell size={18} strokeWidth={2.1} />
               <span className="home-top-icon-dot" />
@@ -117,11 +127,7 @@ export default function MockExamModeHeader({ activeMode = "exam" }) {
 
           <div className="home-top-divider" />
 
-          <button
-            type="button"
-            className="home-user-entry"
-            onClick={() => navigate("/profile")}
-          >
+          <button type="button" className="home-user-entry" onClick={() => navigate("/profile")}>
             <div className="home-user-copy mockexam-topbar-usercopy">
               <p className="home-user-name">{getDisplayName(profile)}</p>
               <p className="home-user-subname">{getDisplaySubName(profile)}</p>

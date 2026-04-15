@@ -10,6 +10,9 @@ from sqlalchemy.orm import Session
 from backend.config.db_conf import get_db
 from backend.routers.auth import get_current_user_id
 from backend.schemas.mockexam import MockExamFavoriteListResponse
+from backend.schemas.mockexam import MockExamFavoriteBatchToggleRequest
+from backend.schemas.mockexam import MockExamFavoriteBatchToggleResponse
+from backend.schemas.mockexam import MockExamEntityFavoriteListResponse
 from backend.schemas.mockexam import MockExamFavoriteToggleRequest
 from backend.schemas.mockexam import MockExamFavoriteToggleResponse
 from backend.schemas.mockexam import MockExamOptionsResponse
@@ -27,14 +30,18 @@ from backend.schemas.mockexam import MockExamSubmissionListResponse
 from backend.schemas.mockexam import MockExamSubmitRequest
 from backend.schemas.mockexam import MockExamSubmitResponse
 from backend.schemas.mockexam import MockExamWrongQuestionListResponse
+from backend.schemas.mockexam import MockExamWrongQuestionResolveRequest
+from backend.schemas.mockexam import MockExamWrongQuestionResolveResponse
 from backend.services.mockexam_beta_service import discard_beta_mockexam_progress
 from backend.services.mockexam_beta_service import get_active_beta_mockexam_progress
 from backend.services.mockexam_beta_service import get_beta_mockexam_question_detail
 from backend.services.mockexam_beta_service import get_beta_mockexam_submission
 from backend.services.mockexam_beta_service import list_beta_mockexam_favorites
+from backend.services.mockexam_beta_service import list_beta_mockexam_entity_favorites
 from backend.services.mockexam_beta_service import list_beta_mockexam_progresses
 from backend.services.mockexam_beta_service import list_beta_mockexam_submissions
 from backend.services.mockexam_beta_service import list_beta_mockexam_wrong_questions
+from backend.services.mockexam_beta_service import resolve_beta_mockexam_wrong_questions
 from backend.services.mockexam_beta_service import save_beta_mockexam_progress
 from backend.services.mockexam_beta_service import save_beta_mockexam_paper_set_progress
 from backend.services.mockexam_beta_service import serialize_beta_mockexam_progress_detail
@@ -45,6 +52,8 @@ from backend.services.mockexam_beta_service import serialize_beta_mockexam_submi
 from backend.services.mockexam_beta_service import submit_beta_mockexam_paper
 from backend.services.mockexam_beta_service import submit_beta_mockexam_paper_set
 from backend.services.mockexam_beta_service import toggle_beta_mockexam_question_favorite
+from backend.services.mockexam_beta_service import toggle_beta_mockexam_entity_paper_favorite
+from backend.services.mockexam_beta_service import toggle_beta_mockexam_entity_paper_set_favorite
 from backend.services.mockexam_paper_set_service import list_student_mockexam_paper_sets
 from backend.services.mockexam_paper_set_service import load_mockexam_paper_set_payload
 from backend.services.mockexam_service import get_mockexam_beta_options
@@ -182,12 +191,13 @@ def submit_mockexam_paper_api(
     db: Session = Depends(get_db),
 ):
     try:
-        result, submission = submit_beta_mockexam_paper(
+        result, submission, wrongbook_review = submit_beta_mockexam_paper(
             db,
             user_id=user_id,
             exam_paper_id=exam_paper_id,
             answers_map=payload.answers,
             marked_map=payload.marked,
+            elapsed_seconds=payload.elapsed_seconds,
             progress_id=payload.progress_id,
         )
     except LookupError as exc:
@@ -199,6 +209,7 @@ def submit_mockexam_paper_api(
         "status": "ok",
         "result": result,
         "submission": serialize_beta_mockexam_submission_summary(submission),
+        "wrongbook_review": wrongbook_review,
     }
 
 
@@ -210,12 +221,13 @@ def submit_mockexam_paper_set_api(
     db: Session = Depends(get_db),
 ):
     try:
-        result, submission = submit_beta_mockexam_paper_set(
+        result, submission, wrongbook_review = submit_beta_mockexam_paper_set(
             db,
             user_id=user_id,
             mockexam_paper_set_id=mockexam_paper_set_id,
             answers_map=payload.answers,
             marked_map=payload.marked,
+            elapsed_seconds=payload.elapsed_seconds,
             progress_id=payload.progress_id,
         )
     except LookupError as exc:
@@ -227,6 +239,7 @@ def submit_mockexam_paper_set_api(
         "status": "ok",
         "result": result,
         "submission": serialize_beta_mockexam_submission_summary(submission),
+        "wrongbook_review": wrongbook_review,
     }
 
 
@@ -303,6 +316,7 @@ def save_mockexam_progress_api(
             current_question_id=payload.current_question_id,
             current_question_index=payload.current_question_index,
             current_question_no=payload.current_question_no,
+            elapsed_seconds=payload.elapsed_seconds,
             progress_id=payload.progress_id,
         )
     except LookupError as exc:
@@ -330,6 +344,7 @@ def save_mockexam_paper_set_progress_api(
             current_question_id=payload.current_question_id,
             current_question_index=payload.current_question_index,
             current_question_no=payload.current_question_no,
+            elapsed_seconds=payload.elapsed_seconds,
             progress_id=payload.progress_id,
         )
     except LookupError as exc:
@@ -369,6 +384,21 @@ def list_mockexam_favorites_api(
     }
 
 
+@router.get("/entity-favorites", response_model=MockExamEntityFavoriteListResponse)
+def list_mockexam_entity_favorites_api(
+    limit: int = Query(default=200, ge=1, le=200, description="Record count"),
+    user_id: str = Depends(require_mockexam_user),
+    db: Session = Depends(get_db),
+):
+    return {
+        "items": list_beta_mockexam_entity_favorites(
+            db,
+            user_id=user_id,
+            limit=limit,
+        )
+    }
+
+
 @router.post("/questions/{exam_question_id}/favorite", response_model=MockExamFavoriteToggleResponse)
 def toggle_mockexam_question_favorite_api(
     exam_question_id: int,
@@ -382,10 +412,62 @@ def toggle_mockexam_question_favorite_api(
             user_id=user_id,
             exam_question_id=exam_question_id,
             is_favorite=payload.is_favorite,
+            source_kind=payload.source_kind,
+            paper_set_id=payload.paper_set_id,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"status": "ok", "is_favorite": payload.is_favorite}
+
+
+@router.post("/papers/{exam_paper_id}/favorite", response_model=MockExamFavoriteBatchToggleResponse)
+def toggle_mockexam_paper_favorite_api(
+    exam_paper_id: int,
+    payload: MockExamFavoriteBatchToggleRequest,
+    user_id: str = Depends(require_mockexam_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        row = toggle_beta_mockexam_entity_paper_favorite(
+            db,
+            user_id=user_id,
+            exam_paper_id=exam_paper_id,
+            is_favorite=payload.is_favorite,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "status": "ok",
+        "is_favorite": payload.is_favorite,
+        "affected_count": 1 if row is not None or not payload.is_favorite else 0,
+    }
+
+
+@router.post("/paper-sets/{mockexam_paper_set_id}/favorite", response_model=MockExamFavoriteBatchToggleResponse)
+def toggle_mockexam_paper_set_favorite_api(
+    mockexam_paper_set_id: int,
+    payload: MockExamFavoriteBatchToggleRequest,
+    user_id: str = Depends(require_mockexam_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        row = toggle_beta_mockexam_entity_paper_set_favorite(
+            db,
+            user_id=user_id,
+            mockexam_paper_set_id=mockexam_paper_set_id,
+            is_favorite=payload.is_favorite,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "status": "ok",
+        "is_favorite": payload.is_favorite,
+        "affected_count": 1 if row is not None or not payload.is_favorite else 0,
+    }
 
 
 @router.get("/wrong-questions", response_model=MockExamWrongQuestionListResponse)
@@ -394,7 +476,24 @@ def list_mockexam_wrong_questions_api(
     user_id: str = Depends(require_mockexam_user),
     db: Session = Depends(get_db),
 ):
-    return {"items": list_beta_mockexam_wrong_questions(db, user_id=user_id, limit=limit)}
+    return list_beta_mockexam_wrong_questions(db, user_id=user_id, limit=limit)
+
+
+@router.post("/wrong-questions/resolve", response_model=MockExamWrongQuestionResolveResponse)
+def resolve_mockexam_wrong_questions_api(
+    payload: MockExamWrongQuestionResolveRequest,
+    user_id: str = Depends(require_mockexam_user),
+    db: Session = Depends(get_db),
+):
+    removed_count = resolve_beta_mockexam_wrong_questions(
+        db,
+        user_id=user_id,
+        exam_question_ids=payload.exam_question_ids,
+    )
+    return {
+        "status": "ok",
+        "removed_count": removed_count,
+    }
 
 
 @router.get("/questions/{exam_question_id}", response_model=MockExamQuestionDetailResponse)

@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
+import { Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
+  getMockExamEntityFavorites,
   getMockExamPaperSets,
   getMockExamProgresses,
   getMockExamSubmissions,
+  toggleMockExamPaperSetFavorite,
 } from "../api/mockexam";
 import { InlineLoading } from "../components/LoadingPage";
 import MockExamModeHeader from "../components/MockExamModeHeader";
+import { buildFavoriteSummarySets } from "../mockexam/favoriteUtils";
 import {
   estimatePaperDuration,
   formatDateTime,
@@ -74,6 +78,8 @@ export default function MockExamTestPracticePage() {
   const [paperSets, setPaperSets] = useState([]);
   const [progressItems, setProgressItems] = useState([]);
   const [submissionItems, setSubmissionItems] = useState([]);
+  const [favoritePaperSetIds, setFavoritePaperSetIds] = useState(new Set());
+  const [busyPaperSetIds, setBusyPaperSetIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
@@ -83,19 +89,22 @@ export default function MockExamTestPracticePage() {
     async function bootstrap() {
       try {
         setLoading(true);
-        const [paperSetResponse, progressResponse, submissionResponse] = await Promise.all([
+        const [paperSetResponse, progressResponse, submissionResponse, favoriteResponse] = await Promise.all([
           getMockExamPaperSets({ exam_category: "IELTS" }),
           getMockExamProgresses({ limit: 50 }),
           getMockExamSubmissions({ limit: 50 }),
+          getMockExamEntityFavorites({ limit: 200 }),
         ]);
 
         if (!active) {
           return;
         }
 
+        const favoriteSummary = buildFavoriteSummarySets(favoriteResponse.data?.items || []);
         setPaperSets(paperSetResponse.data?.items || []);
         setProgressItems(progressResponse.data?.items || []);
         setSubmissionItems(submissionResponse.data?.items || []);
+        setFavoritePaperSetIds(new Set(favoriteSummary.paperSetIds));
         setMessage("");
       } catch (error) {
         if (!active) {
@@ -105,6 +114,7 @@ export default function MockExamTestPracticePage() {
         setPaperSets([]);
         setProgressItems([]);
         setSubmissionItems([]);
+        setFavoritePaperSetIds(new Set());
         setMessage(getApiError(error, "试卷练习列表加载失败，请稍后重试。"));
       } finally {
         if (active) {
@@ -114,7 +124,6 @@ export default function MockExamTestPracticePage() {
     }
 
     void bootstrap();
-
     return () => {
       active = false;
     };
@@ -122,6 +131,32 @@ export default function MockExamTestPracticePage() {
 
   const progressMap = useMemo(() => buildProgressMap(progressItems), [progressItems]);
   const submissionMap = useMemo(() => buildSubmissionMap(submissionItems), [submissionItems]);
+
+  async function handleTogglePaperSetFavorite(mockexamPaperSetId) {
+    const nextState = !favoritePaperSetIds.has(mockexamPaperSetId);
+    setBusyPaperSetIds((previous) => new Set(previous).add(mockexamPaperSetId));
+    try {
+      await toggleMockExamPaperSetFavorite(mockexamPaperSetId, { is_favorite: nextState });
+      setFavoritePaperSetIds((previous) => {
+        const next = new Set(previous);
+        if (nextState) {
+          next.add(mockexamPaperSetId);
+        } else {
+          next.delete(mockexamPaperSetId);
+        }
+        return next;
+      });
+      setMessage("");
+    } catch (error) {
+      setMessage(getApiError(error, "试卷收藏状态更新失败，请稍后重试。"));
+    } finally {
+      setBusyPaperSetIds((previous) => {
+        const next = new Set(previous);
+        next.delete(mockexamPaperSetId);
+        return next;
+      });
+    }
+  }
 
   return (
     <div className="home-shell mockexam-mode-page">
@@ -136,7 +171,7 @@ export default function MockExamTestPracticePage() {
             transition={{ duration: 0.6 }}
           >
             <h1>试卷练习选卷</h1>
-            <p>按整套试卷练习，可继续未完成进度</p>
+            <p>按整套试卷练习，可继续未完成进度。</p>
           </motion.div>
 
           {loading ? (
@@ -153,13 +188,14 @@ export default function MockExamTestPracticePage() {
             transition={{ duration: 0.6, delay: 0.2 }}
           >
             {!loading &&
-              !message &&
               paperSets.map((item, index) => {
                 const status = buildPaperSetStatus(item, progressMap, submissionMap);
                 const duration = estimatePaperDuration(
                   item.exam_content,
                   Math.max(item.paper_count || 1, 1)
                 );
+                const isFavorited = favoritePaperSetIds.has(item.mockexam_paper_set_id);
+                const isBusy = busyPaperSetIds.has(item.mockexam_paper_set_id);
 
                 return (
                   <motion.article
@@ -209,6 +245,17 @@ export default function MockExamTestPracticePage() {
                     </div>
 
                     <div className="mockexam-test-list-actions">
+                      <button
+                        type="button"
+                        className={`mockexam-entity-favorite-btn${isFavorited ? " is-starred" : ""}`}
+                        onClick={() => handleTogglePaperSetFavorite(item.mockexam_paper_set_id)}
+                        disabled={isBusy}
+                        title={isFavorited ? "取消收藏试卷" : "收藏试卷"}
+                      >
+                        <Star size={18} fill={isFavorited ? "currentColor" : "none"} />
+                        <span>{isBusy ? "处理中..." : "收藏试卷"}</span>
+                      </button>
+
                       {status.type === "not_started" ? (
                         <button
                           type="button"
@@ -227,9 +274,7 @@ export default function MockExamTestPracticePage() {
                             type="button"
                             className="mockexam-test-list-button primary"
                             onClick={() =>
-                              navigate(
-                                `/mockexam/practice/test/${item.mockexam_paper_set_id}/continue`
-                              )
+                              navigate(`/mockexam/practice/test/${item.mockexam_paper_set_id}/continue`)
                             }
                           >
                             继续练习
@@ -238,9 +283,7 @@ export default function MockExamTestPracticePage() {
                             type="button"
                             className="mockexam-test-list-button secondary"
                             onClick={() =>
-                              navigate(
-                                `/mockexam/practice/test/${item.mockexam_paper_set_id}/restart`
-                              )
+                              navigate(`/mockexam/practice/test/${item.mockexam_paper_set_id}/restart`)
                             }
                           >
                             重新开始
@@ -254,9 +297,7 @@ export default function MockExamTestPracticePage() {
                             type="button"
                             className="mockexam-test-list-button secondary"
                             onClick={() =>
-                              navigate(
-                                `/mockexam/practice/test/${item.mockexam_paper_set_id}/results`
-                              )
+                              navigate(`/mockexam/practice/test/${item.mockexam_paper_set_id}/results`)
                             }
                           >
                             查看结果
@@ -265,9 +306,7 @@ export default function MockExamTestPracticePage() {
                             type="button"
                             className="mockexam-test-list-button secondary"
                             onClick={() =>
-                              navigate(
-                                `/mockexam/practice/test/${item.mockexam_paper_set_id}/retry`
-                              )
+                              navigate(`/mockexam/practice/test/${item.mockexam_paper_set_id}/retry`)
                             }
                           >
                             再次练习
@@ -279,7 +318,7 @@ export default function MockExamTestPracticePage() {
                 );
               })}
 
-            {!loading && !message && !paperSets.length ? (
+            {!loading && !paperSets.length ? (
               <div className="mockexam-page-note">当前还没有可用的组合试卷。</div>
             ) : null}
           </motion.div>

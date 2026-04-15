@@ -24,10 +24,12 @@ from backend.models.nickname_guard_models import NicknameRuleOperationLog
 from backend.models.mockexam_record_models import MockExamProgress
 from backend.models.mockexam_record_models import MockExamProgressAnswer
 from backend.models.mockexam_record_models import MockExamProgressQuestionState
+from backend.models.mockexam_record_models import MockExamEntityFavorite
 from backend.models.mockexam_record_models import MockExamQuestionFavorite
 from backend.models.mockexam_record_models import MockExamSubmission
 from backend.models.mockexam_record_models import MockExamSubmissionAnswer
 from backend.models.mockexam_record_models import MockExamSubmissionQuestionState
+from backend.models.mockexam_record_models import MockExamWrongQuestionStat
 from backend.models.mockexam_paper_set_models import MockExamPaperSet
 from backend.models.mockexam_paper_set_models import MockExamPaperSetItem
 from backend.models.ielts_exam_models import ExamAsset

@@ -99,6 +99,12 @@ class MockExamSubmission(Base):
         default=0,
         comment="可判分题数",
     )
+    elapsed_seconds: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Elapsed seconds",
+    )
     correct_count: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -432,6 +438,12 @@ class MockExamProgress(Base):
         nullable=False,
         default=0,
         comment="总题数",
+    )
+    elapsed_seconds: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Elapsed seconds",
     )
     mockexam_submission_id: Mapped[int | None] = mapped_column(
         BigInteger,
@@ -771,3 +783,275 @@ class MockExamQuestionFavorite(Base):
     )
 
     question: Mapped["ExamQuestion"] = relationship("ExamQuestion")
+
+
+class MockExamEntityFavorite(Base):
+    __tablename__ = "mockexam_entity_favorite"
+    __table_args__ = (
+        Index(
+            "uk_mockexam_entity_favorite_user_target",
+            "user_id",
+            "target_type",
+            "target_id",
+            unique=True,
+        ),
+        Index("idx_mockexam_entity_favorite_user_time", "user_id", "create_time"),
+        Index("idx_mockexam_entity_favorite_target_type", "target_type"),
+        Index("idx_mockexam_entity_favorite_exam_paper_id", "exam_paper_id"),
+        Index("idx_mockexam_entity_favorite_paper_set_id", "paper_set_id"),
+    )
+
+    mockexam_entity_favorite_id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+        comment="主键ID",
+    )
+    user_id: Mapped[str] = mapped_column(
+        CHAR(36, collation="utf8mb4_unicode_ci"),
+        ForeignKey("users.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        nullable=False,
+        comment="用户ID",
+    )
+    target_type: Mapped[str] = mapped_column(
+        String(20, collation="utf8mb4_unicode_ci"),
+        nullable=False,
+        comment="收藏类型：paper/paper_set",
+    )
+    target_id: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        comment="收藏目标ID",
+    )
+    exam_paper_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+        comment="题包ID快照",
+    )
+    paper_set_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+        comment="试卷ID快照",
+    )
+    paper_code: Mapped[str | None] = mapped_column(
+        String(100, collation="utf8mb4_unicode_ci"),
+        nullable=True,
+        comment="编码快照",
+    )
+    title: Mapped[str] = mapped_column(
+        String(255, collation="utf8mb4_unicode_ci"),
+        nullable=False,
+        comment="标题快照",
+    )
+    exam_category: Mapped[str] = mapped_column(
+        String(50, collation="utf8mb4_unicode_ci"),
+        nullable=False,
+        default="IELTS",
+        comment="考试类别",
+    )
+    exam_content: Mapped[str | None] = mapped_column(
+        String(50, collation="utf8mb4_unicode_ci"),
+        nullable=True,
+        comment="考试内容",
+    )
+    status: Mapped[int] = mapped_column(
+        SmallInteger,
+        nullable=False,
+        default=1,
+        comment="状态",
+    )
+    create_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=utcnow,
+        comment="创建时间",
+    )
+    update_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+        comment="更新时间",
+    )
+    delete_flag: Mapped[str] = mapped_column(
+        CHAR(1, collation="utf8mb4_unicode_ci"),
+        nullable=False,
+        default="1",
+        comment="逻辑删除标记",
+    )
+
+
+class MockExamWrongQuestionStat(Base):
+    __tablename__ = "mockexam_wrong_question_stat"
+    __table_args__ = (
+        Index(
+            "uk_mockexam_wrong_question_stat_user_question",
+            "user_id",
+            "exam_question_id",
+            unique=True,
+        ),
+        Index(
+            "idx_mockexam_wrong_question_stat_user_group_time",
+            "user_id",
+            "exam_group_id",
+            "latest_wrong_time",
+        ),
+        Index(
+            "idx_mockexam_wrong_question_stat_user_paper_time",
+            "user_id",
+            "exam_paper_id",
+            "latest_wrong_time",
+        ),
+        Index(
+            "idx_mockexam_wrong_question_stat_user_time",
+            "user_id",
+            "latest_wrong_time",
+        ),
+    )
+
+    mockexam_wrong_question_stat_id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+        comment="涓婚敭ID",
+    )
+    user_id: Mapped[str] = mapped_column(
+        CHAR(36, collation="utf8mb4_unicode_ci"),
+        ForeignKey("users.id", ondelete="RESTRICT", onupdate="CASCADE"),
+        nullable=False,
+        comment="鐢ㄦ埛ID",
+    )
+    exam_paper_id: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        comment="璇曞嵎ID蹇収",
+    )
+    paper_code: Mapped[str | None] = mapped_column(
+        String(100, collation="utf8mb4_unicode_ci"),
+        nullable=True,
+        comment="璇曞嵎缂栫爜蹇収",
+    )
+    paper_title: Mapped[str] = mapped_column(
+        String(255, collation="utf8mb4_unicode_ci"),
+        nullable=False,
+        comment="璇曞嵎鏍囬蹇収",
+    )
+    exam_section_id: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        comment="section ID",
+    )
+    section_title: Mapped[str | None] = mapped_column(
+        String(255, collation="utf8mb4_unicode_ci"),
+        nullable=True,
+        comment="section鏍囬蹇収",
+    )
+    exam_group_id: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        comment="group ID",
+    )
+    group_title: Mapped[str | None] = mapped_column(
+        String(255, collation="utf8mb4_unicode_ci"),
+        nullable=True,
+        comment="group鏍囬蹇収",
+    )
+    exam_question_id: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        comment="棰樼洰ID",
+    )
+    question_id: Mapped[str] = mapped_column(
+        String(100, collation="utf8mb4_unicode_ci"),
+        nullable=False,
+        comment="涓氬姟棰樼洰ID",
+    )
+    question_no: Mapped[str | None] = mapped_column(
+        String(50, collation="utf8mb4_unicode_ci"),
+        nullable=True,
+        comment="鏄剧ず棰樺彿",
+    )
+    question_type: Mapped[str | None] = mapped_column(
+        String(50, collation="utf8mb4_unicode_ci"),
+        nullable=True,
+        comment="棰樺瀷蹇収",
+    )
+    stat_type: Mapped[str | None] = mapped_column(
+        String(100, collation="utf8mb4_unicode_ci"),
+        nullable=True,
+        comment="缁熻棰樺瀷蹇収",
+    )
+    exam_category: Mapped[str] = mapped_column(
+        String(50, collation="utf8mb4_unicode_ci"),
+        nullable=False,
+        default="IELTS",
+        comment="鑰冭瘯绫诲埆",
+    )
+    exam_content: Mapped[str | None] = mapped_column(
+        String(50, collation="utf8mb4_unicode_ci"),
+        nullable=True,
+        comment="鑰冭瘯鍐呭",
+    )
+    preview_text: Mapped[str | None] = mapped_column(
+        String(500, collation="utf8mb4_unicode_ci"),
+        nullable=True,
+        comment="棰樼洰棰勮鏂囨湰蹇収",
+    )
+    wrong_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="绱绛旈敊娆℃暟",
+    )
+    latest_wrong_submission_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+        comment="鏈€杩戜竴娆＄瓟閿檚ubmission ID",
+    )
+    latest_wrong_question_state_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+        comment="鏈€杩戜竴娆＄瓟閿檡uestion_state ID",
+    )
+    latest_wrong_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=utcnow,
+        comment="最近一次答错时间",
+    )
+    latest_user_answer_json: Mapped[dict | list | str | int | float | bool | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="鏈€杩戜竴娆＄瓟閿欐椂鐢ㄦ埛绛旀蹇収",
+    )
+    latest_marked: Mapped[int] = mapped_column(
+        SmallInteger,
+        nullable=False,
+        default=0,
+        comment="鏈€杩戜竴娆＄瓟閿欐椂鏄惁鏍囪",
+    )
+    status: Mapped[int] = mapped_column(
+        SmallInteger,
+        nullable=False,
+        default=1,
+        comment="状态",
+    )
+    create_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=utcnow,
+        comment="鍒涘缓鏃堕棿",
+    )
+    update_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+        comment="鏇存柊鏃堕棿",
+    )
+    delete_flag: Mapped[str] = mapped_column(
+        CHAR(1, collation="utf8mb4_unicode_ci"),
+        nullable=False,
+        default="1",
+        comment="閫昏緫鍒犻櫎鏍囪",
+    )

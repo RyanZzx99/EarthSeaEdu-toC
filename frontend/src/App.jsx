@@ -6,6 +6,9 @@ import AdminConsolePage from "./pages/AdminConsolePage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import MockExamPage from "./pages/MockExamPage";
+import MockExamFavoritesPage from "./pages/MockExamFavoritesPage";
+import MockExamMistakesPage from "./pages/MockExamMistakesPage";
+import MockExamHistoryPage from "./pages/MockExamHistoryPage";
 import MockExamPracticePage from "./pages/MockExamPracticePage";
 import MockExamQuestionDetailPage from "./pages/MockExamQuestionDetailPage";
 import MockExamRunnerPage from "./pages/MockExamRunnerPage";
@@ -220,6 +223,30 @@ export default function App() {
         element={
           <RequireAuth authState={authState}>
             <MockExamTestDetailPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam/history"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamHistoryPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam/mistakes"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamMistakesPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam/favorites"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamFavoritesPage />
           </RequireAuth>
         }
       />

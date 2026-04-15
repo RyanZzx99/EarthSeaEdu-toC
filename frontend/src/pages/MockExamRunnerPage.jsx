@@ -1,17 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   getMockExamFavorites,
   getMockExamPaper,
   getMockExamPaperSet,
   getMockExamProgress,
   getMockExamSubmission,
+  resolveMockExamWrongQuestions,
   saveMockExamPaperSetProgress,
   saveMockExamProgress,
   submitMockExamPaper,
   submitMockExamPaperSet,
   toggleMockExamFavorite,
 } from "../api/mockexam";
+import ActionDialog from "../components/ActionDialog";
 import { LoadingOverlay, LoadingPage } from "../components/LoadingPage";
 import { PracticeExercisePage } from "../components/PracticeExercisePage";
 import {
@@ -75,9 +77,57 @@ function resolveInitialQuestionIndex(questions, { questionId, questionIndex, que
   return questions.length ? 0 : -1;
 }
 
+function filterExamDataByGroup(examData, groupId) {
+  const normalizedGroupId = String(groupId || "").trim();
+  if (!normalizedGroupId) {
+    return examData;
+  }
+
+  const filteredPassages = (examData?.passages || [])
+    .map((passage) => {
+      const filteredGroups = (passage.groups || []).filter(
+        (group) =>
+          String(group?.id || "") === normalizedGroupId ||
+          (group?.questions || []).some(
+            (question) =>
+              String(question?.exam_group_id || "") === normalizedGroupId ||
+              String(question?.group_id || "") === normalizedGroupId ||
+              String(question?.groupId || "") === normalizedGroupId
+          )
+      );
+      if (!filteredGroups.length) {
+        return null;
+      }
+
+      const questionIds = new Set(
+        filteredGroups.flatMap((group) => (group.questions || []).map((question) => String(question?.id || "")))
+      );
+      const filteredQuestions = (passage.questions || []).filter((question) =>
+        questionIds.has(String(question?.id || ""))
+      );
+
+      return {
+        ...passage,
+        groups: filteredGroups,
+        questions: filteredQuestions,
+      };
+    })
+    .filter(Boolean);
+
+  if (!filteredPassages.length) {
+    return examData;
+  }
+
+  return {
+    ...examData,
+    passages: filteredPassages,
+  };
+}
+
 export default function MockExamRunnerPage() {
   const { sourceType = "paper", sourceId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [loading, setLoading] = useState(true);
   const [busyState, setBusyState] = useState("");
@@ -90,11 +140,23 @@ export default function MockExamRunnerPage() {
   const [paused, setPaused] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [favoriteIds, setFavoriteIds] = useState([]);
+  const [dialogState, setDialogState] = useState(null);
+  const dialogResolverRef = useRef(null);
 
   const favoriteQuestionIds = useMemo(
     () => new Set((favoriteIds || []).map((value) => String(value))),
     [favoriteIds]
   );
+
+  const requestedQuestionId = searchParams.get("questionId") || null;
+  const requestedQuestionNo = searchParams.get("questionNo") || null;
+  const requestedGroupId = searchParams.get("groupId") || null;
+  const fromMistakes = searchParams.get("fromMistakes") === "1";
+  const requestedQuestionIndexRaw = searchParams.get("questionIndex");
+  const requestedQuestionIndex =
+    requestedQuestionIndexRaw != null && requestedQuestionIndexRaw !== ""
+      ? Number(requestedQuestionIndexRaw)
+      : null;
 
   useEffect(() => {
     let active = true;
@@ -115,9 +177,9 @@ export default function MockExamRunnerPage() {
         let submissionId = null;
         let initialAnswers = {};
         let initialMarked = {};
-        let initialQuestionId = null;
-        let initialQuestionIndex = null;
-        let initialQuestionNo = null;
+        let initialQuestionId = requestedQuestionId || null;
+        let initialQuestionIndex = Number.isFinite(requestedQuestionIndex) ? requestedQuestionIndex : null;
+        let initialQuestionNo = requestedQuestionNo || null;
 
         if (sourceType === "paper") {
           const response = await getMockExamPaper(sourceId);
@@ -144,10 +206,13 @@ export default function MockExamRunnerPage() {
           progressId = row.progress_id;
           initialAnswers = row.answers || {};
           initialMarked = row.marked || {};
-          initialQuestionId = row.current_question_id || null;
-          initialQuestionIndex =
-            typeof row.current_question_index === "number" ? row.current_question_index : null;
-          initialQuestionNo = row.current_question_no || null;
+          initialQuestionId = requestedQuestionId || row.current_question_id || null;
+          initialQuestionIndex = Number.isFinite(requestedQuestionIndex)
+            ? requestedQuestionIndex
+            : typeof row.current_question_index === "number"
+              ? row.current_question_index
+              : null;
+          initialQuestionNo = requestedQuestionNo || row.current_question_no || null;
         } else if (sourceType === "submission-review") {
           const response = await getMockExamSubmission(sourceId);
           row = response.data || {};
@@ -160,11 +225,14 @@ export default function MockExamRunnerPage() {
           submissionId = row.submission_id || Number(sourceId);
           initialAnswers = row.answers || {};
           initialMarked = row.marked || {};
+          initialQuestionId = requestedQuestionId;
+          initialQuestionIndex = Number.isFinite(requestedQuestionIndex) ? requestedQuestionIndex : null;
+          initialQuestionNo = requestedQuestionNo;
         } else {
           throw new Error("不支持的考试来源");
         }
 
-        const normalizedExamData = normalizeExamData(payload);
+        const normalizedExamData = filterExamDataByGroup(normalizeExamData(payload), requestedGroupId);
         const store = buildQuestionStore(normalizedExamData);
         const initialIndex = resolveInitialQuestionIndex(store.questions, {
           questionId: initialQuestionId,
@@ -208,9 +276,9 @@ export default function MockExamRunnerPage() {
         setAnswers(buildInitialAnswersMap(store.questions, initialAnswers));
         setMarked(buildInitialMarkedMap(store.questions, initialMarked));
         setCurrentQuestionIndex(initialIndex >= 0 ? initialIndex : 0);
-        setRevealAnswers(reviewMode);
+        setRevealAnswers(false);
         setPaused(false);
-        setElapsedSeconds(0);
+        setElapsedSeconds(Number(row?.elapsed_seconds || 0));
         setFavoriteIds(favorites);
       } catch (error) {
         if (!active) {
@@ -229,7 +297,14 @@ export default function MockExamRunnerPage() {
     return () => {
       active = false;
     };
-  }, [sourceId, sourceType]);
+  }, [
+    requestedGroupId,
+    requestedQuestionId,
+    requestedQuestionIndex,
+    requestedQuestionNo,
+    sourceId,
+    sourceType,
+  ]);
 
   useEffect(() => {
     if (!session || session.reviewMode || paused) {
@@ -242,6 +317,22 @@ export default function MockExamRunnerPage() {
       window.clearInterval(timer);
     };
   }, [paused, session]);
+
+  function openDialog(config) {
+    return new Promise((resolve) => {
+      dialogResolverRef.current = resolve;
+      setDialogState(config);
+    });
+  }
+
+  function closeDialog(result) {
+    const resolver = dialogResolverRef.current;
+    dialogResolverRef.current = null;
+    setDialogState(null);
+    if (resolver) {
+      resolver(result);
+    }
+  }
 
   async function handleSaveAndExit() {
     if (!session || session.reviewMode) {
@@ -270,6 +361,7 @@ export default function MockExamRunnerPage() {
         current_question_id: currentQuestion.id || null,
         current_question_index: currentQuestionIndex,
         current_question_no: String(currentQuestion.question_no || currentQuestion.displayNo || ""),
+        elapsed_seconds: elapsedSeconds,
       };
       const response =
         session.sourceKind === "paper-set"
@@ -289,7 +381,15 @@ export default function MockExamRunnerPage() {
     if (!session || session.reviewMode || !session.questions.length) {
       return;
     }
-    if (!window.confirm("确认提交当前作答？提交后将进入成绩结果页。")) {
+
+    const shouldSubmit = await openDialog({
+      title: "确认提交当前作答？",
+      message: "提交后将进入成绩结果页。",
+      confirmText: "确认提交",
+      cancelText: "继续作答",
+      tone: "default",
+    });
+    if (!shouldSubmit) {
       return;
     }
 
@@ -300,6 +400,7 @@ export default function MockExamRunnerPage() {
         answers,
         marked,
         progress_id: session.progressId,
+        elapsed_seconds: elapsedSeconds,
       };
       const response =
         session.sourceKind === "paper-set"
@@ -309,6 +410,51 @@ export default function MockExamRunnerPage() {
       if (!submissionId) {
         throw new Error("交卷成功但未返回 submission_id");
       }
+
+      const wrongbookReview = response.data?.wrongbook_review;
+      if (fromMistakes && wrongbookReview) {
+        const allCorrect = Boolean(wrongbookReview.all_correct);
+        const wrongCount = Number(wrongbookReview.wrong_count || 0);
+        const activeWrongQuestionCount = Number(wrongbookReview.active_wrong_question_count || 0);
+        const examQuestionIds = Array.isArray(wrongbookReview.exam_question_ids)
+          ? wrongbookReview.exam_question_ids
+          : [];
+
+        if (allCorrect) {
+          const shouldRemove = await openDialog({
+            title: "本次重做已全部答对",
+            message: "是否移出错题本？",
+            confirmText: "移出错题本",
+            cancelText: "暂不移出",
+            tone: "success",
+          });
+
+          if (shouldRemove && examQuestionIds.length) {
+            try {
+              await resolveMockExamWrongQuestions({
+                exam_question_ids: examQuestionIds,
+              });
+            } catch (_error) {
+              await openDialog({
+                title: "移出错题本失败",
+                message: "本次交卷已成功，但移出错题本失败。请稍后在错题本页面重试。",
+                confirmText: "我知道了",
+                hideCancel: true,
+                tone: "danger",
+              });
+            }
+          }
+        } else {
+          await openDialog({
+            title: `本次仍有 ${wrongCount} 道答错`,
+            message: `已继续记录到错题本。当前该组仍有 ${activeWrongQuestionCount} 道错题记录。`,
+            confirmText: "我知道了",
+            hideCancel: true,
+            tone: "danger",
+          });
+        }
+      }
+
       navigate(`/mockexam/results/${submissionId}`);
     } catch (error) {
       setMessage(formatApiError(error, "交卷失败"));
@@ -324,7 +470,11 @@ export default function MockExamRunnerPage() {
     const key = String(question.exam_question_id);
     const nextState = !favoriteQuestionIds.has(key);
     try {
-      await toggleMockExamFavorite(question.exam_question_id, { is_favorite: nextState });
+        await toggleMockExamFavorite(question.exam_question_id, {
+          is_favorite: nextState,
+          source_kind: session?.sourceKind === "paper-set" ? "paper_set" : "paper",
+          paper_set_id: session?.sourceKind === "paper-set" ? session?.paperSetId || null : null,
+        });
       setFavoriteIds((previous) =>
         nextState
           ? [...previous.filter((item) => String(item) !== key), question.exam_question_id]
@@ -346,10 +496,14 @@ export default function MockExamRunnerPage() {
 
     try {
       await Promise.all(
-        actionableQuestions.map((question) =>
-          toggleMockExamFavorite(question.exam_question_id, { is_favorite: nextState })
-        )
-      );
+          actionableQuestions.map((question) =>
+            toggleMockExamFavorite(question.exam_question_id, {
+              is_favorite: nextState,
+              source_kind: session?.sourceKind === "paper-set" ? "paper_set" : "paper",
+              paper_set_id: session?.sourceKind === "paper-set" ? session?.paperSetId || null : null,
+            })
+          )
+        );
 
       setFavoriteIds((previous) => {
         const nextMap = new Map(previous.map((item) => [String(item), item]));
@@ -365,7 +519,7 @@ export default function MockExamRunnerPage() {
         return [...nextMap.values()];
       });
     } catch (error) {
-      setMessage(formatApiError(error, "棰樼洰鏀惰棌鎿嶄綔澶辫触"));
+      setMessage(formatApiError(error, "题组收藏操作失败"));
     }
   }
 
@@ -406,6 +560,8 @@ export default function MockExamRunnerPage() {
         paused={paused}
         elapsedSeconds={elapsedSeconds}
         favoriteQuestionIds={favoriteQuestionIds}
+        initialScrollQuestionId={requestedQuestionId || ""}
+        initialScrollQuestionNo={requestedQuestionNo || ""}
         message={message}
         busy={Boolean(busyState)}
         busyText={busyState === "saving" ? "保存中..." : busyState === "submitting" ? "交卷中..." : ""}
@@ -426,10 +582,20 @@ export default function MockExamRunnerPage() {
         <LoadingOverlay
           message={busyState === "saving" ? "正在保存进度" : "正在提交作答"}
           submessage={
-            busyState === "saving"
-              ? "请稍候，即将返回模拟考试页"
-              : "请稍候，正在生成本次成绩结果"
+            busyState === "saving" ? "请稍候，即将返回模拟考试页" : "请稍候，正在生成本次成绩结果"
           }
+        />
+      ) : null}
+      {dialogState ? (
+        <ActionDialog
+          title={dialogState.title}
+          message={dialogState.message}
+          confirmText={dialogState.confirmText}
+          cancelText={dialogState.cancelText}
+          hideCancel={dialogState.hideCancel}
+          tone={dialogState.tone}
+          onConfirm={() => closeDialog(true)}
+          onCancel={() => closeDialog(false)}
         />
       ) : null}
     </>

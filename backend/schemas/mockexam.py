@@ -89,6 +89,7 @@ class MockExamSubmitRequest(BaseModel):
     answers: dict[str, Any] = Field(default_factory=dict, description="Answer map")
     marked: dict[str, bool] = Field(default_factory=dict, description="Marked-for-review map")
     progress_id: int | None = Field(default=None, description="Progress ID")
+    elapsed_seconds: int = Field(default=0, description="Elapsed seconds")
 
 
 class MockExamSubmitDetail(BaseModel):
@@ -128,13 +129,28 @@ class MockExamSubmitResult(BaseModel):
 class MockExamSubmissionSummary(BaseModel):
     submission_id: int = Field(..., description="Submission ID")
     title: str = Field(..., description="Submission title")
+    elapsed_seconds: int = Field(default=0, description="Elapsed seconds")
     create_time: datetime = Field(..., description="Submitted at")
+
+
+class MockExamWrongQuestionReviewSummary(BaseModel):
+    all_correct: bool = Field(default=False, description="Whether the current redo is fully correct")
+    wrong_count: int = Field(default=0, description="Wrong question count in the current submit")
+    active_wrong_question_count: int = Field(
+        default=0,
+        description="Active wrong-book question count for the current redo range",
+    )
+    exam_question_ids: list[int] = Field(default_factory=list, description="Exam question IDs in current redo range")
 
 
 class MockExamSubmitResponse(BaseModel):
     status: str = Field(default="ok", description="Response status")
     result: MockExamSubmitResult = Field(..., description="Score result")
     submission: MockExamSubmissionSummary | None = Field(default=None, description="Submission summary")
+    wrongbook_review: MockExamWrongQuestionReviewSummary | None = Field(
+        default=None,
+        description="Wrong-book review summary for redo flow",
+    )
 
 
 class MockExamSubmissionItem(BaseModel):
@@ -151,6 +167,7 @@ class MockExamSubmissionItem(BaseModel):
     correct_count: int = Field(default=0, description="Correct count")
     wrong_count: int = Field(default=0, description="Wrong count")
     gradable_questions: int = Field(default=0, description="Gradable question count")
+    elapsed_seconds: int = Field(default=0, description="Elapsed seconds")
     create_time: datetime = Field(..., description="Submitted at")
 
 
@@ -167,6 +184,7 @@ class MockExamSubmissionDetailResponse(BaseModel):
     title: str = Field(..., description="Paper title")
     exam_category: str = Field(..., description="Exam category")
     exam_content: str | None = Field(default=None, description="Exam content")
+    elapsed_seconds: int = Field(default=0, description="Elapsed seconds")
     create_time: datetime = Field(..., description="Submitted at")
     payload: Any = Field(..., description="Payload snapshot")
     answers: dict[str, Any] = Field(default_factory=dict, description="Answers")
@@ -182,6 +200,7 @@ class MockExamProgressSaveRequest(BaseModel):
     current_question_id: str | None = Field(default=None, description="Current question ID")
     current_question_index: int | None = Field(default=None, description="Current question index")
     current_question_no: str | None = Field(default=None, description="Current question number")
+    elapsed_seconds: int = Field(default=0, description="Elapsed seconds")
 
 
 class MockExamProgressItem(BaseModel):
@@ -195,6 +214,7 @@ class MockExamProgressItem(BaseModel):
     exam_content: str | None = Field(default=None, description="Exam content")
     answered_count: int = Field(default=0, description="Answered count")
     total_questions: int = Field(default=0, description="Total questions")
+    elapsed_seconds: int = Field(default=0, description="Elapsed seconds")
     current_question_id: str | None = Field(default=None, description="Current question ID")
     current_question_index: int | None = Field(default=None, description="Current question index")
     current_question_no: str | None = Field(default=None, description="Current question number")
@@ -219,6 +239,8 @@ class MockExamProgressMutationResponse(BaseModel):
 
 class MockExamFavoriteToggleRequest(BaseModel):
     is_favorite: bool = Field(..., description="Whether the question should be favorited")
+    source_kind: str | None = Field(default=None, description="Favorite source kind")
+    paper_set_id: int | None = Field(default=None, description="Paper set ID when source is paper_set")
 
 
 class MockExamFavoriteToggleResponse(BaseModel):
@@ -226,12 +248,28 @@ class MockExamFavoriteToggleResponse(BaseModel):
     is_favorite: bool = Field(..., description="Favorite state")
 
 
+class MockExamFavoriteBatchToggleRequest(BaseModel):
+    is_favorite: bool = Field(..., description="Whether the target should be favorited")
+
+
+class MockExamFavoriteBatchToggleResponse(BaseModel):
+    status: str = Field(default="ok", description="Response status")
+    is_favorite: bool = Field(..., description="Favorite state")
+    affected_count: int = Field(default=0, description="Affected entity count")
+
+
 class MockExamFavoriteItem(BaseModel):
     exam_question_id: int = Field(..., description="Question ID")
     exam_paper_id: int = Field(..., description="Paper ID")
     paper_code: str | None = Field(default=None, description="Paper code")
     paper_title: str = Field(..., description="Paper title")
+    source_kind: str = Field(default="paper", description="Source kind")
+    paper_set_id: int | None = Field(default=None, description="Paper set ID")
     exam_content: str | None = Field(default=None, description="Exam content")
+    exam_section_id: int | None = Field(default=None, description="Section ID")
+    section_title: str | None = Field(default=None, description="Section title")
+    exam_group_id: int | None = Field(default=None, description="Group ID")
+    group_title: str | None = Field(default=None, description="Group title")
     question_id: str = Field(..., description="Question code")
     question_no: str | None = Field(default=None, description="Question number")
     question_type: str | None = Field(default=None, description="Question type")
@@ -244,11 +282,31 @@ class MockExamFavoriteListResponse(BaseModel):
     items: list[MockExamFavoriteItem] = Field(default_factory=list, description="Favorite list")
 
 
+class MockExamEntityFavoriteItem(BaseModel):
+    target_type: str = Field(..., description="Favorite target type")
+    target_id: int = Field(..., description="Favorite target ID")
+    exam_paper_id: int | None = Field(default=None, description="Paper ID")
+    paper_set_id: int | None = Field(default=None, description="Paper set ID")
+    paper_code: str | None = Field(default=None, description="Paper code")
+    title: str = Field(..., description="Favorite title")
+    exam_category: str = Field(..., description="Exam category")
+    exam_content: str | None = Field(default=None, description="Exam content")
+    create_time: datetime = Field(..., description="Create time")
+
+
+class MockExamEntityFavoriteListResponse(BaseModel):
+    items: list[MockExamEntityFavoriteItem] = Field(default_factory=list, description="Entity favorite list")
+
+
 class MockExamWrongQuestionItem(BaseModel):
     exam_question_id: int | None = Field(default=None, description="Question ID")
     exam_paper_id: int = Field(..., description="Paper ID")
     paper_code: str | None = Field(default=None, description="Paper code")
     paper_title: str = Field(..., description="Paper title")
+    exam_section_id: int | None = Field(default=None, description="Section ID")
+    section_title: str | None = Field(default=None, description="Section title")
+    exam_group_id: int | None = Field(default=None, description="Group ID")
+    group_title: str | None = Field(default=None, description="Group title")
     exam_content: str | None = Field(default=None, description="Exam content")
     question_id: str = Field(..., description="Question code")
     question_no: str | None = Field(default=None, description="Question number")
@@ -259,8 +317,43 @@ class MockExamWrongQuestionItem(BaseModel):
     last_wrong_time: datetime = Field(..., description="Last wrong time")
 
 
+class MockExamWrongQuestionSummary(BaseModel):
+    total_questions: int = Field(default=0, description="Active wrong question count")
+    total_wrong_count: int = Field(default=0, description="Total accumulated wrong count")
+    average_wrong_count: float = Field(default=0, description="Average wrong count per group")
+    most_common_type: str | None = Field(default=None, description="Most common question type")
+
+
+class MockExamWrongQuestionGroupItem(BaseModel):
+    exam_paper_id: int = Field(..., description="Paper ID")
+    paper_code: str | None = Field(default=None, description="Paper code")
+    paper_title: str = Field(..., description="Paper title")
+    exam_section_id: int | None = Field(default=None, description="Section ID")
+    section_title: str | None = Field(default=None, description="Section title")
+    exam_group_id: int | None = Field(default=None, description="Group ID")
+    group_title: str | None = Field(default=None, description="Group title")
+    exam_content: str | None = Field(default=None, description="Exam content")
+    wrong_question_count: int = Field(default=0, description="Wrong question count in this group")
+    total_wrong_count: int = Field(default=0, description="Total accumulated wrong count in this group")
+    latest_wrong_time: datetime | None = Field(default=None, description="Latest wrong time in this group")
+    questions: list[MockExamWrongQuestionItem] = Field(default_factory=list, description="Wrong question list")
+
+
 class MockExamWrongQuestionListResponse(BaseModel):
-    items: list[MockExamWrongQuestionItem] = Field(default_factory=list, description="Wrong question list")
+    summary: MockExamWrongQuestionSummary = Field(
+        default_factory=MockExamWrongQuestionSummary,
+        description="Wrong-book summary",
+    )
+    groups: list[MockExamWrongQuestionGroupItem] = Field(default_factory=list, description="Wrong question groups")
+
+
+class MockExamWrongQuestionResolveRequest(BaseModel):
+    exam_question_ids: list[int] = Field(default_factory=list, description="Exam question IDs to resolve")
+
+
+class MockExamWrongQuestionResolveResponse(BaseModel):
+    status: str = Field(default="ok", description="Response status")
+    removed_count: int = Field(default=0, description="Resolved wrong-question count")
 
 
 class MockExamQuestionDetailResponse(BaseModel):

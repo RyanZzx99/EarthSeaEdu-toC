@@ -1,12 +1,12 @@
 export function getApiError(error, fallback) {
   const detail = error?.response?.data?.detail;
   if (typeof detail === "string" && detail.trim()) {
-    return detail;
+    return detail.trim();
   }
   if (Array.isArray(detail) && detail.length) {
     const first = detail[0];
     if (typeof first === "string" && first.trim()) {
-      return first;
+      return first.trim();
     }
     if (first?.msg) {
       return String(first.msg);

@@ -101,14 +101,32 @@ export function getMockExamFavorites(params) {
   });
 }
 
+export function getMockExamEntityFavorites(params) {
+  return request.get("/api/v1/mockexam/entity-favorites", {
+    params,
+  });
+}
+
 export function toggleMockExamFavorite(examQuestionId, data) {
   return request.post(`/api/v1/mockexam/questions/${examQuestionId}/favorite`, data);
+}
+
+export function toggleMockExamPaperFavorite(examPaperId, data) {
+  return request.post(`/api/v1/mockexam/papers/${examPaperId}/favorite`, data);
+}
+
+export function toggleMockExamPaperSetFavorite(mockexamPaperSetId, data) {
+  return request.post(`/api/v1/mockexam/paper-sets/${mockexamPaperSetId}/favorite`, data);
 }
 
 export function getMockExamWrongQuestions(params) {
   return request.get("/api/v1/mockexam/wrong-questions", {
     params,
   });
+}
+
+export function resolveMockExamWrongQuestions(data) {
+  return request.post("/api/v1/mockexam/wrong-questions/resolve", data);
 }
 
 export function getMockExamQuestionDetail(examQuestionId) {

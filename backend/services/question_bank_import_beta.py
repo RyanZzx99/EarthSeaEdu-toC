@@ -73,6 +73,7 @@ BOOK_TEST_PATTERNS = (
 )
 SPECIAL_ANSWER_TOKENS = {"TRUE", "FALSE", "NOT GIVEN", "YES", "NO"}
 EXTERNAL_ASSET_URL_PATTERN = re.compile(r"^[a-z][a-z0-9+\-.]*://", re.I)
+IMPORT_ASSET_WRITE_CHUNK_SIZE = 1024 * 1024
 
 
 @dataclass(slots=True)
@@ -124,6 +125,18 @@ class PackageImportResult:
     subject_type: str
     import_status: str
     counts: dict[str, int]
+
+
+def write_bytes_in_chunks(
+    destination_path: Path,
+    raw_bytes: bytes,
+    *,
+    chunk_size: int = IMPORT_ASSET_WRITE_CHUNK_SIZE,
+) -> None:
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    with destination_path.open("wb") as stream:
+        for start in range(0, len(raw_bytes), chunk_size):
+            stream.write(raw_bytes[start : start + chunk_size])
 
 
 class HtmlTextExtractor(HTMLParser):
@@ -1348,8 +1361,7 @@ def persist_package_asset_file(
         return False
 
     destination_path = resolve_exam_asset_abspath(storage_path)
-    destination_path.parent.mkdir(parents=True, exist_ok=True)
-    destination_path.write_bytes(virtual_file.raw_bytes)
+    write_bytes_in_chunks(destination_path, virtual_file.raw_bytes)
     return True
 
 

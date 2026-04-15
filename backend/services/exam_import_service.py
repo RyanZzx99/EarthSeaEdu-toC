@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 import threading
 from dataclasses import dataclass
 from datetime import datetime
@@ -31,6 +30,7 @@ IMPORT_JOB_ACTIVE_STATUSES = {IMPORT_JOB_STATUS_PENDING, IMPORT_JOB_STATUS_RUNNI
 _active_job_ids: set[int] = set()
 _active_job_ids_lock = threading.Lock()
 _import_job_run_semaphore = threading.Semaphore(1)
+IMPORT_WRITE_CHUNK_SIZE = 1024 * 1024
 
 
 @dataclass(slots=True)
@@ -66,6 +66,21 @@ def load_exam_import_job_model():
 def normalize_bank_name(value: str | None) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def copy_binary_stream_in_chunks(
+    source: BinaryIO,
+    destination: Path,
+    *,
+    chunk_size: int = IMPORT_WRITE_CHUNK_SIZE,
+) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("wb") as stream:
+        while True:
+            chunk = source.read(chunk_size)
+            if not chunk:
+                break
+            stream.write(chunk)
 
 
 def build_missing_table_error() -> ValueError:
@@ -140,8 +155,7 @@ def persist_import_job_files(
         destination = job_dir / file_meta["stored_name"]
         if hasattr(item.file_obj, "seek"):
             item.file_obj.seek(0)
-        with destination.open("wb") as stream:
-            shutil.copyfileobj(item.file_obj, stream)
+        copy_binary_stream_in_chunks(item.file_obj, destination)
 
     metadata_path = job_dir / "metadata.json"
     metadata_path.write_text(
