@@ -10,6 +10,7 @@ import {
   Volume2,
 } from "lucide-react";
 import "../mockexam/practiceExercise.css";
+import { translateMockExamSelection } from "../api/mockexam";
 import {
   compareTextAnswer,
   evaluateQuestionMap,
@@ -148,6 +149,106 @@ function getQuestionAnchorId(question) {
 
 function getQuestionNoValue(question) {
   return getQuestionDisplayNo(question) || String(question?.displayNo || "").trim();
+}
+
+const SELECTION_CONTEXT_WINDOW = 160;
+const SELECTION_ANCHOR_SELECTOR =
+  ".practice-exam-material-block, .practice-exam-question-stem, .practice-exam-question-extra, .practice-exam-group-instructions, .practice-exam-option-card, .practice-exam-matching-row, p, li, td, th, h1, h2, h3, h4, h5, h6";
+
+function normalizeSelectionPlainText(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getSelectionNodeElement(node) {
+  if (!node) {
+    return null;
+  }
+  if (node.nodeType === 1) {
+    return node;
+  }
+  return node.parentElement || null;
+}
+
+function isSelectionFromInteractiveElement(element) {
+  if (!element || typeof element.closest !== "function") {
+    return false;
+  }
+  return Boolean(element.closest("input, textarea, select, button, a, [contenteditable='true']"));
+}
+
+function buildSelectionCacheKey(snapshot, targetLang = "zh-CN") {
+  return [
+    snapshot.scopeType,
+    snapshot.passageId,
+    snapshot.questionId,
+    snapshot.selectedText,
+    targetLang,
+  ].join("|");
+}
+
+function createEmptySelectionTranslateState() {
+  return {
+    visible: false,
+    loading: false,
+    error: "",
+    selectedText: "",
+    translation: "",
+    scopeType: "",
+    questionId: "",
+    questionType: "",
+    passageId: "",
+    surroundingTextBefore: "",
+    surroundingTextAfter: "",
+    anchorRect: null,
+  };
+}
+
+function getRectSnapshot(rect) {
+  if (!rect) {
+    return null;
+  }
+  return {
+    top: rect.top,
+    left: rect.left,
+    right: rect.right,
+    bottom: rect.bottom,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+function getSelectionAnchorRect(range, scopeRoot) {
+  if (!range) {
+    return null;
+  }
+
+  const commonElement = getSelectionNodeElement(range.commonAncestorContainer);
+  const startElement = getSelectionNodeElement(range.startContainer);
+  const endElement = getSelectionNodeElement(range.endContainer);
+  const candidates = [commonElement, startElement, endElement];
+
+  for (const element of candidates) {
+    if (!element || !scopeRoot || !scopeRoot.contains(element)) {
+      continue;
+    }
+    let anchorElement = null;
+    if (typeof element.matches === "function" && element.matches(SELECTION_ANCHOR_SELECTOR)) {
+      anchorElement = element;
+    } else if (typeof element.closest === "function") {
+      anchorElement = element.closest(SELECTION_ANCHOR_SELECTOR);
+    }
+    if (!anchorElement || !scopeRoot.contains(anchorElement)) {
+      continue;
+    }
+    const rect = anchorElement.getBoundingClientRect();
+    if (rect.width || rect.height) {
+      return getRectSnapshot(rect);
+    }
+  }
+
+  return getRectSnapshot(range.getBoundingClientRect());
 }
 
 function buildGroupDisplayTitle(group) {
@@ -480,7 +581,6 @@ function QuestionBlock({
   revealAnswers,
   reviewMode,
   evaluation,
-  showQuestionTranslation,
   onSelectQuestion,
   onSetAnswer,
   grouped = false,
@@ -500,6 +600,10 @@ function QuestionBlock({
   return (
     <article
       className={`${grouped ? "practice-exam-question-block" : "practice-exam-question-card"}${isCurrent ? " is-current" : ""}`}
+      data-selection-scope="question"
+      data-question-id={question?.id || ""}
+      data-passage-id={question?.passageId || ""}
+      data-question-type={questionType}
       onClick={() => onSelectQuestion(question.globalIndex)}
     >
       <div id={getQuestionAnchorId(question)} className="practice-exam-question-anchor" />
@@ -516,12 +620,6 @@ function QuestionBlock({
           className="practice-exam-question-extra"
           dangerouslySetInnerHTML={{ __html: extraHtml }}
         />
-      ) : null}
-
-      {showQuestionTranslation ? (
-        <div className="practice-exam-translation-card">
-          题目翻译功能待接入，当前先保留页面位置与交互按钮。
-        </div>
       ) : null}
 
       {questionType === "single" || questionType === "multiple" || questionType === "tfng" ? (
@@ -611,9 +709,10 @@ export function PracticeExercisePage(props) {
     initialScrollQuestionNo = "",
   } = props;
 
-  const [showMaterialTranslation, setShowMaterialTranslation] = useState(false);
-  const [showQuestionTranslation, setShowQuestionTranslation] = useState(false);
-  const [materialBookmarked, setMaterialBookmarked] = useState(false);
+  const [selectionTranslateState, setSelectionTranslateState] = useState(
+    createEmptySelectionTranslateState
+  );
+  const [selectionHint, setSelectionHint] = useState({ scopeType: "", text: "" });
   const [audioCurrentTime, setAudioCurrentTime] = useState(0);
   const [audioDuration, setAudioDuration] = useState(0);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
@@ -626,6 +725,12 @@ export function PracticeExercisePage(props) {
   );
   const audioRef = useRef(null);
   const layoutRef = useRef(null);
+  const materialCardRef = useRef(null);
+  const questionListRef = useRef(null);
+  const tooltipRef = useRef(null);
+  const hintTimerRef = useRef(null);
+  const selectionAbortRef = useRef(null);
+  const selectionCacheRef = useRef(new Map());
 
   const currentQuestion = questions[currentQuestionIndex] || questions[0] || null;
   const evaluationMap = useMemo(() => evaluateQuestionMap(questions, answers), [questions, answers]);
@@ -677,6 +782,368 @@ export function PracticeExercisePage(props) {
   const hasMaterialContent = Boolean(stripHtml(currentPassage?.content || ""));
   const shouldShowMaterialCard = !audioSources.length || hasMaterialContent;
   const questionPanePercent = 100 - materialPanePercent;
+  const translateButtonActive = selectionTranslateState.visible;
+
+  function clearSelectionHintTimer() {
+    if (hintTimerRef.current) {
+      window.clearTimeout(hintTimerRef.current);
+      hintTimerRef.current = null;
+    }
+  }
+
+  function showSelectionHint(scopeType, text) {
+    clearSelectionHintTimer();
+    setSelectionHint({ scopeType, text });
+    hintTimerRef.current = window.setTimeout(() => {
+      setSelectionHint({ scopeType: "", text: "" });
+      hintTimerRef.current = null;
+    }, 2200);
+  }
+
+  function closeSelectionTooltip({ clearSelection = false } = {}) {
+    if (selectionAbortRef.current) {
+      selectionAbortRef.current.abort();
+      selectionAbortRef.current = null;
+    }
+    setSelectionTranslateState((previous) => {
+      if (clearSelection) {
+        return createEmptySelectionTranslateState();
+      }
+      if (!previous.visible && !previous.loading && !previous.error) {
+        return previous;
+      }
+      return {
+        ...previous,
+        visible: false,
+        loading: false,
+        error: "",
+      };
+    });
+  }
+
+  function buildSelectionContext(range, contextElement) {
+    if (!range || !contextElement) {
+      return { surroundingTextBefore: "", surroundingTextAfter: "" };
+    }
+
+    try {
+      const beforeRange = range.cloneRange();
+      beforeRange.selectNodeContents(contextElement);
+      beforeRange.setEnd(range.startContainer, range.startOffset);
+
+      const afterRange = range.cloneRange();
+      afterRange.selectNodeContents(contextElement);
+      afterRange.setStart(range.endContainer, range.endOffset);
+
+      return {
+        surroundingTextBefore: normalizeSelectionPlainText(beforeRange.toString()).slice(
+          -SELECTION_CONTEXT_WINDOW
+        ),
+        surroundingTextAfter: normalizeSelectionPlainText(afterRange.toString()).slice(
+          0,
+          SELECTION_CONTEXT_WINDOW
+        ),
+      };
+    } catch (_error) {
+      return { surroundingTextBefore: "", surroundingTextAfter: "" };
+    }
+  }
+
+  function captureSelectionSnapshot(expectedScopeType = "") {
+    if (typeof window === "undefined") {
+      return { snapshot: null, reason: "当前环境不支持划词翻译" };
+    }
+
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      return { snapshot: null, reason: "请先选择要翻译的内容" };
+    }
+
+    const range = selection.getRangeAt(0);
+    const selectedText = normalizeSelectionPlainText(selection.toString());
+    if (!selectedText) {
+      return { snapshot: null, reason: "请先选择要翻译的内容" };
+    }
+    const startElement = getSelectionNodeElement(range.startContainer);
+    const endElement = getSelectionNodeElement(range.endContainer);
+    if (!startElement || !endElement) {
+      return { snapshot: null, reason: "当前选区无效，请重新选择" };
+    }
+    if (
+      isSelectionFromInteractiveElement(startElement) ||
+      isSelectionFromInteractiveElement(endElement)
+    ) {
+      return { snapshot: null, reason: "输入区域内容不支持划词翻译" };
+    }
+
+    const materialRoot = materialCardRef.current;
+    const questionRoot = questionListRef.current;
+    const startInMaterial = Boolean(materialRoot && materialRoot.contains(range.startContainer));
+    const endInMaterial = Boolean(materialRoot && materialRoot.contains(range.endContainer));
+    const startInQuestion = Boolean(questionRoot && questionRoot.contains(range.startContainer));
+    const endInQuestion = Boolean(questionRoot && questionRoot.contains(range.endContainer));
+
+    if ((startInMaterial || endInMaterial) && (startInQuestion || endInQuestion)) {
+      return { snapshot: null, reason: "请不要跨材料区和题目区同时划词" };
+    }
+
+    let scopeType = "";
+    let contextElement = null;
+    let questionId = "";
+    let questionType = "";
+    let passageId = "";
+
+    if (startInMaterial && endInMaterial) {
+      scopeType = "material";
+      contextElement = materialRoot;
+      passageId =
+        String(materialRoot?.dataset?.passageId || "").trim() || String(currentPassage?.id || "");
+    } else if (startInQuestion && endInQuestion) {
+      scopeType = "question";
+      const startQuestionElement = startElement.closest("[data-selection-scope='question']");
+      const endQuestionElement = endElement.closest("[data-selection-scope='question']");
+      const sameQuestion =
+        startQuestionElement && endQuestionElement && startQuestionElement === endQuestionElement;
+      contextElement = sameQuestion ? startQuestionElement : questionRoot;
+      questionId = sameQuestion ? String(startQuestionElement.dataset.questionId || "").trim() : "";
+      questionType = sameQuestion ? String(startQuestionElement.dataset.questionType || "").trim() : "";
+      passageId = sameQuestion ? String(startQuestionElement.dataset.passageId || "").trim() : "";
+    } else {
+      return { snapshot: null, reason: "请先在材料区或题目区选择内容" };
+    }
+
+    if (expectedScopeType && scopeType !== expectedScopeType) {
+      return {
+        snapshot: null,
+        reason:
+          expectedScopeType === "material"
+            ? "请在材料区选择要翻译的内容"
+            : "请在题目区选择要翻译的内容",
+      };
+    }
+
+    const rect = getSelectionAnchorRect(range, contextElement);
+    if (!rect || (!rect.width && !rect.height)) {
+      return { snapshot: null, reason: "当前选区无效，请重新选择" };
+    }
+
+    const { surroundingTextBefore, surroundingTextAfter } = buildSelectionContext(
+      range,
+      contextElement
+    );
+
+    return {
+      snapshot: {
+        visible: false,
+        loading: false,
+        error: "",
+        translation: "",
+        selectedText,
+        scopeType,
+        questionId,
+        questionType,
+        passageId,
+        surroundingTextBefore,
+        surroundingTextAfter,
+        anchorRect: rect,
+      },
+      reason: "",
+    };
+  }
+
+  function syncSelectionSnapshot() {
+    const { snapshot } = captureSelectionSnapshot();
+    if (!snapshot) {
+      setSelectionTranslateState((previous) => {
+        if (
+          !previous.selectedText &&
+          !previous.translation &&
+          !previous.visible &&
+          !previous.loading &&
+          !previous.error
+        ) {
+          return previous;
+        }
+        return createEmptySelectionTranslateState();
+      });
+      return;
+    }
+
+    setSelectionTranslateState((previous) => {
+      const isSameSelection =
+        previous.scopeType === snapshot.scopeType &&
+        previous.questionId === snapshot.questionId &&
+        previous.passageId === snapshot.passageId &&
+        previous.selectedText === snapshot.selectedText;
+
+      if (isSameSelection) {
+        return {
+          ...previous,
+          ...snapshot,
+          visible: previous.visible,
+          loading: previous.loading,
+          error: previous.error,
+          translation: previous.translation,
+        };
+      }
+
+      return {
+        ...createEmptySelectionTranslateState(),
+        ...snapshot,
+      };
+    });
+  }
+
+  async function runSelectionTranslate(snapshot, { force = false } = {}) {
+    if (!snapshot?.selectedText || !snapshot.scopeType) {
+      return;
+    }
+
+    const cacheKey = buildSelectionCacheKey(snapshot);
+    const cachedResult = selectionCacheRef.current.get(cacheKey);
+    if (!force && cachedResult?.translation) {
+      setSelectionTranslateState((previous) => ({
+        ...previous,
+        ...snapshot,
+        visible: true,
+        loading: false,
+        error: "",
+        translation: cachedResult.translation,
+      }));
+      return;
+    }
+
+    if (selectionAbortRef.current) {
+      selectionAbortRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    selectionAbortRef.current = controller;
+    setSelectionTranslateState((previous) => ({
+      ...previous,
+      ...snapshot,
+      visible: true,
+      loading: true,
+      error: "",
+      translation: "",
+    }));
+
+    try {
+      const response = await translateMockExamSelection(
+        {
+          selected_text: snapshot.selectedText,
+          scope_type: snapshot.scopeType,
+          module_name: moduleName || "",
+          passage_id: snapshot.passageId || "",
+          question_id: snapshot.questionId || "",
+          question_type: snapshot.questionType || "",
+          surrounding_text_before: snapshot.surroundingTextBefore || "",
+          surrounding_text_after: snapshot.surroundingTextAfter || "",
+          target_lang: "zh-CN",
+        },
+        { signal: controller.signal }
+      );
+
+      const translation = normalizeSelectionPlainText(response.data?.translation || "");
+      if (!translation) {
+        throw new Error("empty_translation");
+      }
+
+      selectionCacheRef.current.set(cacheKey, { translation });
+      setSelectionTranslateState((previous) => ({
+        ...previous,
+        ...snapshot,
+        visible: true,
+        loading: false,
+        error: "",
+        translation,
+      }));
+    } catch (error) {
+      if (error?.code === "ERR_CANCELED" || error?.name === "CanceledError") {
+        return;
+      }
+
+      const responseDetail = error?.response?.data?.detail;
+      const timeoutMessage =
+        error?.code === "ECONNABORTED" ? "翻译请求超时，请稍后重试" : "";
+      const errorMessage =
+        typeof responseDetail === "string" && responseDetail
+          ? responseDetail
+          : timeoutMessage || "翻译失败，请稍后重试";
+
+      setSelectionTranslateState((previous) => ({
+        ...previous,
+        ...snapshot,
+        visible: true,
+        loading: false,
+        error: errorMessage,
+        translation: "",
+      }));
+    } finally {
+      if (selectionAbortRef.current === controller) {
+        selectionAbortRef.current = null;
+      }
+    }
+  }
+
+  async function handleTranslateButtonClick() {
+    const { snapshot, reason } = captureSelectionSnapshot();
+    if (!snapshot) {
+      showSelectionHint("global", reason || "请先选择要翻译的内容");
+      return;
+    }
+
+    setSelectionHint({ scopeType: "", text: "" });
+    await runSelectionTranslate(snapshot);
+  }
+
+  const selectionTooltipLayout = useMemo(() => {
+    if (!selectionTranslateState.visible || !selectionTranslateState.anchorRect) {
+      return null;
+    }
+
+    const scopeRoot =
+      selectionTranslateState.scopeType === "material"
+        ? materialCardRef.current
+        : questionListRef.current;
+    const paneElement = scopeRoot?.closest(".practice-exam-pane-inner") || scopeRoot;
+    if (!paneElement) {
+      return null;
+    }
+
+    const paneRect = paneElement.getBoundingClientRect();
+    const anchorRect = selectionTranslateState.anchorRect;
+    const minWidth = 280;
+    const maxWidth = 360;
+    const availableWidth = Math.max(minWidth, paneRect.width - 24);
+    const width = Math.min(maxWidth, availableWidth);
+    const estimatedHeight = 190;
+    const topSpace = anchorRect.top - paneRect.top;
+    const canPlaceAbove = topSpace >= estimatedHeight;
+    const minLeft = paneRect.left + 12;
+    const maxLeft = Math.max(minLeft, paneRect.right - width - 12);
+    const minTop = paneRect.top + 12;
+    const maxTop = Math.max(minTop, paneRect.bottom - estimatedHeight - 12);
+
+    let placement = "above";
+    let left = Math.min(Math.max(anchorRect.left, minLeft), maxLeft);
+    let top = Math.min(Math.max(anchorRect.top - estimatedHeight - 12, minTop), maxTop);
+
+    if (!canPlaceAbove) {
+      placement = "right";
+      left = Math.min(Math.max(anchorRect.right + 12, minLeft), maxLeft);
+      top = Math.min(Math.max(anchorRect.top, minTop), maxTop);
+    }
+
+    return {
+      placement,
+      style: {
+        left,
+        top,
+        width,
+      },
+    };
+  }, [selectionTranslateState]);
 
   function clampMaterialPanePercent(value) {
     return Math.min(maxMaterialPercent, Math.max(minMaterialPercent, value));
@@ -729,6 +1196,72 @@ export function PracticeExercisePage(props) {
 
     return () => window.clearTimeout(timer);
   }, [initialScrollQuestionId, initialScrollQuestionNo, questions]);
+
+  useEffect(() => {
+    const handleSelectionEvent = () => {
+      syncSelectionSnapshot();
+    };
+
+    document.addEventListener("selectionchange", handleSelectionEvent);
+    document.addEventListener("mouseup", handleSelectionEvent);
+    document.addEventListener("keyup", handleSelectionEvent);
+
+    return () => {
+      document.removeEventListener("selectionchange", handleSelectionEvent);
+      document.removeEventListener("mouseup", handleSelectionEvent);
+      document.removeEventListener("keyup", handleSelectionEvent);
+    };
+  }, [currentPassage?.id, questions]);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        closeSelectionTooltip();
+        setSelectionHint({ scopeType: "", text: "" });
+      }
+    };
+
+    const handlePointerDown = (event) => {
+      if (tooltipRef.current?.contains(event.target)) {
+        return;
+      }
+      closeSelectionTooltip();
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("mousedown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    const materialPane = materialCardRef.current?.closest(".practice-exam-pane-inner");
+    const questionPane = questionListRef.current?.closest(".practice-exam-pane-inner");
+    const handleScroll = () => closeSelectionTooltip();
+
+    materialPane?.addEventListener("scroll", handleScroll, { passive: true });
+    questionPane?.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      materialPane?.removeEventListener("scroll", handleScroll);
+      questionPane?.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, [currentPassage?.id, questions.length]);
+
+  useEffect(() => {
+    return () => {
+      clearSelectionHintTimer();
+      if (selectionAbortRef.current) {
+        selectionAbortRef.current.abort();
+        selectionAbortRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!audioSources.length) {
@@ -896,7 +1429,6 @@ export function PracticeExercisePage(props) {
                         revealAnswers={revealAnswers}
                         reviewMode={reviewMode}
                         evaluation={evaluationMap[question.id]}
-                        showQuestionTranslation={showQuestionTranslation}
                         onSelectQuestion={onSelectQuestion}
                         onSetAnswer={onSetAnswer}
                       />
@@ -932,6 +1464,19 @@ export function PracticeExercisePage(props) {
         </div>
 
         <div className="practice-exam-topbar-right">
+          <div className="practice-exam-translate-action">
+            <button
+              className={`practice-exam-mini-btn practice-exam-topbar-translate-btn${translateButtonActive ? " is-active" : ""}`}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => handleTranslateButtonClick()}
+            >
+              显示翻译
+            </button>
+            {selectionHint.text ? (
+              <span className="practice-exam-selection-hint">{selectionHint.text}</span>
+            ) : null}
+          </div>
           <div className="practice-exam-topbar-chip">
             第 {currentDisplayNo}/{questionCount} 题
           </div>
@@ -964,21 +1509,6 @@ export function PracticeExercisePage(props) {
           <div className="practice-exam-pane-inner">
             <div className="practice-exam-pane-head">
               <h3>材料区（文章 / 听力说明）</h3>
-              <div className="practice-exam-pane-actions">
-                <button
-                  className={`practice-exam-icon-btn${materialBookmarked ? " is-starred" : ""}`}
-                  title="当前仅做本地收藏状态展示"
-                  onClick={() => setMaterialBookmarked((value) => !value)}
-                >
-                  <Star size={18} fill={materialBookmarked ? "currentColor" : "none"} />
-                </button>
-                <button
-                  className={`practice-exam-mini-btn${showMaterialTranslation ? " is-active" : ""}`}
-                  onClick={() => setShowMaterialTranslation((value) => !value)}
-                >
-                  {showMaterialTranslation ? "隐藏翻译" : "显示翻译"}
-                </button>
-              </div>
             </div>
 
             {audioSources.length ? (
@@ -1069,30 +1599,29 @@ export function PracticeExercisePage(props) {
             ) : null}
 
             {shouldShowMaterialCard ? (
-              <div className="practice-exam-material-card">
-              {currentPassage?.title ? (
-                <div className="practice-exam-material-label">{currentPassage.title}</div>
-              ) : null}
-              {materialInstructions ? (
-                <div
-                  className="practice-exam-material-block"
-                  dangerouslySetInnerHTML={{ __html: materialInstructions }}
-                />
-              ) : null}
-              {materialHtml ? (
-                <div
-                  className="practice-exam-material-block"
-                  dangerouslySetInnerHTML={{ __html: materialHtml }}
-                />
-              ) : (
-                <div className="practice-exam-empty">暂无材料</div>
-              )}
-              </div>
-            ) : null}
-
-            {showMaterialTranslation ? (
-              <div className="practice-exam-translation-card">
-                材料翻译功能待接入，当前先保留页面位置与交互按钮。
+              <div
+                ref={materialCardRef}
+                className="practice-exam-material-card"
+                data-selection-scope="material"
+                data-passage-id={currentPassage?.id || ""}
+              >
+                {currentPassage?.title ? (
+                  <div className="practice-exam-material-label">{currentPassage.title}</div>
+                ) : null}
+                {materialInstructions ? (
+                  <div
+                    className="practice-exam-material-block"
+                    dangerouslySetInnerHTML={{ __html: materialInstructions }}
+                  />
+                ) : null}
+                {materialHtml ? (
+                  <div
+                    className="practice-exam-material-block"
+                    dangerouslySetInnerHTML={{ __html: materialHtml }}
+                  />
+                ) : (
+                  <div className="practice-exam-empty">暂无材料</div>
+                )}
               </div>
             ) : null}
           </div>
@@ -1124,18 +1653,12 @@ export function PracticeExercisePage(props) {
           <div className="practice-exam-pane-inner">
             <div className="practice-exam-pane-head">
               <h3>答题区</h3>
-              <div className="practice-exam-pane-actions">
-                <button
-                  className={`practice-exam-mini-btn${showQuestionTranslation ? " is-active" : ""}`}
-                  onClick={() => setShowQuestionTranslation((value) => !value)}
-                >
-                  {showQuestionTranslation ? "隐藏翻译" : "显示翻译"}
-                </button>
-              </div>
             </div>
 
             {message ? <div className="practice-exam-message">{message}</div> : null}
-            <div className="practice-exam-question-list">{renderQuestionList()}</div>
+            <div ref={questionListRef} className="practice-exam-question-list">
+              {renderQuestionList()}
+            </div>
           </div>
         </main>
 
@@ -1168,9 +1691,9 @@ export function PracticeExercisePage(props) {
               <div className="practice-exam-help-list">
                 <div>所有题目可在中间区域连续作答，点击题号可以快速定位。</div>
                 <div>橙色题号表示当前题目，蓝色题号表示已作答。</div>
-                <div>题目收藏已接真实接口；材料收藏当前仅保留本地状态展示。</div>
+                <div>题组收藏已接真实接口，可在 instruction 卡片上操作。</div>
                 <div>“显示答案”开启后会锁定作答，仅用于练习查看。</div>
-                <div>题目翻译与材料翻译按钮已保留，当前未接后端翻译能力。</div>
+                <div>先划词再点顶部“显示翻译”，译文会显示在选中段落附近。</div>
               </div>
             </div>
 
@@ -1186,6 +1709,55 @@ export function PracticeExercisePage(props) {
           </div>
         </aside>
       </div>
+      {selectionTranslateState.visible && selectionTooltipLayout ? (
+        <div
+          ref={tooltipRef}
+          className={`practice-exam-selection-tooltip is-${selectionTooltipLayout.placement}`}
+          style={selectionTooltipLayout.style}
+          role="dialog"
+          aria-live="polite"
+        >
+          <div className="practice-exam-selection-tooltip-head">
+            <div className="practice-exam-selection-tooltip-title">
+              {selectionTranslateState.scopeType === "material" ? "材料翻译" : "题目翻译"}
+            </div>
+            <button
+              className="practice-exam-selection-tooltip-close"
+              type="button"
+              onClick={() => closeSelectionTooltip()}
+            >
+              关闭
+            </button>
+          </div>
+          <div className="practice-exam-selection-tooltip-selected">
+            {selectionTranslateState.selectedText}
+          </div>
+          <div className="practice-exam-selection-tooltip-body">
+            {selectionTranslateState.loading ? (
+              <div className="practice-exam-selection-tooltip-loading">翻译中...</div>
+            ) : null}
+            {!selectionTranslateState.loading && selectionTranslateState.error ? (
+              <div className="practice-exam-selection-tooltip-error">
+                <span>{selectionTranslateState.error}</span>
+                <button
+                  className="practice-exam-selection-tooltip-retry"
+                  type="button"
+                  onClick={() => runSelectionTranslate(selectionTranslateState, { force: true })}
+                >
+                  重试
+                </button>
+              </div>
+            ) : null}
+            {!selectionTranslateState.loading &&
+            !selectionTranslateState.error &&
+            selectionTranslateState.translation ? (
+              <div className="practice-exam-selection-tooltip-text">
+                {selectionTranslateState.translation}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

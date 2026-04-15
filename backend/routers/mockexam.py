@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import re
+
 from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import Header
@@ -9,6 +12,8 @@ from sqlalchemy.orm import Session
 
 from backend.config.db_conf import get_db
 from backend.routers.auth import get_current_user_id
+from backend.schemas.mockexam import MockExamSelectionTranslateRequest
+from backend.schemas.mockexam import MockExamSelectionTranslateResponse
 from backend.schemas.mockexam import MockExamFavoriteListResponse
 from backend.schemas.mockexam import MockExamFavoriteBatchToggleRequest
 from backend.schemas.mockexam import MockExamFavoriteBatchToggleResponse
@@ -32,6 +37,8 @@ from backend.schemas.mockexam import MockExamSubmitResponse
 from backend.schemas.mockexam import MockExamWrongQuestionListResponse
 from backend.schemas.mockexam import MockExamWrongQuestionResolveRequest
 from backend.schemas.mockexam import MockExamWrongQuestionResolveResponse
+from backend.services.ai_prompt_runtime_service import PromptRuntimeError
+from backend.services.ai_prompt_runtime_service import execute_prompt_with_context
 from backend.services.mockexam_beta_service import discard_beta_mockexam_progress
 from backend.services.mockexam_beta_service import get_active_beta_mockexam_progress
 from backend.services.mockexam_beta_service import get_beta_mockexam_question_detail
@@ -62,12 +69,53 @@ from backend.services.mockexam_service import load_mockexam_beta_paper_payload
 
 
 router = APIRouter()
+VALID_SELECTION_SCOPE_TYPES = {"material", "question"}
+TRANSLATION_FIELD_PATTERN = re.compile(r'"translation"\s*:\s*"((?:\\.|[^"\\])*)', re.S)
 
 
 def require_mockexam_user(
     authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> str:
     return get_current_user_id(authorization)
+
+
+def parse_mockexam_translate_content(raw_content: str) -> dict[str, object]:
+    cleaned = str(raw_content or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.removeprefix("```json").removeprefix("```JSON")
+        cleaned = cleaned.removeprefix("```").removesuffix("```").strip()
+
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        first_brace = cleaned.find("{")
+        last_brace = cleaned.rfind("}")
+        if first_brace >= 0 and last_brace > first_brace:
+            parsed = json.loads(cleaned[first_brace : last_brace + 1])
+        elif match := TRANSLATION_FIELD_PATTERN.search(cleaned):
+            raw_translation = match.group(1)
+            try:
+                translation = json.loads(f'"{raw_translation}"')
+            except json.JSONDecodeError:
+                translation = raw_translation.replace('\\"', '"').replace("\\n", "\n").strip()
+            parsed = {
+                "translation": translation,
+                "source_language": "en",
+                "target_language": "zh-CN",
+                "confidence": "low",
+            }
+        elif cleaned and not cleaned.startswith("{") and '"translation"' not in cleaned:
+            parsed = {
+                "translation": cleaned,
+                "source_language": "en",
+                "target_language": "zh-CN",
+                "confidence": "medium",
+            }
+        else:
+            raise
+    if not isinstance(parsed, dict):
+        raise ValueError("翻译结果必须是 JSON 对象")
+    return parsed
 
 
 @router.get("/options", response_model=MockExamOptionsResponse)
@@ -396,6 +444,69 @@ def list_mockexam_entity_favorites_api(
             user_id=user_id,
             limit=limit,
         )
+    }
+
+
+@router.post("/translate-selection", response_model=MockExamSelectionTranslateResponse)
+def translate_mockexam_selection_api(
+    payload: MockExamSelectionTranslateRequest,
+    user_id: str = Depends(require_mockexam_user),
+    db: Session = Depends(get_db),
+):
+    selected_text = str(payload.selected_text or "").strip()
+    if not selected_text:
+        raise HTTPException(status_code=400, detail="selected_text 不能为空")
+
+    scope_type = str(payload.scope_type or "").strip().lower()
+    if scope_type not in VALID_SELECTION_SCOPE_TYPES:
+        raise HTTPException(status_code=400, detail="scope_type 仅支持 material 或 question")
+
+    target_lang = str(payload.target_lang or "zh-CN").strip() or "zh-CN"
+    context = {
+        "student_id": user_id,
+        "selected_text": selected_text,
+        "scope_type": scope_type,
+        "module_name": str(payload.module_name or "").strip(),
+        "passage_id": str(payload.passage_id or "").strip(),
+        "question_id": str(payload.question_id or "").strip(),
+        "question_type": str(payload.question_type or "").strip(),
+        "surrounding_text_before": str(payload.surrounding_text_before or "").strip(),
+        "surrounding_text_after": str(payload.surrounding_text_after or "").strip(),
+        "target_lang": target_lang,
+    }
+
+    try:
+        runtime_result = execute_prompt_with_context(
+            db,
+            prompt_key="mockexam.selection_translate",
+            context=context,
+        )
+        parsed = parse_mockexam_translate_content(runtime_result.content)
+    except PromptRuntimeError as exc:
+        raise HTTPException(status_code=503, detail=f"翻译服务暂不可用：{exc}") from exc
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=f"翻译结果解析失败：{exc}") from exc
+
+    translation = str(parsed.get("translation") or "").strip()
+    if not translation:
+        raise HTTPException(status_code=502, detail="翻译结果缺少 translation 字段")
+
+    source_language = str(parsed.get("source_language") or "en").strip() or "en"
+    response_target_lang = str(parsed.get("target_language") or target_lang).strip() or target_lang
+    confidence = str(parsed.get("confidence") or "").strip() or None
+    cached_raw = parsed.get("cached", False)
+    cached = cached_raw if isinstance(cached_raw, bool) else str(cached_raw).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+    return {
+        "translation": translation,
+        "source_language": source_language,
+        "target_language": response_target_lang,
+        "confidence": confidence,
+        "cached": cached,
     }
 
 

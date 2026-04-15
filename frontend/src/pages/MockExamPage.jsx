@@ -74,7 +74,7 @@ export default function MockExamPage() {
             >
               <div className="mockexam-selection-copy">
                 <h2>练习模式</h2>
-                <p>已接入当前所有试卷、错题、收藏、继续练习等完整功能。</p>
+                <p>支持翻译、暂停、纠错与答案解析</p>
               </div>
 
               <div className="mockexam-focus-panel practice">
@@ -82,8 +82,8 @@ export default function MockExamPage() {
                   <Zap size={20} strokeWidth={2.2} />
                 </div>
                 <h3>灵活练习</h3>
-                <p>支持保存退出</p>
-                <p>支持错题与收藏</p>
+                <p>随时暂停</p>
+                <p>即时纠错</p>
               </div>
 
               <ul className="mockexam-selection-list">
@@ -93,7 +93,7 @@ export default function MockExamPage() {
                 </li>
                 <li className="practice">
                   <CheckCircle2 size={15} />
-                  <span>查看结果、回看、错题复盘</span>
+                  <span>可显示翻译/答案/解析</span>
                 </li>
                 <li className="practice">
                   <CheckCircle2 size={15} />

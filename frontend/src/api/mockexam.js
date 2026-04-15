@@ -133,6 +133,13 @@ export function getMockExamQuestionDetail(examQuestionId) {
   return request.get(`/api/v1/mockexam/questions/${examQuestionId}`);
 }
 
+export function translateMockExamSelection(data, config = {}) {
+  return request.post("/api/v1/mockexam/translate-selection", data, {
+    timeout: 120000,
+    ...config,
+  });
+}
+
 export function getTeacherMockExamPaperSets() {
   return request.get("/api/v1/teacher/mockexam/paper-sets");
 }

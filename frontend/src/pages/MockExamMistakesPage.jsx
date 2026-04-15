@@ -52,6 +52,10 @@ function formatQuestionTypeLabel(value) {
   return labels[type] || "题目";
 }
 
+function formatFilterTypeOptionLabel(value) {
+  return value === "题目" ? "完形填空" : value;
+}
+
 function normalizeHtmlText(value) {
   return String(value || "")
     .replace(/<(li|p|div|tr|br)\b[^>]*>/gi, " ")
@@ -506,7 +510,7 @@ export default function MockExamMistakesPage() {
             >
               {typeOptions.map((option) => (
                 <option key={option} value={option}>
-                  {option === "all" ? "全部题型" : option}
+                  {option === "all" ? "全部题型" : formatFilterTypeOptionLabel(option)}
                 </option>
               ))}
             </select>

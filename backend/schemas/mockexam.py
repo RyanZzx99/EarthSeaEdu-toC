@@ -356,6 +356,26 @@ class MockExamWrongQuestionResolveResponse(BaseModel):
     removed_count: int = Field(default=0, description="Resolved wrong-question count")
 
 
+class MockExamSelectionTranslateRequest(BaseModel):
+    selected_text: str = Field(..., description="Selected source text")
+    scope_type: str = Field(..., description="Selection scope: material or question")
+    module_name: str | None = Field(default=None, description="Module name")
+    passage_id: str | None = Field(default=None, description="Passage ID")
+    question_id: str | None = Field(default=None, description="Question ID")
+    question_type: str | None = Field(default=None, description="Question type")
+    surrounding_text_before: str | None = Field(default=None, description="Context before selection")
+    surrounding_text_after: str | None = Field(default=None, description="Context after selection")
+    target_lang: str = Field(default="zh-CN", description="Target language")
+
+
+class MockExamSelectionTranslateResponse(BaseModel):
+    translation: str = Field(..., description="Translated text")
+    source_language: str = Field(default="en", description="Source language")
+    target_language: str = Field(default="zh-CN", description="Target language")
+    confidence: str | None = Field(default=None, description="Translation confidence")
+    cached: bool = Field(default=False, description="Whether the result is cached")
+
+
 class MockExamQuestionDetailResponse(BaseModel):
     exam_question_id: int = Field(..., description="Question ID")
     exam_paper_id: int = Field(..., description="Paper ID")
