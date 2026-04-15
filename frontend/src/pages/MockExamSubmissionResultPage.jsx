@@ -70,6 +70,12 @@ const TEXT = {
   backHome: "\u8fd4\u56de\u9996\u9875",
 };
 
+const LIBRARY_TABS = [
+  { key: "mistakes", label: "错题本", path: "/mockexam/mistakes" },
+  { key: "history", label: "练习历史", path: "/mockexam/history" },
+  { key: "favorites", label: "收藏夹", path: "/mockexam/favorites" },
+];
+
 function replaceTemplate(template, values) {
   return Object.entries(values).reduce(
     (current, [key, value]) => current.replaceAll(`{${key}}`, String(value)),
@@ -393,8 +399,8 @@ export default function MockExamSubmissionResultPage() {
   return (
     <div className="result-page-shell">
       <MockExamModeHeader
-        activeMode="results"
-        tabs={[]}
+        activeMode="history"
+        tabs={LIBRARY_TABS}
         backButton={{ label: "返回模考界面", path: "/mockexam" }}
       />
 
@@ -653,20 +659,6 @@ export default function MockExamSubmissionResultPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.4 }}
           >
-            <button
-              type="button"
-              className="result-secondary-button result-secondary-rose"
-              onClick={() => navigate("/mockexam/mistakes")}
-            >
-              {TEXT.wrongBook}
-            </button>
-            <button
-              type="button"
-              className="result-secondary-button result-secondary-orange"
-              onClick={() => navigate("/mockexam/history")}
-            >
-              {TEXT.practiceHistory}
-            </button>
             <button
               type="button"
               className="result-secondary-button result-secondary-indigo"
