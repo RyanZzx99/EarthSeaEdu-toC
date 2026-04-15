@@ -153,7 +153,8 @@ function getQuestionNoValue(question) {
 
 const SELECTION_CONTEXT_WINDOW = 160;
 const SELECTION_ANCHOR_SELECTOR =
-  ".practice-exam-material-block, .practice-exam-question-stem, .practice-exam-question-extra, .practice-exam-group-instructions, .practice-exam-option-card, .practice-exam-matching-row, p, li, td, th, h1, h2, h3, h4, h5, h6";
+  ".practice-exam-material-block, .practice-exam-question-stem, .practice-exam-question-extra, .practice-exam-group-instructions, .practice-exam-option-card, .practice-exam-matching-row, .practice-exam-textarea, .practice-exam-inline-blank, p, li, td, th, h1, h2, h3, h4, h5, h6";
+const TRANSLATABLE_INPUT_TYPES = new Set(["", "text", "search", "email", "url", "tel"]);
 
 function normalizeSelectionPlainText(value) {
   return String(value || "")
@@ -171,11 +172,28 @@ function getSelectionNodeElement(node) {
   return node.parentElement || null;
 }
 
+function isTranslatableInputElement(element) {
+  if (!element || element.nodeType !== 1) {
+    return false;
+  }
+
+  const tagName = String(element.tagName || "").toLowerCase();
+  if (tagName === "textarea") {
+    return true;
+  }
+  if (tagName !== "input") {
+    return false;
+  }
+
+  const type = String(element.getAttribute("type") || "text").toLowerCase();
+  return TRANSLATABLE_INPUT_TYPES.has(type);
+}
+
 function isSelectionFromInteractiveElement(element) {
   if (!element || typeof element.closest !== "function") {
     return false;
   }
-  return Boolean(element.closest("input, textarea, select, button, a, [contenteditable='true']"));
+  return Boolean(element.closest("select"));
 }
 
 function buildSelectionCacheKey(snapshot, targetLang = "zh-CN") {
@@ -854,6 +872,87 @@ export function PracticeExercisePage(props) {
       return { snapshot: null, reason: "当前环境不支持划词翻译" };
     }
 
+    const activeElement = window.document?.activeElement;
+    if (isTranslatableInputElement(activeElement)) {
+      const selectionStart = Number(activeElement.selectionStart);
+      const selectionEnd = Number(activeElement.selectionEnd);
+      const value = String(activeElement.value || "");
+      if (
+        Number.isFinite(selectionStart) &&
+        Number.isFinite(selectionEnd) &&
+        selectionStart !== selectionEnd
+      ) {
+        const start = Math.max(0, Math.min(selectionStart, selectionEnd, value.length));
+        const end = Math.max(0, Math.min(Math.max(selectionStart, selectionEnd), value.length));
+        const selectedText = normalizeSelectionPlainText(value.slice(start, end));
+        if (!selectedText) {
+          return { snapshot: null, reason: "请选择要翻译的内容" };
+        }
+
+        const materialRoot = materialCardRef.current;
+        const questionRoot = questionListRef.current;
+        const startInMaterial = Boolean(materialRoot && materialRoot.contains(activeElement));
+        const startInQuestion = Boolean(questionRoot && questionRoot.contains(activeElement));
+
+        let scopeType = "";
+        let questionId = "";
+        let questionType = "";
+        let passageId = "";
+
+        if (startInMaterial) {
+          scopeType = "material";
+          passageId =
+            String(materialRoot?.dataset?.passageId || "").trim() || String(currentPassage?.id || "");
+        } else if (startInQuestion) {
+          scopeType = "question";
+          const questionElement = activeElement.closest("[data-selection-scope='question']");
+          questionId = questionElement ? String(questionElement.dataset.questionId || "").trim() : "";
+          questionType = questionElement ? String(questionElement.dataset.questionType || "").trim() : "";
+          passageId = questionElement ? String(questionElement.dataset.passageId || "").trim() : "";
+        } else {
+          return { snapshot: null, reason: "请先在材料区或题目区选择内容" };
+        }
+
+        if (expectedScopeType && scopeType !== expectedScopeType) {
+          return {
+            snapshot: null,
+            reason:
+              expectedScopeType === "material"
+                ? "请在材料区选择要翻译的内容"
+                : "请在题目区选择要翻译的内容",
+          };
+        }
+
+        const rect = getRectSnapshot(activeElement.getBoundingClientRect());
+        if (!rect || (!rect.width && !rect.height)) {
+          return { snapshot: null, reason: "当前选区无效，请重新选择" };
+        }
+
+        return {
+          snapshot: {
+            visible: false,
+            loading: false,
+            error: "",
+            translation: "",
+            selectedText,
+            scopeType,
+            questionId,
+            questionType,
+            passageId,
+            surroundingTextBefore: normalizeSelectionPlainText(value.slice(0, start)).slice(
+              -SELECTION_CONTEXT_WINDOW
+            ),
+            surroundingTextAfter: normalizeSelectionPlainText(value.slice(end)).slice(
+              0,
+              SELECTION_CONTEXT_WINDOW
+            ),
+            anchorRect: rect,
+          },
+          reason: "",
+        };
+      }
+    }
+
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
       return { snapshot: null, reason: "请先选择要翻译的内容" };
@@ -1088,13 +1187,18 @@ export function PracticeExercisePage(props) {
 
   async function handleTranslateButtonClick() {
     const { snapshot, reason } = captureSelectionSnapshot();
-    if (!snapshot) {
+    const cachedSnapshot =
+      selectionTranslateState.selectedText && selectionTranslateState.scopeType
+        ? selectionTranslateState
+        : null;
+    const effectiveSnapshot = snapshot || cachedSnapshot;
+    if (!effectiveSnapshot) {
       showSelectionHint("global", reason || "请先选择要翻译的内容");
       return;
     }
 
     setSelectionHint({ scopeType: "", text: "" });
-    await runSelectionTranslate(snapshot);
+    await runSelectionTranslate(effectiveSnapshot);
   }
 
   const selectionTooltipLayout = useMemo(() => {
@@ -1205,11 +1309,13 @@ export function PracticeExercisePage(props) {
     document.addEventListener("selectionchange", handleSelectionEvent);
     document.addEventListener("mouseup", handleSelectionEvent);
     document.addEventListener("keyup", handleSelectionEvent);
+    document.addEventListener("select", handleSelectionEvent, true);
 
     return () => {
       document.removeEventListener("selectionchange", handleSelectionEvent);
       document.removeEventListener("mouseup", handleSelectionEvent);
       document.removeEventListener("keyup", handleSelectionEvent);
+      document.removeEventListener("select", handleSelectionEvent, true);
     };
   }, [currentPassage?.id, questions]);
 
