@@ -1,47 +1,119 @@
 import React from "react";
 import { motion } from "motion/react";
-import { ArrowLeft } from "lucide-react";
+import { CheckCircle2, Timer, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import MockExamWorkspace from "../components/MockExamWorkspace";
-import MockExamFavoritesPanel from "../components/MockExamFavoritesPanel";
-import MockExamRecentActivityPanel from "../components/MockExamRecentActivityPanel";
-import MockExamSubmissionHistoryPanel from "../components/MockExamSubmissionHistoryPanel";
-import MockExamWrongBookPanel from "../components/MockExamWrongBookPanel";
+import MockExamModeHeader from "../components/MockExamModeHeader";
+import MockExamRecentActivitySection from "../components/MockExamRecentActivitySection";
 import "../mockexam/mockexam.css";
 
 export default function MockExamPage() {
   const navigate = useNavigate();
 
   return (
-    <div className="mockexam-page">
-      <div className="mockexam-shell">
-        <div className="mockexam-topbar">
-          <div className="mockexam-topcopy">
-            <button type="button" className="mockexam-back" onClick={() => navigate("/")}>
-              <ArrowLeft size={16} strokeWidth={2.2} />
-              返回首页
-            </button>
-            <h1>模拟考试</h1>
-            <p>支持单张试卷和教师组合试卷，保留继续作答、收藏、错题本和成绩回看。</p>
-          </div>
-        </div>
+    <div className="home-shell mockexam-mode-page">
+      <MockExamModeHeader activeMode="exam" />
 
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35 }}
-        >
-          <MockExamWorkspace />
-          <div className="mockexam-page-spacer" />
-          <MockExamRecentActivityPanel />
-          <div className="mockexam-page-spacer" />
-          <MockExamFavoritesPanel />
-          <div className="mockexam-page-spacer" />
-          <MockExamWrongBookPanel />
-          <div className="mockexam-page-spacer" />
-          <MockExamSubmissionHistoryPanel />
-        </motion.div>
-      </div>
+      <main className="mockexam-mode-main">
+        <div className="mockexam-mode-container mockexam-selection-layout">
+          <motion.section
+            className="mockexam-screen-title"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.32 }}
+          >
+            <h1>选择你的练习方式</h1>
+            <p>模考模式入口先保留界面，当前已接入功能统一归类到练习模式。</p>
+          </motion.section>
+
+          <section className="mockexam-selection-grid">
+            <motion.article
+              className="mockexam-selection-card"
+              initial={{ opacity: 0, x: -18 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.34, delay: 0.06 }}
+            >
+              <div className="mockexam-selection-copy">
+                <h2>模考模式-待更新</h2>
+                <p>完全模拟真实 IELTS 考试流程，后续按正式模考链路接入。</p>
+              </div>
+
+              <div className="mockexam-focus-panel mock">
+                <div className="mockexam-focus-icon muted">
+                  <Timer size={20} strokeWidth={2.2} />
+                </div>
+                <h3>严格计时</h3>
+                <p>不可查看解析</p>
+                <p>沉浸式作答</p>
+              </div>
+
+              <ul className="mockexam-selection-list">
+                <li>
+                  <CheckCircle2 size={15} />
+                  <span>完整还原考试界面</span>
+                </li>
+                <li>
+                  <CheckCircle2 size={15} />
+                  <span>按 section 独立计时</span>
+                </li>
+                <li>
+                  <CheckCircle2 size={15} />
+                  <span>统一生成考试结果</span>
+                </li>
+              </ul>
+
+              <button type="button" className="mockexam-ghost-button" disabled>
+                进入模考
+              </button>
+            </motion.article>
+
+            <motion.article
+              className="mockexam-selection-card practice"
+              initial={{ opacity: 0, x: 18 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.34, delay: 0.12 }}
+            >
+              <div className="mockexam-selection-copy">
+                <h2>练习模式</h2>
+                <p>支持翻译、暂停、纠错与答案解析</p>
+              </div>
+
+              <div className="mockexam-focus-panel practice">
+                <div className="mockexam-focus-icon practice">
+                  <Zap size={20} strokeWidth={2.2} />
+                </div>
+                <h3>灵活练习</h3>
+                <p>随时暂停</p>
+                <p>即时纠错</p>
+              </div>
+
+              <ul className="mockexam-selection-list">
+                <li className="practice">
+                  <CheckCircle2 size={15} />
+                  <span>专项练习 + 试卷练习</span>
+                </li>
+                <li className="practice">
+                  <CheckCircle2 size={15} />
+                  <span>可显示翻译/答案/解析</span>
+                </li>
+                <li className="practice">
+                  <CheckCircle2 size={15} />
+                  <span>支持继续未完成练习</span>
+                </li>
+              </ul>
+
+              <button
+                type="button"
+                className="mockexam-primary-button"
+                onClick={() => navigate("/mockexam/practice")}
+              >
+                进入练习
+              </button>
+            </motion.article>
+          </section>
+
+          <MockExamRecentActivitySection />
+        </div>
+      </main>
     </div>
   );
 }

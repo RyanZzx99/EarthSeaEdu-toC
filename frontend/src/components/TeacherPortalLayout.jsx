@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getMe } from "../api/auth";
+import { LoadingPage } from "./LoadingPage";
 
 const SHORTCUT_ITEMS = [
   {
@@ -200,7 +201,7 @@ export default function TeacherPortalLayout({
   }
 
   if (loading) {
-    return <div className="loading-box">正在加载教师端页面...</div>;
+    return <LoadingPage message="正在进入教师端" submessage="请稍候，正在准备教师工作台" />;
   }
 
   if (errorMessage) {

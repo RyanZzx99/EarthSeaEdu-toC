@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, LoaderCircle, RotateCcw, Trophy } from "lucide-react";
+import { ChevronDown, ChevronRight, RotateCcw, Trophy } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { getMockExamSubmissions } from "../api/mockexam";
+import { InlineLoading } from "./LoadingPage";
 
 function formatTime(value) {
   if (!value) {
@@ -117,7 +118,7 @@ export default function MockExamSubmissionHistoryPanel({
         <>
           {loading ? (
             <div className="mockexam-inline-note">
-              <LoaderCircle size={16} strokeWidth={2.1} className="spin" /> 正在加载成绩记录...
+              <InlineLoading message="正在准备练习记录" size="sm" />
             </div>
           ) : null}
 

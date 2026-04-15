@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { LoaderCircle, RefreshCcw } from "lucide-react";
+import { RefreshCcw } from "lucide-react";
 import TeacherPortalLayout from "../components/TeacherPortalLayout";
+import { InlineLoading, LoadingOverlay } from "../components/LoadingPage";
 import {
   createTeacherMockExamPaperSet,
   getMockExamPapers,
@@ -186,6 +187,13 @@ export default function TeacherMockExamPage() {
       heroSubtitle="基于结构化题库组合多张试卷，供学生端直接选择并开始考试。"
       showShortcutStrip={false}
     >
+      {submitting ? (
+        <LoadingOverlay
+          message="正在创建组合试卷"
+          submessage="请稍候，正在保存当前试卷组合"
+        />
+      ) : null}
+
       <div className="mockexam-management-grid">
         <section className="mockexam-panel">
           <div className="mockexam-panel-head">
@@ -256,7 +264,7 @@ export default function TeacherMockExamPage() {
           <div className="mockexam-select-list">
             {loadingPapers ? (
               <div className="mockexam-inline-note">
-                <LoaderCircle size={16} strokeWidth={2.1} className="spin" /> 正在加载试卷...
+                <InlineLoading message="正在准备试卷列表" size="sm" />
               </div>
             ) : null}
 
@@ -290,7 +298,7 @@ export default function TeacherMockExamPage() {
               disabled={submitting || loadingPapers}
               onClick={() => void handleCreatePaperSet()}
             >
-              {submitting ? "创建中..." : "创建组合试卷"}
+              创建组合试卷
             </button>
           </div>
 
@@ -316,7 +324,7 @@ export default function TeacherMockExamPage() {
           <div className="mockexam-history-list">
             {loadingSets ? (
               <div className="mockexam-inline-note">
-                <LoaderCircle size={16} strokeWidth={2.1} className="spin" /> 正在加载组合试卷...
+                <InlineLoading message="正在准备组合试卷列表" size="sm" />
               </div>
             ) : null}
 

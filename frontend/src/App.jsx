@@ -1,13 +1,21 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { getMe } from "./api/auth";
+import { LoadingPage } from "./components/LoadingPage";
 import AdminConsolePage from "./pages/AdminConsolePage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
-import MockExamQuestionDetailPage from "./pages/MockExamQuestionDetailPage";
 import MockExamPage from "./pages/MockExamPage";
+import MockExamFavoritesPage from "./pages/MockExamFavoritesPage";
+import MockExamMistakesPage from "./pages/MockExamMistakesPage";
+import MockExamHistoryPage from "./pages/MockExamHistoryPage";
+import MockExamPracticePage from "./pages/MockExamPracticePage";
+import MockExamQuestionDetailPage from "./pages/MockExamQuestionDetailPage";
 import MockExamRunnerPage from "./pages/MockExamRunnerPage";
 import MockExamSubmissionResultPage from "./pages/MockExamSubmissionResultPage";
+import MockExamTestDetailPage from "./pages/MockExamTestDetailPage";
+import MockExamTestPracticePage from "./pages/MockExamTestPracticePage";
+import MockExamTopicPracticePage from "./pages/MockExamTopicPracticePage";
 import ProfilePage from "./pages/ProfilePage";
 import TeacherMockExamPage from "./pages/TeacherMockExamPage";
 import TeacherPage from "./pages/TeacherPage";
@@ -94,15 +102,19 @@ function useResolvedAuthState() {
   return authState;
 }
 
-function AuthCheckingScreen() {
-  return <div className="loading-box">正在校验登录状态...</div>;
+function AuthCheckingScreen({ pathname }) {
+  if (pathname !== "/") {
+    return null;
+  }
+
+  return <LoadingPage message="正在进入录途" submessage="请稍候，正在准备首页内容" />;
 }
 
 function RequireAuth({ children, authState }) {
   const location = useLocation();
 
   if (authState.status === "checking") {
-    return <AuthCheckingScreen />;
+    return <AuthCheckingScreen pathname={location.pathname} />;
   }
 
   if (authState.status !== "authenticated") {
@@ -115,8 +127,10 @@ function RequireAuth({ children, authState }) {
 }
 
 function RedirectLoggedInLogin({ authState }) {
+  const location = useLocation();
+
   if (authState.status === "checking") {
-    return <AuthCheckingScreen />;
+    return <AuthCheckingScreen pathname={location.pathname} />;
   }
 
   if (authState.status === "authenticated") {
@@ -177,6 +191,62 @@ export default function App() {
         element={
           <RequireAuth authState={authState}>
             <MockExamPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam/practice"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamPracticePage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam/practice/topic"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamTopicPracticePage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam/practice/test"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamTestPracticePage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam/practice/test/:id/:action"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamTestDetailPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam/history"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamHistoryPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam/mistakes"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamMistakesPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mockexam/favorites"
+        element={
+          <RequireAuth authState={authState}>
+            <MockExamFavoritesPage />
           </RequireAuth>
         }
       />
