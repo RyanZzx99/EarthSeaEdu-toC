@@ -58,6 +58,10 @@ const CURRICULUM_MODULES = {
     label: "中国普高",
     tables: ["student_academic_chinese_high_school_subject"],
   },
+  US_HIGH_SCHOOL: {
+    label: "国际学校美高体系",
+    tables: ["student_academic_us_high_school_profile", "student_academic_us_high_school_course"],
+  },
   A_LEVEL: {
     label: "A-Level",
     tables: ["student_academic_a_level_subject"],
@@ -69,6 +73,14 @@ const CURRICULUM_MODULES = {
   IB: {
     label: "IB",
     tables: ["student_academic_ib_profile", "student_academic_ib_subject"],
+  },
+  INTERNATIONAL_OTHER: {
+    label: "国际学校其他体系",
+    tables: ["student_academic_other_curriculum_profile"],
+  },
+  OTHER: {
+    label: "其他课程体系",
+    tables: ["student_academic_other_curriculum_profile"],
   },
 };
 
@@ -88,6 +100,11 @@ const LANGUAGE_DETAIL_TABLES = [
 ];
 
 const LANGUAGE_DETAIL_TABLE_NAME_SET = new Set(LANGUAGE_DETAIL_TABLES);
+
+const TARGET_COUNTRY_TABLE = "student_basic_info_target_country_entries";
+const TARGET_MAJOR_TABLE = "student_basic_info_target_major_entries";
+const MAX_TARGET_COUNTRY_ROWS = 3;
+const MAX_TARGET_MAJOR_ROWS = 2;
 
 const NON_CONTENT_FIELD_NAMES = new Set([
   "student_id",
@@ -112,6 +129,8 @@ const SEARCHABLE_SELECT_FIELDS = {
   student_basic_info: new Set(["CTRY_CODE_VAL", "MAJ_CODE_VAL"]),
 };
 
+const BASIC_TARGET_FIELDS = new Set(["CTRY_CODE_VAL", "MAJ_CODE_VAL", "MAJ_INTEREST_TEXT"]);
+
 const FIELD_INPUT_PLACEHOLDERS = {
   student_basic_info: {
     MAJ_INTEREST_TEXT: "若下拉没有合适选项，可填写原始专业表述，例如：人文",
@@ -127,6 +146,8 @@ const UNIQUE_SUBJECT_SELECT_FIELD_BY_TABLE = {
 
 const ROW_TABLES_WITH_STUDENT_ID = new Set([
   "student_basic_info_curriculum_system",
+  TARGET_COUNTRY_TABLE,
+  TARGET_MAJOR_TABLE,
   "student_academic_a_level_subject",
   "student_academic_ap_course",
   "student_academic_ib_subject",
@@ -250,6 +271,20 @@ function normalizeArchiveFormEnumValues(archiveForm) {
 
 function normalizeArchiveBundle(data) {
   const radarScores = data?.radar_scores_json || {};
+  const normalizeRadarDimension = (key, fallbackReason) => {
+    const value = radarScores[key];
+    if (typeof value === "number") {
+      return { score: value, reason: fallbackReason };
+    }
+    if (value && typeof value === "object") {
+      const score = Number(value.score ?? value.value ?? 0);
+      return {
+        score: Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : 0,
+        reason: value.reason || fallbackReason,
+      };
+    }
+    return { score: 0, reason: fallbackReason };
+  };
   const hasRadarResult = Boolean(
     data?.result_status ||
       data?.summary_text ||
@@ -263,12 +298,12 @@ function normalizeArchiveBundle(data) {
     result_status: data?.result_status || null,
     summary_text: data?.summary_text || "当前档案已保存，但还没有生成完整总结。",
     radar_scores_json: {
-      academic: radarScores.academic || { score: 0, reason: "暂无有效学术评分说明" },
-      language: radarScores.language || { score: 0, reason: "暂无有效语言评分说明" },
-      standardized: radarScores.standardized || { score: 0, reason: "暂无有效标化评分说明" },
-      competition: radarScores.competition || { score: 0, reason: "暂无有效竞赛评分说明" },
-      activity: radarScores.activity || { score: 0, reason: "暂无有效活动评分说明" },
-      project: radarScores.project || { score: 0, reason: "暂无有效项目评分说明" },
+      academic: normalizeRadarDimension("academic", "暂无有效学术评分说明"),
+      language: normalizeRadarDimension("language", "暂无有效语言评分说明"),
+      standardized: normalizeRadarDimension("standardized", "暂无有效标化评分说明"),
+      competition: normalizeRadarDimension("competition", "暂无有效竞赛评分说明"),
+      activity: normalizeRadarDimension("activity", "暂无有效活动评分说明"),
+      project: normalizeRadarDimension("project", "暂无有效项目评分说明"),
     },
     save_error_message: data?.save_error_message || "",
     create_time: data?.create_time || "",
@@ -341,6 +376,118 @@ function formatOptionValue(optionMap, value) {
     return "";
   }
   return optionMap?.[String(value)] || String(value);
+}
+
+function getFieldOptions(formMeta, tableName, fieldName) {
+  const field = formMeta?.tables?.[tableName]?.fields?.find((item) => item.name === fieldName);
+  return Array.isArray(field?.options) ? field.options : [];
+}
+
+function findOptionLabel(options, value) {
+  if (value === null || value === undefined || value === "") {
+    return "";
+  }
+  return options.find((option) => String(option.value) === String(value))?.label || String(value);
+}
+
+function buildDefaultTargetCountryRow({ studentId = "", index = 0, countryCode = "" } = {}) {
+  return {
+    student_id: studentId,
+    country_code: countryCode || null,
+    sort_order: index + 1,
+    is_primary: index === 0 ? 1 : 0,
+    source_flow: "manual_profile",
+    source_session_id: null,
+    remark: null,
+  };
+}
+
+function buildDefaultTargetMajorRow({ studentId = "", index = 0, majorCode = "", majorLabel = "" } = {}) {
+  return {
+    student_id: studentId,
+    major_direction_code: majorCode || null,
+    major_direction_label: majorLabel || null,
+    major_code: majorCode || null,
+    sort_order: index + 1,
+    is_primary: index === 0 ? 1 : 0,
+    source_flow: "manual_profile",
+    source_session_id: null,
+    remark: null,
+  };
+}
+
+function normalizeTargetPreferenceRows(archiveForm, { studentId = "", majorOptions = [] } = {}) {
+  const nextArchiveForm = deepClone(archiveForm || {});
+  const basicInfo = {
+    ...(nextArchiveForm.student_basic_info || {}),
+    student_id: nextArchiveForm.student_basic_info?.student_id || studentId,
+  };
+
+  const rawCountryRows = Array.isArray(nextArchiveForm[TARGET_COUNTRY_TABLE]) ? [...nextArchiveForm[TARGET_COUNTRY_TABLE]] : [];
+  if (rawCountryRows.length === 0 && basicInfo.CTRY_CODE_VAL) {
+    rawCountryRows.push(
+      buildDefaultTargetCountryRow({
+        studentId: basicInfo.student_id || studentId,
+        countryCode: basicInfo.CTRY_CODE_VAL,
+      })
+    );
+  }
+
+  const rawMajorRows = Array.isArray(nextArchiveForm[TARGET_MAJOR_TABLE]) ? [...nextArchiveForm[TARGET_MAJOR_TABLE]] : [];
+  if (rawMajorRows.length === 0 && (basicInfo.MAJ_CODE_VAL || basicInfo.MAJ_INTEREST_TEXT)) {
+    rawMajorRows.push(
+      buildDefaultTargetMajorRow({
+        studentId: basicInfo.student_id || studentId,
+        majorCode: basicInfo.MAJ_CODE_VAL,
+        majorLabel: basicInfo.MAJ_INTEREST_TEXT || findOptionLabel(majorOptions, basicInfo.MAJ_CODE_VAL),
+      })
+    );
+  }
+
+  const countryRows = rawCountryRows
+    .filter((row) => row && typeof row === "object" && row.country_code)
+    .map((row, index) => ({
+      ...buildDefaultTargetCountryRow({ studentId: basicInfo.student_id || studentId, index }),
+      ...row,
+      student_id: row.student_id || basicInfo.student_id || studentId,
+      sort_order: index + 1,
+      is_primary: index === 0 ? 1 : 0,
+      source_flow: row.source_flow || "manual_profile",
+    }));
+
+  const majorRows = rawMajorRows
+    .filter((row) => row && typeof row === "object" && (row.major_direction_code || row.major_code))
+    .map((row, index) => {
+      const majorCode = row.major_direction_code || row.major_code || "";
+      return {
+        ...buildDefaultTargetMajorRow({
+          studentId: basicInfo.student_id || studentId,
+          index,
+          majorCode,
+          majorLabel: row.major_direction_label || findOptionLabel(majorOptions, majorCode),
+        }),
+        ...row,
+        student_id: row.student_id || basicInfo.student_id || studentId,
+        major_direction_code: majorCode || null,
+        major_direction_label: row.major_direction_label || findOptionLabel(majorOptions, majorCode) || majorCode || null,
+        major_code: row.major_code || majorCode || null,
+        sort_order: index + 1,
+        is_primary: index === 0 ? 1 : 0,
+        source_flow: row.source_flow || "manual_profile",
+      };
+    });
+
+  const primaryCountry = countryRows[0] || null;
+  const primaryMajor = majorRows[0] || null;
+  nextArchiveForm.student_basic_info = {
+    ...basicInfo,
+    CTRY_CODE_VAL: primaryCountry?.country_code || basicInfo.CTRY_CODE_VAL || null,
+    MAJ_CODE_VAL: primaryMajor?.major_code || basicInfo.MAJ_CODE_VAL || null,
+    MAJ_INTEREST_TEXT: primaryMajor?.major_direction_label || basicInfo.MAJ_INTEREST_TEXT || null,
+  };
+  nextArchiveForm[TARGET_COUNTRY_TABLE] = countryRows;
+  nextArchiveForm[TARGET_MAJOR_TABLE] = majorRows;
+  return nextArchiveForm;
 }
 
 function buildArchiveOverview(archiveForm, optionLabelMap) {
@@ -1287,7 +1434,13 @@ export default function ProfilePage() {
     }
 
     const payloadArchiveForm = injectArchiveFormStudentIds(
-      normalizeArchiveFormEnumValues(archiveFormState),
+      normalizeTargetPreferenceRows(
+        normalizeArchiveFormEnumValues(archiveFormState),
+        {
+          studentId: archiveStudentId,
+          majorOptions: getFieldOptions(archiveBundle?.form_meta, "student_basic_info", "MAJ_CODE_VAL"),
+        }
+      ),
       archiveStudentId
     );
     const response = await saveAiChatArchiveForm(archiveSessionId, payloadArchiveForm);
@@ -2203,6 +2356,242 @@ export default function ProfilePage() {
     );
   }
 
+  function updateTargetPreferenceState(updater) {
+    setArchiveMessage("");
+    setArchiveSaveWarning("");
+    setArchiveFormState((previous) => {
+      const majorOptions = getFieldOptions(archiveBundle?.form_meta, "student_basic_info", "MAJ_CODE_VAL");
+      const normalizedPrevious = normalizeTargetPreferenceRows(previous, {
+        studentId: previous?.student_basic_info?.student_id || archiveStudentId,
+        majorOptions,
+      });
+      return normalizeTargetPreferenceRows(updater(normalizedPrevious), {
+        studentId: normalizedPrevious?.student_basic_info?.student_id || archiveStudentId,
+        majorOptions,
+      });
+    });
+  }
+
+  function handleAddTargetCountryRow() {
+    updateTargetPreferenceState((previous) => {
+      const rows = Array.isArray(previous[TARGET_COUNTRY_TABLE]) ? [...previous[TARGET_COUNTRY_TABLE]] : [];
+      if (rows.length >= MAX_TARGET_COUNTRY_ROWS) {
+        return previous;
+      }
+      return {
+        ...previous,
+        [TARGET_COUNTRY_TABLE]: [
+          ...rows,
+          buildDefaultTargetCountryRow({
+            studentId: previous?.student_basic_info?.student_id || archiveStudentId,
+            index: rows.length,
+          }),
+        ],
+      };
+    });
+  }
+
+  function handleUpdateTargetCountryRow(rowIndex, fieldName, nextValue) {
+    updateTargetPreferenceState((previous) => {
+      const rows = Array.isArray(previous[TARGET_COUNTRY_TABLE]) ? [...previous[TARGET_COUNTRY_TABLE]] : [];
+      rows[rowIndex] = {
+        ...buildDefaultTargetCountryRow({
+          studentId: previous?.student_basic_info?.student_id || archiveStudentId,
+          index: rowIndex,
+        }),
+        ...(rows[rowIndex] || {}),
+        [fieldName]: nextValue || null,
+      };
+      return { ...previous, [TARGET_COUNTRY_TABLE]: rows };
+    });
+  }
+
+  function handleRemoveTargetCountryRow(rowIndex) {
+    updateTargetPreferenceState((previous) => {
+      const nextRows = (Array.isArray(previous[TARGET_COUNTRY_TABLE]) ? previous[TARGET_COUNTRY_TABLE] : []).filter(
+        (_, index) => index !== rowIndex
+      );
+      return {
+        ...previous,
+        student_basic_info: {
+          ...(previous.student_basic_info || {}),
+          CTRY_CODE_VAL: nextRows[0]?.country_code || null,
+        },
+        [TARGET_COUNTRY_TABLE]: nextRows,
+      };
+    });
+  }
+
+  function handleAddTargetMajorRow() {
+    updateTargetPreferenceState((previous) => {
+      const rows = Array.isArray(previous[TARGET_MAJOR_TABLE]) ? [...previous[TARGET_MAJOR_TABLE]] : [];
+      if (rows.length >= MAX_TARGET_MAJOR_ROWS) {
+        return previous;
+      }
+      return {
+        ...previous,
+        [TARGET_MAJOR_TABLE]: [
+          ...rows,
+          buildDefaultTargetMajorRow({
+            studentId: previous?.student_basic_info?.student_id || archiveStudentId,
+            index: rows.length,
+          }),
+        ],
+      };
+    });
+  }
+
+  function handleUpdateTargetMajorRow(rowIndex, fieldName, nextValue) {
+    updateTargetPreferenceState((previous) => {
+      const majorOptions = getFieldOptions(archiveBundle?.form_meta, "student_basic_info", "MAJ_CODE_VAL");
+      const rows = Array.isArray(previous[TARGET_MAJOR_TABLE]) ? [...previous[TARGET_MAJOR_TABLE]] : [];
+      const normalizedValue = nextValue || null;
+      rows[rowIndex] = {
+        ...buildDefaultTargetMajorRow({
+          studentId: previous?.student_basic_info?.student_id || archiveStudentId,
+          index: rowIndex,
+        }),
+        ...(rows[rowIndex] || {}),
+        [fieldName]: normalizedValue,
+      };
+      if (fieldName === "major_direction_code") {
+        rows[rowIndex].major_code = normalizedValue;
+        rows[rowIndex].major_direction_label = normalizedValue ? findOptionLabel(majorOptions, normalizedValue) : null;
+      }
+      return { ...previous, [TARGET_MAJOR_TABLE]: rows };
+    });
+  }
+
+  function handleRemoveTargetMajorRow(rowIndex) {
+    updateTargetPreferenceState((previous) => {
+      const nextRows = (Array.isArray(previous[TARGET_MAJOR_TABLE]) ? previous[TARGET_MAJOR_TABLE] : []).filter(
+        (_, index) => index !== rowIndex
+      );
+      return {
+        ...previous,
+        student_basic_info: {
+          ...(previous.student_basic_info || {}),
+          MAJ_CODE_VAL: nextRows[0]?.major_code || nextRows[0]?.major_direction_code || null,
+          MAJ_INTEREST_TEXT: nextRows[0]?.major_direction_label || null,
+        },
+        [TARGET_MAJOR_TABLE]: nextRows,
+      };
+    });
+  }
+
+  function renderTargetPreferenceCard() {
+    const basicInfo = archiveFormState?.student_basic_info || {};
+    const countryOptions = getFieldOptions(archiveBundle?.form_meta, "student_basic_info", "CTRY_CODE_VAL");
+    const majorOptions = getFieldOptions(archiveBundle?.form_meta, "student_basic_info", "MAJ_CODE_VAL");
+    const countryRows = Array.isArray(archiveFormState?.[TARGET_COUNTRY_TABLE])
+      ? archiveFormState[TARGET_COUNTRY_TABLE]
+      : [];
+    const majorRows = Array.isArray(archiveFormState?.[TARGET_MAJOR_TABLE])
+      ? archiveFormState[TARGET_MAJOR_TABLE]
+      : [];
+    const displayCountryRows =
+      countryRows.length > 0
+        ? countryRows
+        : basicInfo.CTRY_CODE_VAL
+          ? [buildDefaultTargetCountryRow({ studentId: archiveStudentId, countryCode: basicInfo.CTRY_CODE_VAL })]
+          : [];
+    const displayMajorRows =
+      majorRows.length > 0
+        ? majorRows
+        : basicInfo.MAJ_CODE_VAL || basicInfo.MAJ_INTEREST_TEXT
+          ? [
+              buildDefaultTargetMajorRow({
+                studentId: archiveStudentId,
+                majorCode: basicInfo.MAJ_CODE_VAL,
+                majorLabel: basicInfo.MAJ_INTEREST_TEXT || findOptionLabel(majorOptions, basicInfo.MAJ_CODE_VAL),
+              }),
+            ]
+          : [];
+
+    return (
+      <div className="card profile-target-preference-card">
+        <div className="profile-form-array-head">
+          <div>
+            <h3 className="card-title">目标国家与专业</h3>
+          </div>
+        </div>
+        <div className="profile-target-edit-grid">
+          <div className="profile-target-edit-block">
+            <div className="profile-target-edit-head">
+              <span className="profile-target-preference-label">目标国家 / 地区</span>
+              {displayCountryRows.length < MAX_TARGET_COUNTRY_ROWS ? (
+                <button type="button" className="secondary-btn" onClick={handleAddTargetCountryRow}>
+                  新增国家
+                </button>
+              ) : null}
+            </div>
+            {displayCountryRows.length === 0 ? <div className="profile-form-empty">当前没有目标国家，可点击新增。</div> : null}
+            <div className="profile-form-stack">
+              {displayCountryRows.map((row, rowIndex) => (
+                <div key={`target-country-${rowIndex}`} className="profile-form-array-row">
+                  <div className="profile-form-row-inline">
+                    <div className="profile-form-grid">
+                      <div className="profile-form-field">
+                        <label>国家 / 地区</label>
+                        <SearchableSelectControl
+                          options={countryOptions}
+                          value={row.country_code || ""}
+                          onChange={(nextValue) => handleUpdateTargetCountryRow(rowIndex, "country_code", nextValue)}
+                          placeholder="请输入国家关键词搜索"
+                        />
+                      </div>
+                    </div>
+                    <div className="profile-form-row-side">
+                      <button type="button" className="secondary-btn" onClick={() => handleRemoveTargetCountryRow(rowIndex)}>
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="profile-target-edit-block">
+            <div className="profile-target-edit-head">
+              <span className="profile-target-preference-label">目标专业方向</span>
+              {displayMajorRows.length < MAX_TARGET_MAJOR_ROWS ? (
+                <button type="button" className="secondary-btn" onClick={handleAddTargetMajorRow}>
+                  新增专业
+                </button>
+              ) : null}
+            </div>
+            {displayMajorRows.length === 0 ? <div className="profile-form-empty">当前没有目标专业，可点击新增。</div> : null}
+            <div className="profile-form-stack">
+              {displayMajorRows.map((row, rowIndex) => (
+                <div key={`target-major-${rowIndex}`} className="profile-form-array-row">
+                  <div className="profile-form-row-inline">
+                    <div className="profile-form-grid">
+                      <div className="profile-form-field">
+                        <label>专业方向</label>
+                        <SearchableSelectControl
+                          options={majorOptions}
+                          value={row.major_direction_code || row.major_code || ""}
+                          onChange={(nextValue) => handleUpdateTargetMajorRow(rowIndex, "major_direction_code", nextValue)}
+                          placeholder="请输入专业关键词搜索"
+                        />
+                      </div>
+                    </div>
+                    <div className="profile-form-row-side">
+                      <button type="button" className="secondary-btn" onClick={() => handleRemoveTargetMajorRow(rowIndex)}>
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderArchiveSection(tableName, options = {}) {
     const tableMeta = archiveBundle?.form_meta?.tables?.[tableName];
     if (!tableMeta) {
@@ -2221,7 +2610,9 @@ export default function ProfilePage() {
 
     const collapsed = collapsible && isArchiveSectionCollapsed(sectionKey);
     const visibleFields = (tableMeta.fields || []).filter(
-      (field) => !field.hidden || (tableName === "student_project_outputs" && field.name === "project_id")
+      (field) =>
+        (!field.hidden || (tableName === "student_project_outputs" && field.name === "project_id")) &&
+        !(tableName === "student_basic_info" && BASIC_TARGET_FIELDS.has(field.name))
     );
     if (visibleFields.length === 0) {
       return null;
@@ -2659,6 +3050,8 @@ export default function ProfilePage() {
               sectionKey: "student_basic_info",
             })}
 
+            {renderTargetPreferenceCard()}
+
             {renderCurriculumModule()}
 
             {renderArchiveSection("student_academic", {
@@ -2844,6 +3237,8 @@ export default function ProfilePage() {
               collapsible: true,
               sectionKey: "student_basic_info",
             })}
+
+            {renderTargetPreferenceCard()}
 
             {renderCurriculumModule()}
 

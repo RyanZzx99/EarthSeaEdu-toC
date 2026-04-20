@@ -60,6 +60,7 @@ from backend.services.ai_prompt_runtime_service import stream_prompt_with_contex
 from backend.services.business_profile_form_service import load_business_profile_form_bundle
 from backend.services.business_profile_manual_save_service import regenerate_profile_result_from_business_profile_snapshot
 from backend.services.business_profile_manual_save_service import save_business_profile_form_only
+from backend.services.student_profile_guided_service import get_latest_guided_result_for_student
 from backend.utils.flow_logging import build_flow_prefix
 from backend.utils.flow_logging import log_flow_info
 from backend.utils.flow_logging import log_timed_step
@@ -659,17 +660,18 @@ def get_ai_chat_session_archive_form(
         student_id=student_id,
         session_id=session_id,
     )
+    guided_result = None if refreshed_result else get_latest_guided_result_for_student(db, student_id=student_id)
 
     return {
         "session_id": session_id,
         "archive_form": form_bundle["archive_form"],
         "form_meta": form_bundle["form_meta"],
-        "result_status": refreshed_result.result_status if refreshed_result else None,
-        "summary_text": refreshed_result.summary_text if refreshed_result else None,
-        "radar_scores_json": refreshed_result.radar_scores_json if refreshed_result else {},
-        "save_error_message": refreshed_result.save_error_message if refreshed_result else None,
-        "create_time": refreshed_result.create_time.isoformat() if refreshed_result else None,
-        "update_time": refreshed_result.update_time.isoformat() if refreshed_result else None,
+        "result_status": refreshed_result.result_status if refreshed_result else guided_result.get("result_status") if guided_result else None,
+        "summary_text": refreshed_result.summary_text if refreshed_result else guided_result.get("summary_text") if guided_result else None,
+        "radar_scores_json": refreshed_result.radar_scores_json if refreshed_result else guided_result.get("radar_scores_json", {}) if guided_result else {},
+        "save_error_message": refreshed_result.save_error_message if refreshed_result else guided_result.get("save_error_message") if guided_result else None,
+        "create_time": refreshed_result.create_time.isoformat() if refreshed_result else guided_result.get("create_time").isoformat() if guided_result and guided_result.get("create_time") else None,
+        "update_time": refreshed_result.update_time.isoformat() if refreshed_result else guided_result.get("update_time").isoformat() if guided_result and guided_result.get("update_time") else None,
     }
 
 

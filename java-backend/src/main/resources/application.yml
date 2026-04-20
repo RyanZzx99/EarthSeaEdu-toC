@@ -1,0 +1,88 @@
+server:
+  port: ${APP_PORT:8080}
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+  forward-headers-strategy: framework
+
+spring:
+  application:
+    name: ${APP_NAME:EarthSeaEdu Java API}
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:${MYSQL_DB:earthseaedu}}?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:123456}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DB:0}
+      timeout: 5s
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    baseline-on-migrate: true
+    validate-on-migrate: false
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+    call-setters-on-nulls: true
+    jdbc-type-for-null: 'NULL'
+  type-aliases-package: com.earthseaedu.backend.model
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    root: INFO
+    com.earthseaedu.backend: INFO
+
+earthsea:
+  app-name: ${APP_NAME:EarthSeaEdu Java API}
+  app-debug: ${APP_DEBUG:true}
+  frontend-login-page-url: ${FRONTEND_LOGIN_PAGE_URL:http://localhost:5173/login}
+  backend-cors-origins: ${BACKEND_CORS_ORIGINS:*}
+  exam-asset-root: ${EXAM_ASSET_ROOT:}
+  import-job-root: ${IMPORT_JOB_ROOT:}
+  invite-admin-key: ${INVITE_ADMIN_KEY:}
+  sms-code-expire-minutes: ${SMS_CODE_EXPIRE_MINUTES:5}
+  sms-send-cooldown-seconds: ${SMS_SEND_COOLDOWN_SECONDS:60}
+  sms-daily-limit: ${SMS_DAILY_LIMIT:10}
+  jwt:
+    secret-key: ${JWT_SECRET_KEY:replace_this_with_a_very_strong_secret_key}
+    algorithm: ${JWT_ALGORITHM:HS256}
+    access-token-expire-minutes: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:10080}
+    bind-token-expire-minutes: ${JWT_BIND_TOKEN_EXPIRE_MINUTES:10}
+  tencentcloud:
+    secret-id: ${TENCENTCLOUD_SECRET_ID:}
+    secret-key: ${TENCENTCLOUD_SECRET_KEY:}
+    sms-region: ${TENCENTCLOUD_SMS_REGION:ap-guangzhou}
+    sms-sdk-app-id: ${TENCENTCLOUD_SMS_SDK_APP_ID:}
+    sms-sign-name: ${TENCENTCLOUD_SMS_SIGN_NAME:}
+    sms-template-login: ${TENCENTCLOUD_SMS_TEMPLATE_LOGIN:}
+    sms-template-bind-mobile: ${TENCENTCLOUD_SMS_TEMPLATE_BIND_MOBILE:}
+    sms-mock: ${TENCENTCLOUD_SMS_MOCK:true}
+  wechat:
+    open-app-id: ${WECHAT_OPEN_APP_ID:}
+    open-app-secret: ${WECHAT_OPEN_APP_SECRET:}
+    open-redirect-uri: ${WECHAT_OPEN_REDIRECT_URI:}
+  ai-runtime:
+    model-base-url: ${AI_MODEL_BASE_URL:}
+    model-api-key: ${AI_MODEL_API_KEY:}
+    model-default-name: ${AI_MODEL_DEFAULT_NAME:}
+    model-connect-timeout-seconds: ${AI_MODEL_CONNECT_TIMEOUT_SECONDS:10}
+    model-read-timeout-seconds: ${AI_MODEL_READ_TIMEOUT_SECONDS:300}
+    model-stream-read-timeout-seconds: ${AI_MODEL_STREAM_READ_TIMEOUT_SECONDS:300}
+    model-default-temperature: ${AI_MODEL_DEFAULT_TEMPERATURE:0.3}

@@ -3,6 +3,7 @@ frontend/node_modules/
 
 # Frontend build output
 frontend/dist/
+java-backend/target/
 
 # Frontend local runtime logs
 frontend/vite-dev.log

@@ -13,6 +13,7 @@ from datetime import date
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from backend.services.business_profile_persistence_service import MULTI_ROW_TABLES
@@ -23,17 +24,23 @@ from backend.services.code_resolution_service import CHINESE_HIGH_SCHOOL_SUBJECT
 from backend.services.code_resolution_service import COUNTRY_CONFIG
 from backend.services.code_resolution_service import IB_SUBJECT_CONFIG
 from backend.services.code_resolution_service import MAJOR_CONFIG
+from backend.services.code_resolution_service import US_HIGH_SCHOOL_COURSE_CONFIG
 
 
 TABLE_ORDER = [
     "student_basic_info",
     "student_basic_info_curriculum_system",
     "student_academic",
+    "student_academic_us_high_school_profile",
+    "student_academic_us_high_school_course",
+    "student_academic_other_curriculum_profile",
+    "student_academic_a_level_profile",
     "student_academic_a_level_subject",
     "student_academic_ap_profile",
     "student_academic_ap_course",
     "student_academic_ib_profile",
     "student_academic_ib_subject",
+    "student_academic_chinese_high_school_profile",
     "student_academic_chinese_high_school_subject",
     "student_language_ielts",
     "student_language_toefl_ibt",
@@ -53,11 +60,16 @@ TABLE_LABELS = {
     "student_basic_info": "学生基本信息",
     "student_basic_info_curriculum_system": "课程体系",
     "student_academic": "学术信息",
+    "student_academic_us_high_school_profile": "美高配置",
+    "student_academic_us_high_school_course": "美高逐门课成绩",
+    "student_academic_other_curriculum_profile": "其他课程体系配置",
+    "student_academic_a_level_profile": "A-Level 配置",
     "student_academic_a_level_subject": "A-Level 科目成绩",
     "student_academic_ap_profile": "AP 配置",
     "student_academic_ap_course": "AP 课程成绩",
     "student_academic_ib_profile": "IB 配置",
     "student_academic_ib_subject": "IB 科目成绩",
+    "student_academic_chinese_high_school_profile": "普高配置",
     "student_academic_chinese_high_school_subject": "普高科目成绩",
     "student_language_ielts": "雅思",
     "student_language_toefl_ibt": "托福 iBT",
@@ -100,6 +112,7 @@ FIELD_LABELS = {
     "rank_evidence_notes": "排名证据说明",
     "other_curriculum_notes": "其他课程体系说明",
     "curriculum_combination_notes": "混合课程体系说明",
+    "curriculum_scope_code": "课程体系范围",
     "best_n_subjects_for_scoring": "用于评分的最佳科目数",
     "include_further_math_bonus": "是否计入高数加分",
     "al_subject_id": "A-Level 科目",
@@ -117,6 +130,17 @@ FIELD_LABELS = {
     "ap_count": "AP 数量",
     "max_ap_offered_by_school": "学校提供 AP 最大数量",
     "best_n_ap_for_scoring": "用于评分的最佳 AP 门数",
+    "course_load_rigor_notes": "课程强度说明",
+    "student_us_high_school_course_record_id": "美高课程记录 ID",
+    "school_year_label": "学年/年级标签",
+    "term_code": "学期",
+    "us_high_school_course_id": "美高课程",
+    "course_name_text": "课程名称",
+    "course_category_code": "课程类别",
+    "course_level_code": "课程级别",
+    "grade_letter_code": "字母成绩",
+    "grade_percent": "百分制成绩",
+    "credit_earned": "学分",
     "ap_course_id": "AP 课程",
     "score": "分数",
     "year_taken": "考试年份",
@@ -283,6 +307,7 @@ HIDDEN_FIELDS_BY_TABLE = {
     "student_academic_ib_subject": {"notes"},
     "student_academic_chinese_high_school_profile": {"notes"},
     "student_academic_chinese_high_school_subject": {"notes"},
+    "student_academic_other_curriculum_profile": {"curriculum_scope_code", "notes"},
     "student_language_ielts": {"estimated_total", "evidence_level_code", "normalized_index_100", "is_best_score"},
     "student_language_toefl_ibt": {"estimated_total", "evidence_level_code", "normalized_index_100", "is_best_score"},
     "student_language_toefl_essentials": {"estimated_total", "evidence_level_code", "normalized_index_100", "is_best_score"},
@@ -341,6 +366,7 @@ FIELD_HELPERS = {
 EXCLUDED_COLUMNS_BY_TABLE = {
     "student_competitions": {"student_competition_id"},
     "student_competition_entries": {"competition_id"},
+    "student_academic_us_high_school_course": {"student_us_high_school_course_record_id"},
     "student_academic_ap_course": {"student_ap_course_record_id"},
     "student_academic_ib_subject": {"student_ib_subject_record_id"},
     "student_academic_chinese_high_school_subject": {"student_chs_subject_record_id"},
@@ -361,6 +387,7 @@ EXCLUDED_COLUMNS_BY_TABLE = {
 
 TABLE_ORDER_BY = {
     "student_basic_info_curriculum_system": "ORDER BY is_primary DESC, curriculum_system_code ASC",
+    "student_academic_us_high_school_course": "ORDER BY school_year_label DESC, term_code ASC, student_us_high_school_course_record_id ASC",
     "student_academic_a_level_subject": "ORDER BY al_subject_id ASC, stage_code ASC, is_predicted ASC, exam_series ASC",
     "student_academic_ap_course": "ORDER BY year_taken DESC, ap_course_id ASC",
     "student_academic_ib_subject": "ORDER BY ib_subject_id ASC, level_code ASC, is_predicted ASC",
@@ -387,7 +414,9 @@ STATIC_FIELD_OPTIONS = {
     ("student_basic_info", "CTRY_CODE_VAL"): "country_code",
     ("student_basic_info", "MAJ_CODE_VAL"): "major_code",
     ("student_basic_info_curriculum_system", "curriculum_system_code"): "curriculum_system",
+    ("student_academic_other_curriculum_profile", "curriculum_scope_code"): "curriculum_system",
     ("student_academic", "school_city"): "school_city",
+    ("student_academic_us_high_school_course", "us_high_school_course_id"): "us_high_school_course",
     ("student_academic_a_level_subject", "al_subject_id"): "a_level_subject",
     ("student_academic_ap_course", "ap_course_id"): "ap_course",
     ("student_academic_ib_subject", "ib_subject_id"): "ib_subject",
@@ -399,6 +428,10 @@ ENUM_FIELD_OPTIONS = {
     ("student_academic", "school_type_code"): ["PUBLIC", "PRIVATE", "INTERNATIONAL", "OTHER"],
     ("student_academic", "rank_scope_code"): ["GRADE", "CLASS", "TRACK", "SCHOOL", "OTHER"],
     ("student_academic", "rank_evidence_level_code"): ["CONFIRMED", "SELF_REPORTED", "ESTIMATED", "TRANSCRIPT", "SCHOOL_SYSTEM", "OTHER"],
+    ("student_academic_us_high_school_course", "term_code"): ["FALL", "SPRING", "FULL_YEAR", "SUMMER", "OTHER"],
+    ("student_academic_us_high_school_course", "course_category_code"): ["ENGLISH", "MATH", "SCIENCE", "SOCIAL_SCIENCE", "WORLD_LANGUAGE", "ARTS", "CS", "BUSINESS", "ELECTIVE", "OTHER"],
+    ("student_academic_us_high_school_course", "course_level_code"): ["REGULAR", "HONORS", "AP", "IB", "DUAL_ENROLLMENT", "ADVANCED", "OTHER"],
+    ("student_academic_us_high_school_course", "grade_letter_code"): ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D", "F", "P", "NP", "W", "NA"],
     ("student_academic_a_level_subject", "stage_code"): ["AS", "A2", "FULL_A_LEVEL", "IN_PROGRESS"],
     ("student_academic_a_level_subject", "grade_code"): ["A*", "A", "B", "C", "D", "E", "U", "NA"],
     ("student_academic_a_level_subject", "board_code"): ["CAIE", "EDEXCEL", "AQA", "OCR", "OTHER", "UNKNOWN"],
@@ -466,6 +499,51 @@ ENUM_OPTION_LABELS = {
         "TRANSCRIPT": "成绩单",
         "SCHOOL_SYSTEM": "学校系统",
         "OTHER": "其他",
+    },
+    ("student_academic_us_high_school_course", "term_code"): {
+        "FALL": "秋季学期",
+        "SPRING": "春季学期",
+        "FULL_YEAR": "全年课",
+        "SUMMER": "暑期",
+        "OTHER": "其他",
+    },
+    ("student_academic_us_high_school_course", "course_category_code"): {
+        "ENGLISH": "英语",
+        "MATH": "数学",
+        "SCIENCE": "科学",
+        "SOCIAL_SCIENCE": "社会科学",
+        "WORLD_LANGUAGE": "外语",
+        "ARTS": "艺术",
+        "CS": "计算机",
+        "BUSINESS": "商科",
+        "ELECTIVE": "选修",
+        "OTHER": "其他",
+    },
+    ("student_academic_us_high_school_course", "course_level_code"): {
+        "REGULAR": "Regular",
+        "HONORS": "Honors",
+        "AP": "AP",
+        "IB": "IB",
+        "DUAL_ENROLLMENT": "Dual Enrollment",
+        "ADVANCED": "Advanced",
+        "OTHER": "其他",
+    },
+    ("student_academic_us_high_school_course", "grade_letter_code"): {
+        "A+": "A+",
+        "A": "A",
+        "A-": "A-",
+        "B+": "B+",
+        "B": "B",
+        "B-": "B-",
+        "C+": "C+",
+        "C": "C",
+        "C-": "C-",
+        "D": "D",
+        "F": "F",
+        "P": "Pass",
+        "NP": "No Pass",
+        "W": "Withdraw",
+        "NA": "暂未评级",
     },
     ("student_academic_a_level_subject", "stage_code"): {
         "AS": "AS 阶段",
@@ -753,26 +831,26 @@ ENUM_OPTION_LABELS = {
 }
 
 DICTIONARY_OPTION_LOADERS = {
-    "current_grade": lambda _db: _build_static_options(
-        [
-            "初一",
-            "初二",
-            "初三",
-            "高一",
-            "高二",
-            "高三",
-            "G9",
-            "G10",
-            "G11",
-            "G12",
-            "大一",
-            "大二",
-            "大三",
-            "大四",
-            "Gap Year",
-            "已毕业",
-        ]
-    ),
+    "current_grade": lambda _db: [
+        {"value": "初一", "label": "初一"},
+        {"value": "初二", "label": "初二"},
+        {"value": "初三", "label": "初三"},
+        {"value": "高一", "label": "高一"},
+        {"value": "高二", "label": "高二"},
+        {"value": "高三", "label": "高三"},
+        {"value": "G9", "label": "G9 (初三)"},
+        {"value": "G10", "label": "G10 (高一)"},
+        {"value": "G11", "label": "G11 (高二)"},
+        {"value": "G12", "label": "G12 (高三)"},
+        {"value": "大一", "label": "大一"},
+        {"value": "大二", "label": "大二"},
+        {"value": "大三", "label": "大三"},
+        {"value": "大四", "label": "大四"},
+        {"value": "Gap Year", "label": "Gap Year"},
+        {"value": "TRANSFER_YEAR_1", "label": "大一转学申请"},
+        {"value": "已毕业", "label": "已毕业"},
+        {"value": "OTHER", "label": "其他"},
+    ],
     "graduation_year": lambda _db: _build_graduation_year_options(),
     "target_entry_term": lambda _db: _build_entry_term_options(),
     "country_code": lambda db: _load_resolution_options(db, COUNTRY_CONFIG),
@@ -833,6 +911,7 @@ DICTIONARY_OPTION_LOADERS = {
             "其他",
         ]
     ),
+    "us_high_school_course": lambda db: _load_resolution_options(db, US_HIGH_SCHOOL_COURSE_CONFIG),
     "a_level_subject": lambda db: _load_resolution_options(db, AL_LEVEL_SUBJECT_CONFIG),
     "ap_course": lambda db: _load_resolution_options(db, AP_COURSE_CONFIG),
     "ib_subject": lambda db: _load_resolution_options(db, IB_SUBJECT_CONFIG),
@@ -878,7 +957,46 @@ def load_business_profile_snapshot(
         rows = _load_multi_rows(db, table_name=table_name, student_id=student_id)
         payload[table_name] = rows
 
+    payload["student_basic_info_target_country_entries"] = _load_guided_target_country_entries(
+        db,
+        student_id=student_id,
+    )
+    payload["student_basic_info_target_major_entries"] = _load_guided_target_major_entries(
+        db,
+        student_id=student_id,
+    )
+
     return payload
+
+
+def _load_guided_target_country_entries(db: Session, *, student_id: str) -> list[dict[str, Any]]:
+    rows = db.execute(
+        text(
+            """
+            SELECT country_code, sort_order, is_primary, remark
+            FROM student_basic_info_target_country_entries
+            WHERE student_id = :student_id AND delete_flag = '1'
+            ORDER BY is_primary DESC, sort_order ASC, id ASC
+            """
+        ),
+        {"student_id": student_id},
+    ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def _load_guided_target_major_entries(db: Session, *, student_id: str) -> list[dict[str, Any]]:
+    rows = db.execute(
+        text(
+            """
+            SELECT major_direction_code, major_direction_label, major_code, sort_order, is_primary
+            FROM student_basic_info_target_major_entries
+            WHERE student_id = :student_id AND delete_flag = '1'
+            ORDER BY is_primary DESC, sort_order ASC, id ASC
+            """
+        ),
+        {"student_id": student_id},
+    ).mappings().all()
+    return [dict(row) for row in rows]
 
 
 def build_business_profile_form_meta(db: Session) -> dict[str, Any]:
@@ -994,7 +1112,10 @@ def _get_editable_columns(
     db: Session,
     table_name: str,
 ) -> list[dict[str, str]]:
-    rows = db.execute(text(f"SHOW COLUMNS FROM `{table_name}`")).mappings().all()
+    try:
+        rows = db.execute(text(f"SHOW COLUMNS FROM `{table_name}`")).mappings().all()
+    except SQLAlchemyError:
+        return []
     excluded_columns = set(EXCLUDED_COLUMNS_BY_TABLE.get(table_name, set()))
     excluded_columns.update({"create_time", "update_time", "delete_flag"})
 

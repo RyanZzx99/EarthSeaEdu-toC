@@ -41,6 +41,8 @@ SINGLE_ROW_TABLES = [
     "student_academic_ap_profile",
     "student_academic_ib_profile",
     "student_academic_chinese_high_school_profile",
+    "student_academic_us_high_school_profile",
+    "student_academic_other_curriculum_profile",
     "student_language",
     "student_standardized_tests",
     "student_competitions",
@@ -50,10 +52,13 @@ SINGLE_ROW_TABLES = [
 
 MULTI_ROW_TABLES = [
     "student_basic_info_curriculum_system",
+    "student_basic_info_target_country_entries",
+    "student_basic_info_target_major_entries",
     "student_academic_a_level_subject",
     "student_academic_ap_course",
     "student_academic_ib_subject",
     "student_academic_chinese_high_school_subject",
+    "student_academic_us_high_school_course",
     "student_language_ielts",
     "student_language_toefl_ibt",
     "student_language_toefl_essentials",
@@ -70,6 +75,22 @@ MULTI_ROW_TABLES = [
 ]
 
 ALL_TABLES = SINGLE_ROW_TABLES + MULTI_ROW_TABLES
+
+
+def _table_exists(db: Session, table_name: str) -> bool:
+    row = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE()
+              AND table_name = :table_name
+            LIMIT 1
+            """
+        ),
+        {"table_name": table_name},
+    ).first()
+    return row is not None
 
 # 中文注释：
 # 这是当前真正参与运行的经历类枚举合法值集合。
@@ -109,6 +130,16 @@ COLUMN_DEFAULTS: dict[str, dict[str, Any]] = {
     "student_basic_info_curriculum_system": {
         "is_primary": 0,
     },
+    "student_basic_info_target_country_entries": {
+        "sort_order": 1,
+        "is_primary": 0,
+        "source_flow": "manual_profile",
+    },
+    "student_basic_info_target_major_entries": {
+        "sort_order": 1,
+        "is_primary": 0,
+        "source_flow": "manual_profile",
+    },
     "student_academic_a_level_subject": {
         "is_predicted": 0,
         "exam_series": "",
@@ -117,6 +148,9 @@ COLUMN_DEFAULTS: dict[str, dict[str, Any]] = {
         "is_predicted": 0,
     },
     "student_academic_ib_subject": {
+        "is_predicted": 0,
+    },
+    "student_academic_us_high_school_course": {
         "is_predicted": 0,
     },
     "student_language": {
@@ -654,6 +688,12 @@ SINGLE_ROW_MEANINGFULNESS_IGNORE_FIELDS: dict[str, set[str]] = {
     "student_academic_chinese_high_school_profile": {
         "student_id",
     },
+    "student_academic_us_high_school_profile": {
+        "student_id",
+    },
+    "student_academic_other_curriculum_profile": {
+        "student_id",
+    },
     "student_language": {
         "student_id",
         "student_language_id",
@@ -687,10 +727,13 @@ SINGLE_ROW_CHILD_TABLE_DEPENDENCIES: dict[str, list[str]] = {
         "student_academic_ap_profile",
         "student_academic_ib_profile",
         "student_academic_chinese_high_school_profile",
+        "student_academic_us_high_school_profile",
+        "student_academic_other_curriculum_profile",
         "student_academic_a_level_subject",
         "student_academic_ap_course",
         "student_academic_ib_subject",
         "student_academic_chinese_high_school_subject",
+        "student_academic_us_high_school_course",
     ],
     "student_language": [
         "student_language_ielts",
@@ -729,6 +772,8 @@ CLEARABLE_SINGLE_ROW_TABLES: set[str] = {
     "student_academic_ap_profile",
     "student_academic_ib_profile",
     "student_academic_chinese_high_school_profile",
+    "student_academic_us_high_school_profile",
+    "student_academic_other_curriculum_profile",
     "student_language",
     "student_standardized_tests",
     "student_competitions",
@@ -741,6 +786,9 @@ CURRICULUM_SPECIFIC_ACADEMIC_SINGLE_ROW_TABLES_BY_CODE: dict[str, str] = {
     "AP": "student_academic_ap_profile",
     "IB": "student_academic_ib_profile",
     "CHINESE_HIGH_SCHOOL": "student_academic_chinese_high_school_profile",
+    "US_HIGH_SCHOOL": "student_academic_us_high_school_profile",
+    "INTERNATIONAL_OTHER": "student_academic_other_curriculum_profile",
+    "OTHER": "student_academic_other_curriculum_profile",
 }
 
 CURRICULUM_SPECIFIC_ACADEMIC_MULTI_ROW_TABLES_BY_CODE: dict[str, str] = {
@@ -748,9 +796,13 @@ CURRICULUM_SPECIFIC_ACADEMIC_MULTI_ROW_TABLES_BY_CODE: dict[str, str] = {
     "AP": "student_academic_ap_course",
     "IB": "student_academic_ib_subject",
     "CHINESE_HIGH_SCHOOL": "student_academic_chinese_high_school_subject",
+    "US_HIGH_SCHOOL": "student_academic_us_high_school_course",
 }
 
-RECOGNIZED_CURRICULUM_SYSTEM_CODES = set(CURRICULUM_SPECIFIC_ACADEMIC_SINGLE_ROW_TABLES_BY_CODE.keys())
+RECOGNIZED_CURRICULUM_SYSTEM_CODES = set(CURRICULUM_SPECIFIC_ACADEMIC_SINGLE_ROW_TABLES_BY_CODE.keys()) | {
+    "INTERNATIONAL_OTHER",
+    "OTHER",
+}
 
 
 @dataclass(slots=True)
@@ -821,6 +873,7 @@ def persist_business_profile_snapshot(
     project_id_mapping: dict[int, int] = {}
 
     try:
+        existing_tables = {table_name for table_name in ALL_TABLES if _table_exists(db, table_name)}
         _normalize_payload_for_persistence(
             db_payload,
             db=db,
@@ -832,10 +885,13 @@ def persist_business_profile_snapshot(
             db,
             student_id=student_id,
             db_payload=db_payload,
+            existing_tables=existing_tables,
         )
         # 中文注释：先处理单行主表。
         # 这些表一般是一名学生只保留一条快照，因此直接 upsert 即可。
         for table_name in SINGLE_ROW_TABLES:
+            if table_name not in existing_tables:
+                continue
             row = db_payload.get(table_name) or {}
             if not isinstance(row, dict):
                 continue
@@ -859,6 +915,8 @@ def persist_business_profile_snapshot(
         _delete_existing_multi_rows(db, student_id=student_id)
 
         for table_name in MULTI_ROW_TABLES:
+            if table_name not in existing_tables:
+                continue
             rows = db_payload.get(table_name) or []
             if not isinstance(rows, list):
                 continue
@@ -1067,10 +1125,12 @@ def prune_academic_payload_by_curriculum_system(payload: dict[str, Any]) -> None
     allowed_single_row_tables = {
         CURRICULUM_SPECIFIC_ACADEMIC_SINGLE_ROW_TABLES_BY_CODE[code]
         for code in effective_codes
+        if code in CURRICULUM_SPECIFIC_ACADEMIC_SINGLE_ROW_TABLES_BY_CODE
     }
     allowed_multi_row_tables = {
         CURRICULUM_SPECIFIC_ACADEMIC_MULTI_ROW_TABLES_BY_CODE[code]
         for code in effective_codes
+        if code in CURRICULUM_SPECIFIC_ACADEMIC_MULTI_ROW_TABLES_BY_CODE
     }
 
     for table_name in CURRICULUM_SPECIFIC_ACADEMIC_SINGLE_ROW_TABLES_BY_CODE.values():
@@ -2102,10 +2162,13 @@ def _delete_existing_multi_rows(db: Session, *, student_id: str) -> None:
         "DELETE FROM `student_language_toefl_essentials` WHERE student_id = :student_id",
         "DELETE FROM `student_language_toefl_ibt` WHERE student_id = :student_id",
         "DELETE FROM `student_language_ielts` WHERE student_id = :student_id",
+        "DELETE FROM `student_academic_us_high_school_course` WHERE student_id = :student_id",
         "DELETE FROM `student_academic_chinese_high_school_subject` WHERE student_id = :student_id",
         "DELETE FROM `student_academic_ib_subject` WHERE student_id = :student_id",
         "DELETE FROM `student_academic_ap_course` WHERE student_id = :student_id",
         "DELETE FROM `student_academic_a_level_subject` WHERE student_id = :student_id",
+        "DELETE FROM `student_basic_info_target_major_entries` WHERE student_id = :student_id",
+        "DELETE FROM `student_basic_info_target_country_entries` WHERE student_id = :student_id",
         "DELETE FROM `student_basic_info_curriculum_system` WHERE student_id = :student_id",
     ]
     for sql in delete_sql_by_student_id:
@@ -2117,6 +2180,7 @@ def _delete_cleared_single_rows(
     *,
     student_id: str,
     db_payload: dict[str, Any],
+    existing_tables: set[str] | None = None,
 ) -> None:
     """
     删除本轮 payload 明确已被“整体清空”的单行表旧快照。
@@ -2128,6 +2192,8 @@ def _delete_cleared_single_rows(
     """
 
     for table_name in CLEARABLE_SINGLE_ROW_TABLES:
+        if existing_tables is not None and table_name not in existing_tables:
+            continue
         row = db_payload.get(table_name) or {}
         if not isinstance(row, dict):
             continue

@@ -22,6 +22,7 @@ from backend.routers import ai_chat
 from backend.routers import auth
 from backend.routers import health
 from backend.routers import mockexam
+from backend.routers import student_profile_guided
 from backend.routers import teacher
 from backend.utils.exam_asset_storage import ensure_exam_asset_root
 from backend.utils.exam_asset_storage import EXAM_ASSET_URL_PREFIX
@@ -60,6 +61,7 @@ app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(mockexam.router, prefix="/api/v1/mockexam", tags=["mockexam"])
 app.include_router(teacher.router, prefix="/api/v1/teacher", tags=["teacher"])
+app.include_router(student_profile_guided.router)
 app.include_router(ai_chat.router, tags=["ai-chat"])
 
 @app.on_event("startup")

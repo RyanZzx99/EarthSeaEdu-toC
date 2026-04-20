@@ -31,6 +31,7 @@ import {
   getCurrentAiChatSession,
   regenerateAiChatDraftRadar,
 } from "../api/aiChat";
+import GuidedProfileChat from "../components/GuidedProfileChat";
 import RankingTool from "../components/RankingTool";
 import ScoreConverter from "../components/ScoreConverter";
 import { clearAccessToken, getAccessToken } from "../utils/authStorage";
@@ -158,15 +159,32 @@ function logProfileFlow(step, detail = {}) {
 
 function normalizeProfileResult(resultData) {
   const radarScores = resultData?.radar_scores_json || {};
+  const normalizeDimension = (key) => {
+    const value = radarScores[key];
+    if (typeof value === "number") {
+      return {
+        score: Math.max(0, Math.min(100, value)),
+        reason: "系统已根据当前建档信息生成评分。",
+      };
+    }
+    if (value && typeof value === "object") {
+      const numericScore = Number(value.score ?? value.value ?? 0);
+      return {
+        score: Number.isFinite(numericScore) ? Math.max(0, Math.min(100, numericScore)) : 0,
+        reason: value.reason || "系统已根据当前建档信息生成评分。",
+      };
+    }
+    return { score: 0, reason: "暂无有效评分说明" };
+  };
 
   return {
     radar_scores_json: {
-      academic: radarScores.academic || { score: 0, reason: "暂无有效学术评分说明" },
-      language: radarScores.language || { score: 0, reason: "暂无有效语言评分说明" },
-      standardized: radarScores.standardized || { score: 0, reason: "暂无有效标化评分说明" },
-      competition: radarScores.competition || { score: 0, reason: "暂无有效竞赛评分说明" },
-      activity: radarScores.activity || { score: 0, reason: "暂无有效活动评分说明" },
-      project: radarScores.project || { score: 0, reason: "暂无有效项目评分说明" },
+      academic: normalizeDimension("academic"),
+      language: normalizeDimension("language"),
+      standardized: normalizeDimension("standardized"),
+      competition: normalizeDimension("competition"),
+      activity: normalizeDimension("activity"),
+      project: normalizeDimension("project"),
     },
     summary_text: resultData?.summary_text || "当前档案结果已生成，但暂未返回完整中文总结。",
   };
@@ -398,6 +416,7 @@ export default function HomePage() {
   const [teacherInviteLoading, setTeacherInviteLoading] = useState(false);
   const [activeSection, setActiveSection] = useState("hero");
   const [showChat, setShowChat] = useState(false);
+  const [showGuidedChat, setShowGuidedChat] = useState(false);
   const [showProfileResult, setShowProfileResult] = useState(false);
   const [aiRestoreReady, setAiRestoreReady] = useState(false);
   const [chatEnded, setChatEnded] = useState(false);
@@ -1224,6 +1243,7 @@ export default function HomePage() {
 
   function handleStartChat() {
     setShowChat(true);
+    setShowGuidedChat(false);
     setShowProfileResult(false);
     setConnectionError("");
 
@@ -1246,11 +1266,39 @@ export default function HomePage() {
     setUiHint("");
   }
 
+  function handleStartGuidedProfile() {
+    setShowGuidedChat(true);
+    setShowChat(false);
+    setShowProfileResult(false);
+    setConnectionError("");
+    setUiHint("");
+  }
+
+  function handleCloseGuidedProfile() {
+    setShowGuidedChat(false);
+  }
+
+  function handleGuidedProfileResult(resultPayload) {
+    const normalized = normalizeProfileResult(resultPayload || {});
+    setProfileData(normalized);
+    setProfileResultStatus(resultPayload?.result_status || "saved");
+    setSaveErrorMessage(resultPayload?.save_error_message || "");
+    setCurrentStage("completed");
+    currentStageRef.current = "completed";
+    setShowGuidedChat(false);
+    setShowChat(false);
+    setShowProfileResult(true);
+    setUiHint("");
+    setActiveSection("hero");
+    document.getElementById("home-hero")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function handleViewMyRadar() {
     if (!profileData) {
       return;
     }
     setShowChat(false);
+    setShowGuidedChat(false);
     setShowProfileResult(true);
     setUiHint("");
     setActiveSection("hero");
@@ -1277,6 +1325,7 @@ export default function HomePage() {
   function handleContinueSupplementInfo() {
     setShowProfileResult(false);
     setShowChat(true);
+    setShowGuidedChat(false);
         setCurrentStage("build_ready");
         currentStageRef.current = "build_ready";
         setConversationPhase(null);
@@ -1691,20 +1740,44 @@ export default function HomePage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.6 }}
             >
-              {!showChat && !showProfileResult ? (
+              {!showChat && !showGuidedChat && !showProfileResult && profileData ? (
                 <motion.button
                   type="button"
-                  onClick={profileData ? handleViewMyRadar : handleStartChat}
+                  onClick={handleViewMyRadar}
                   className="home-primary-button"
                   whileHover={{ scale: 1.05, boxShadow: "0 20px 40px rgba(59,130,246,0.35)" }}
                   whileTap={{ scale: 0.98 }}
                 >
-                  {profileData ? "查看我的六维图" : "Get Started"}
+                  查看我的六维图
                   <ArrowRightIcon />
                 </motion.button>
               ) : null}
 
-              {!showProfileResult ? (
+              {!showChat && !showGuidedChat && !showProfileResult && !profileData ? (
+                <>
+                  <motion.button
+                    type="button"
+                    onClick={handleStartGuidedProfile}
+                    className="home-primary-button"
+                    whileHover={{ scale: 1.05, boxShadow: "0 20px 40px rgba(59,130,246,0.35)" }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    标准问卷建档
+                    <ArrowRightIcon />
+                  </motion.button>
+                  <motion.button
+                    type="button"
+                    onClick={handleStartChat}
+                    className="home-secondary-button"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    AI 自由建档
+                  </motion.button>
+                </>
+              ) : null}
+
+              {!showGuidedChat && !showProfileResult ? (
                 <motion.button
                   type="button"
                   onClick={() => scrollToSection("home-ranking", "ranking")}
@@ -1718,7 +1791,15 @@ export default function HomePage() {
             </motion.div>
 
             <AnimatePresence initial={false} mode="popLayout">
-              {aiRestoreReady && showChat && !showProfileResult ? (
+              {aiRestoreReady && showGuidedChat && !showProfileResult ? (
+                <GuidedProfileChat
+                  key="guided-profile-chat"
+                  onClose={handleCloseGuidedProfile}
+                  onResultReady={handleGuidedProfileResult}
+                />
+              ) : null}
+
+              {aiRestoreReady && showChat && !showGuidedChat && !showProfileResult ? (
                 <motion.div
                   key="chat-shell"
                   className="home-ai-shell"
