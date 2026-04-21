@@ -8,6 +8,7 @@ import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -28,6 +29,11 @@ public class GlobalExceptionHandler {
             message = bindException.getBindingResult().getFieldError().getDefaultMessage();
         }
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(detailBody(message));
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNoResourceFoundException(NoResourceFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(detailBody("资源不存在"));
     }
 
     @ExceptionHandler(Exception.class)

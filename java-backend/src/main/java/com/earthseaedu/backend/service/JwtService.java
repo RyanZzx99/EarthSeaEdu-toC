@@ -1,120 +1,69 @@
 package com.earthseaedu.backend.service;
 
-import com.earthseaedu.backend.config.EarthSeaProperties;
-import com.earthseaedu.backend.exception.ApiException;
-import com.earthseaedu.backend.support.RequestHeaderSupport;
 import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.JwtException;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
-import java.util.Date;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
 
-@Service
-public class JwtService {
+/**
+ * JWT 服务，负责令牌签发、解析和用途校验。
+ */
+public interface JwtService {
 
-    private final EarthSeaProperties properties;
-    private final SecretKey secretKey;
+    /**
+     * 为用户签发标准访问令牌。
+     *
+     * @param userId 用户 ID
+     * @return 生成或解析出的字符串结果。
+     */
+    String createAccessToken(String userId);
 
-    public JwtService(EarthSeaProperties properties) {
-        this.properties = properties;
-        this.secretKey = new SecretKeySpec(
-            properties.getJwt().getSecretKey().getBytes(StandardCharsets.UTF_8),
-            "HmacSHA256"
-        );
-    }
+    /**
+     * 为用户签发微信绑定流程令牌。
+     *
+     * @param userId 用户 ID
+     * @return 生成或解析出的字符串结果。
+     */
+    String createBindToken(String userId);
 
-    public String createAccessToken(String userId) {
-        return createToken(
-            Map.of("sub", userId, "token_use", "access"),
-            properties.getJwt().getAccessTokenExpireMinutes()
-        );
-    }
+    /**
+     * 为微信临时注册流程签发令牌。
+     *
+     * @param userId 用户 ID
+     * @param openid 微信 openid
+     * @return 生成或解析出的字符串结果。
+     */
+    String createWechatRegisterToken(String userId, String openid);
 
-    public String createBindToken(String userId) {
-        return createToken(
-            Map.of("sub", userId, "token_use", "bind_mobile"),
-            properties.getJwt().getBindTokenExpireMinutes()
-        );
-    }
+    /**
+     * 解析 JWT 并在无效时抛出鉴权异常。
+     *
+     * @param token JWT 字符串
+     * @return 处理后的响应对象。
+     */
+    Claims parseToken(String token);
 
-    public String createWechatRegisterToken(String userId, String openid) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("sub", userId);
-        payload.put("openid", openid);
-        payload.put("token_use", "wechat_register");
-        return createToken(payload, properties.getJwt().getBindTokenExpireMinutes());
-    }
+    /**
+     * 尝试解析 JWT，无效或为空时返回空结果。
+     *
+     * @param token JWT 字符串
+     * @return 处理后的响应对象。
+     */
+    Claims parseTokenNullable(String token);
 
-    public Claims parseToken(String token) {
-        try {
-            return Jwts.parser()
-                .verifyWith(secretKey)
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
-        } catch (JwtException | IllegalArgumentException exception) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "token 无效或已过期");
-        }
-    }
+    /**
+     * 从鉴权头中解析并返回当前用户 ID。
+     *
+     * @param authorizationHeader 当前请求鉴权头
+     * @return 生成或解析出的字符串结果。
+     */
+    String requireCurrentUserId(String authorizationHeader);
 
-    public Claims parseTokenNullable(String token) {
-        try {
-            return parseToken(token);
-        } catch (ApiException exception) {
-            return null;
-        }
-    }
-
-    public String requireCurrentUserId(String authorizationHeader) {
-        String token = RequestHeaderSupport.extractBearerToken(authorizationHeader);
-        if (token == null) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "未登录或 token 缺失");
-        }
-
-        Claims claims = parseToken(token);
-        if (!"access".equals(claims.get("token_use", String.class))) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "token 类型错误");
-        }
-        String userId = claims.getSubject();
-        if (userId == null || userId.isBlank()) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "token 缺少用户信息");
-        }
-        return userId;
-    }
-
-    public Claims requireTokenUse(String token, String tokenUse, String emptyMessage, String invalidTypeMessage) {
-        Claims claims = parseTokenNullable(token);
-        if (claims == null) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, emptyMessage);
-        }
-        if (!tokenUse.equals(claims.get("token_use", String.class))) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, invalidTypeMessage);
-        }
-        if (claims.getSubject() == null || claims.getSubject().isBlank()) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "token 缺少用户信息");
-        }
-        return claims;
-    }
-
-    private String createToken(Map<String, Object> payload, long expireMinutes) {
-        if (!"HS256".equalsIgnoreCase(properties.getJwt().getAlgorithm())) {
-            throw new IllegalStateException("当前 Java 版本仅支持 HS256");
-        }
-
-        Instant expireAt = Instant.now().plus(expireMinutes, ChronoUnit.MINUTES);
-        return Jwts.builder()
-            .claims(new LinkedHashMap<>(payload))
-            .expiration(Date.from(expireAt))
-            .signWith(secretKey, SignatureAlgorithm.HS256)
-            .compact();
-    }
+    /**
+     * 解析令牌并校验令牌用途。
+     *
+     * @param token JWT 字符串
+     * @param tokenUse 期望的令牌用途
+     * @param emptyMessage 令牌为空时的错误提示
+     * @param invalidTypeMessage 令牌用途不匹配时的错误提示
+     * @return 处理后的响应对象。
+     */
+    Claims requireTokenUse(String token, String tokenUse, String emptyMessage, String invalidTypeMessage);
 }

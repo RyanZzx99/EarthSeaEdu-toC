@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.AiProfileRadarPendingMapper">
+
+    <insert id="insertPendingChange" parameterType="map">
+        INSERT INTO ai_profile_radar_pending_changes (
+            session_id, student_id, biz_domain, last_profile_result_id,
+            pending_changed_fields_json, pending_affected_dimensions_json,
+            last_change_source, last_change_remark, version_no,
+            create_time, update_time, delete_flag
+        ) VALUES (
+            #{sessionId}, #{studentId}, #{bizDomain}, #{lastProfileResultId},
+            #{pendingChangedFieldsJson}, #{pendingAffectedDimensionsJson},
+            #{lastChangeSource}, #{lastChangeRemark}, #{versionNo},
+            #{now}, #{now}, '1'
+        )
+    </insert>
+
+    <update id="updatePendingChange" parameterType="map">
+        UPDATE ai_profile_radar_pending_changes
+        SET student_id = #{studentId},
+            biz_domain = #{bizDomain},
+            last_profile_result_id = #{lastProfileResultId},
+            pending_changed_fields_json = #{pendingChangedFieldsJson},
+            pending_affected_dimensions_json = #{pendingAffectedDimensionsJson},
+            last_change_source = #{lastChangeSource},
+            last_change_remark = #{lastChangeRemark},
+            version_no = #{versionNo},
+            update_time = #{now}
+        WHERE pending_id = #{pendingId}
+    </update>
+
+    <select id="listProfileResults" resultType="map">
+        SELECT id, radar_scores_json
+        FROM ai_chat_profile_results
+        WHERE student_id = #{studentId}
+          AND session_id = #{sessionId}
+          AND delete_flag = '1'
+        ORDER BY update_time DESC, id DESC
+    </select>
+
+    <select id="findPendingRow" resultType="map">
+        SELECT pending_id, last_profile_result_id, pending_changed_fields_json,
+               pending_affected_dimensions_json, version_no
+        FROM ai_profile_radar_pending_changes
+        WHERE session_id = #{sessionId}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="listImpactRules" resultType="map">
+        SELECT table_name, field_name, affects_radar, affected_dimensions_json
+        FROM ai_profile_radar_field_impact_rules
+        WHERE biz_domain = #{bizDomain}
+          AND status = 'active'
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, id ASC
+    </select>
+
+</mapper>

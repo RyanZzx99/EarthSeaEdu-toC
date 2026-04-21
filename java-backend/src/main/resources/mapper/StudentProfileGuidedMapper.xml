@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.StudentProfileGuidedMapper">
+
+    <update id="expireSessionsForRestart">
+        UPDATE student_profile_guided_sessions
+        SET delete_flag = '0',
+            session_status = 'exited',
+            exited_at = COALESCE(exited_at, NOW())
+        WHERE student_id = #{studentId}
+          AND questionnaire_code = #{questionnaireCode}
+          AND delete_flag = '1'
+          AND session_status IN ('active', 'exited', 'completed', 'failed')
+    </update>
+
+    <update id="completeSession" parameterType="map">
+        UPDATE student_profile_guided_sessions
+        SET session_status = 'completed',
+            current_stage = 'build_ready',
+            current_question_code = NULL,
+            current_question_index = #{currentQuestionIndex},
+            version_no = #{versionNo},
+            finished_at = NOW()
+        WHERE session_id = #{sessionId}
+    </update>
+
+    <update id="activateSession" parameterType="map">
+        UPDATE student_profile_guided_sessions
+        SET session_status = 'active',
+            current_stage = 'collecting',
+            current_question_code = #{currentQuestionCode},
+            current_question_index = #{currentQuestionIndex},
+            version_no = #{versionNo}
+        WHERE session_id = #{sessionId}
+    </update>
+
+    <update id="exitSession">
+        UPDATE student_profile_guided_sessions
+        SET session_status = 'exited',
+            current_stage = 'build_ready',
+            exited_at = COALESCE(exited_at, NOW())
+        WHERE session_id = #{sessionId}
+    </update>
+
+    <insert id="insertSession" parameterType="map">
+        INSERT INTO student_profile_guided_sessions
+          (session_id, student_id, questionnaire_code, questionnaire_version,
+           current_question_code, current_question_index, session_status, current_stage)
+        VALUES
+          (#{sessionId}, #{studentId}, #{questionnaireCode}, #{questionnaireVersion},
+           #{currentQuestionCode}, #{currentQuestionIndex}, 'active', 'collecting')
+    </insert>
+
+    <insert id="upsertResult" parameterType="map">
+        INSERT INTO student_profile_guided_results
+          (session_id, student_id, source_version_no, result_status, trigger_reason,
+           profile_json, db_payload_json, radar_scores_json, summary_text, save_error_message)
+        VALUES
+          (#{sessionId}, #{studentId}, #{sourceVersionNo}, #{resultStatus}, #{triggerReason},
+           #{profileJson}, #{dbPayloadJson}, #{radarScoresJson}, #{summaryText}, #{saveErrorMessage})
+        ON DUPLICATE KEY UPDATE
+          result_status = VALUES(result_status),
+          trigger_reason = VALUES(trigger_reason),
+          profile_json = VALUES(profile_json),
+          db_payload_json = VALUES(db_payload_json),
+          radar_scores_json = VALUES(radar_scores_json),
+          summary_text = VALUES(summary_text),
+          save_error_message = VALUES(save_error_message),
+          update_time = CURRENT_TIMESTAMP,
+          delete_flag = '1'
+    </insert>
+
+    <update id="updateSessionGenerationStage" parameterType="map">
+        UPDATE student_profile_guided_sessions
+        SET current_stage = #{currentStage},
+            last_generated_version_no = #{lastGeneratedVersionNo}
+        WHERE session_id = #{sessionId}
+    </update>
+
+    <select id="findLatestSession" resultType="map">
+        SELECT *
+        FROM student_profile_guided_sessions
+        WHERE student_id = #{studentId}
+          AND questionnaire_code = #{questionnaireCode}
+          AND delete_flag = '1'
+        ORDER BY
+          CASE session_status WHEN 'active' THEN 0 WHEN 'exited' THEN 1 ELSE 2 END,
+          update_time DESC,
+          id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findOwnedSession" resultType="map">
+        SELECT *
+        FROM student_profile_guided_sessions
+        WHERE session_id = #{sessionId}
+          AND student_id = #{studentId}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="listAnswerJson" resultType="map">
+        SELECT question_code, answer_json
+        FROM student_profile_guided_answers
+        WHERE session_id = #{sessionId}
+          AND delete_flag = '1'
+    </select>
+
+    <select id="listAnswerRows" resultType="map">
+        SELECT question_code, question_type, module_code, answer_json, answer_display_text, version_no, update_time
+        FROM student_profile_guided_answers
+        WHERE session_id = #{sessionId}
+          AND delete_flag = '1'
+        ORDER BY id ASC
+    </select>
+
+    <select id="listMessages" resultType="map">
+        SELECT sequence_no, message_role, message_kind, question_code, content, payload_json, create_time
+        FROM student_profile_guided_messages
+        WHERE session_id = #{sessionId}
+          AND delete_flag = '1'
+        ORDER BY sequence_no ASC, id ASC
+    </select>
+
+    <insert id="upsertAnswer" parameterType="map">
+        INSERT INTO student_profile_guided_answers
+          (session_id, student_id, question_code, question_type, module_code,
+           answer_json, answer_display_text, version_no)
+        VALUES
+          (#{sessionId}, #{studentId}, #{questionCode}, #{questionType}, #{moduleCode},
+           #{answerJson}, #{answerDisplayText}, #{versionNo})
+        ON DUPLICATE KEY UPDATE
+          question_type = VALUES(question_type),
+          module_code = VALUES(module_code),
+          answer_json = VALUES(answer_json),
+          answer_display_text = VALUES(answer_display_text),
+          version_no = VALUES(version_no),
+          update_time = CURRENT_TIMESTAMP,
+          delete_flag = '1'
+    </insert>
+
+    <select id="nextMessageSequenceNo" resultType="int">
+        SELECT COALESCE(MAX(sequence_no), 0) + 1
+        FROM student_profile_guided_messages
+        WHERE session_id = #{sessionId}
+    </select>
+
+    <insert id="insertMessage" parameterType="map">
+        INSERT INTO student_profile_guided_messages
+          (session_id, student_id, sequence_no, message_role, message_kind, question_code, content, payload_json)
+        VALUES
+          (#{sessionId}, #{studentId}, #{sequenceNo}, #{messageRole}, #{messageKind}, #{questionCode}, #{content}, #{payloadJson})
+    </insert>
+
+    <update id="updateMessage" parameterType="map">
+        UPDATE student_profile_guided_messages
+        SET content = #{content},
+            payload_json = #{payloadJson},
+            update_time = CURRENT_TIMESTAMP,
+            delete_flag = '1'
+        WHERE id = #{id}
+    </update>
+
+    <select id="findLatestMessageId" resultType="long">
+        SELECT id
+        FROM student_profile_guided_messages
+        WHERE session_id = #{sessionId}
+          AND message_role = #{role}
+          AND message_kind = #{kind}
+          AND question_code = #{questionCode}
+          AND delete_flag = '1'
+        ORDER BY sequence_no DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findLatestResult" resultType="map">
+        SELECT *
+        FROM student_profile_guided_results
+        WHERE student_id = #{studentId}
+          AND session_id = #{sessionId}
+          AND delete_flag = '1'
+        ORDER BY source_version_no DESC, id DESC
+        LIMIT 1
+    </select>
+
+</mapper>

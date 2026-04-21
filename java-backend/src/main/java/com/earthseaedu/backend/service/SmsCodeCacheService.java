@@ -1,113 +1,50 @@
 package com.earthseaedu.backend.service;
 
-import cn.hutool.crypto.SecureUtil;
-import com.earthseaedu.backend.config.EarthSeaProperties;
-import com.earthseaedu.backend.exception.ApiException;
-import java.time.Duration;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.util.List;
-import java.util.Objects;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
+/**
+ * 短信验证码缓存服务，负责验证码、发送频控和微信登录 state 的缓存校验。
+ */
+public interface SmsCodeCacheService {
 
-@Service
-public class SmsCodeCacheService {
+    /**
+     * 创建微信登录 state 缓存并设置过期时间。
+     *
+     * @param state 微信登录 state
+     * @param expireMinutes 过期分钟数
+     */
+    void createWechatLoginState(String state, int expireMinutes);
 
-    private final StringRedisTemplate stringRedisTemplate;
-    private final EarthSeaProperties properties;
-    private final DefaultRedisScript<Long> compareAndDeleteScript;
+    /**
+     * 消费并校验微信登录 state，防止回调重放。
+     *
+     * @param state 微信登录 state
+     * @return 校验结果。
+     */
+    boolean consumeWechatLoginState(String state);
 
-    public SmsCodeCacheService(StringRedisTemplate stringRedisTemplate, EarthSeaProperties properties) {
-        this.stringRedisTemplate = stringRedisTemplate;
-        this.properties = properties;
-        this.compareAndDeleteScript = new DefaultRedisScript<>();
-        this.compareAndDeleteScript.setResultType(Long.class);
-        this.compareAndDeleteScript.setScriptText(
-            "local current = redis.call('GET', KEYS[1]);" +
-                "if not current then return 0 end;" +
-                "if current == ARGV[1] then redis.call('DEL', KEYS[1]); return 1 end;" +
-                "return 0;"
-        );
-    }
+    /**
+     * 校验手机号在指定业务场景下是否允许继续发送验证码。
+     *
+     * @param mobile 手机号
+     * @param bizType 业务场景
+     */
+    void validateSmsSendAllowed(String mobile, String bizType);
 
-    public void createWechatLoginState(String state, int expireMinutes) {
-        stringRedisTemplate.opsForValue().set(wechatStateKey(state), "1", Duration.ofMinutes(expireMinutes));
-    }
+    /**
+     * 保存短信验证码和业务场景到缓存。
+     *
+     * @param mobile 手机号
+     * @param bizType 业务场景
+     * @param code 验证码、邀请码或回调 code
+     */
+    void saveSmsCode(String mobile, String bizType, String code);
 
-    public boolean consumeWechatLoginState(String state) {
-        String result = stringRedisTemplate.opsForValue().getAndDelete(wechatStateKey(state));
-        return result != null;
-    }
-
-    public void validateSmsSendAllowed(String mobile, String bizType) {
-        if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(smsCooldownKey(mobile, bizType)))) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "发送过于频繁，请稍后再试");
-        }
-
-        String dailyCountValue = stringRedisTemplate.opsForValue().get(smsDailyLimitKey(mobile, bizType));
-        long dailyCount = dailyCountValue == null ? 0L : Long.parseLong(dailyCountValue);
-        if (dailyCount >= properties.getSmsDailyLimit()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "今日验证码发送次数已达上限");
-        }
-    }
-
-    public void saveSmsCode(String mobile, String bizType, String code) {
-        stringRedisTemplate.opsForValue().set(
-            smsCodeKey(mobile, bizType),
-            sha256(code),
-            Duration.ofMinutes(Math.max(1, properties.getSmsCodeExpireMinutes()))
-        );
-        stringRedisTemplate.opsForValue().set(
-            smsCooldownKey(mobile, bizType),
-            "1",
-            Duration.ofSeconds(Math.max(1, properties.getSmsSendCooldownSeconds()))
-        );
-
-        Long count = stringRedisTemplate.opsForValue().increment(smsDailyLimitKey(mobile, bizType));
-        if (Objects.equals(count, 1L)) {
-            stringRedisTemplate.expire(
-                smsDailyLimitKey(mobile, bizType),
-                Duration.ofSeconds(secondsUntilNextUtcDay())
-            );
-        }
-    }
-
-    public boolean verifySmsCode(String mobile, String bizType, String code) {
-        Long result = stringRedisTemplate.execute(
-            compareAndDeleteScript,
-            List.of(smsCodeKey(mobile, bizType)),
-            sha256(code)
-        );
-        return Objects.equals(result, 1L);
-    }
-
-    private String smsCodeKey(String mobile, String bizType) {
-        return "auth:sms:code:" + bizType + ":" + mobile;
-    }
-
-    private String smsCooldownKey(String mobile, String bizType) {
-        return "auth:sms:cooldown:" + bizType + ":" + mobile;
-    }
-
-    private String smsDailyLimitKey(String mobile, String bizType) {
-        return "auth:sms:daily:" + LocalDate.now(ZoneOffset.UTC) + ":" + bizType + ":" + mobile;
-    }
-
-    private String wechatStateKey(String state) {
-        return "auth:wechat:state:" + state;
-    }
-
-    private String sha256(String value) {
-        return SecureUtil.sha256(value);
-    }
-
-    private long secondsUntilNextUtcDay() {
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-        LocalDateTime nextDay = now.toLocalDate().plusDays(1).atStartOfDay();
-        return Math.max(1L, Duration.between(now, nextDay).getSeconds());
-    }
+    /**
+     * 校验短信验证码是否匹配并在成功后消费。
+     *
+     * @param mobile 手机号
+     * @param bizType 业务场景
+     * @param code 验证码、邀请码或回调 code
+     * @return 校验结果。
+     */
+    boolean verifySmsCode(String mobile, String bizType, String code);
 }

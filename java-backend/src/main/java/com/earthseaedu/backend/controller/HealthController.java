@@ -1,45 +1,49 @@
 package com.earthseaedu.backend.controller;
 
-import com.earthseaedu.backend.config.EarthSeaProperties;
-import java.util.Map;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.earthseaedu.backend.dto.health.HealthResponses;
+import com.earthseaedu.backend.service.HealthService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * 健康检查接口。
+ */
 @RestController
 public class HealthController {
 
-    private final JdbcTemplate jdbcTemplate;
-    private final EarthSeaProperties properties;
+    private final HealthService healthService;
 
-    public HealthController(JdbcTemplate jdbcTemplate, EarthSeaProperties properties) {
-        this.jdbcTemplate = jdbcTemplate;
-        this.properties = properties;
+    public HealthController(HealthService healthService) {
+        this.healthService = healthService;
     }
 
+    /**
+     * 根路径探活接口。
+     *
+     * @return 服务启动信息
+     */
     @GetMapping("/")
-    public Map<String, String> root() {
-        return Map.of("message", properties.getAppName() + " is running");
+    public HealthResponses.RootResponse root() {
+        return healthService.getRoot();
     }
 
-    @GetMapping("/api/v1/health")
-    public HealthResponse health() {
-        return new HealthResponse("ok");
+    /**
+     * 应用健康检查接口。
+     *
+     * @return 基础健康状态
+     */
+    @GetMapping({"/health", "/api/v1/health"})
+    public HealthResponses.HealthResponse health() {
+        return healthService.getHealth();
     }
 
+    /**
+     * 数据库健康检查接口。
+     *
+     * @return 数据库连接状态
+     */
     @GetMapping("/api/v1/db-health")
-    public DatabaseHealthResponse dbHealth() {
-        try {
-            jdbcTemplate.queryForObject("SELECT 1", Integer.class);
-            return new DatabaseHealthResponse("ok", "connected");
-        } catch (Exception exception) {
-            return new DatabaseHealthResponse("error", exception.getClass().getSimpleName());
-        }
-    }
-
-    public record HealthResponse(String status) {
-    }
-
-    public record DatabaseHealthResponse(String status, String database) {
+    public HealthResponses.DatabaseHealthResponse dbHealth() {
+        return healthService.getDatabaseHealth();
     }
 }

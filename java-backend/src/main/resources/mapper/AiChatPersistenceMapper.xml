@@ -1,0 +1,256 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.AiChatPersistenceMapper">
+
+    <select id="findSessionById" resultType="map">
+        SELECT session_id, student_id, biz_domain, session_status, current_stage, current_round,
+               missing_dimensions_json, last_message_at, completed_at, final_profile_id, remark
+        FROM ai_chat_sessions
+        WHERE session_id = #{sessionId}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveSessionByStudentAndDomain" resultType="map">
+        SELECT session_id, student_id, biz_domain, session_status, current_stage, current_round,
+               missing_dimensions_json, last_message_at, completed_at, final_profile_id, remark
+        FROM ai_chat_sessions
+        WHERE student_id = #{studentId}
+          AND biz_domain = #{bizDomain}
+          AND session_status = 'active'
+          AND delete_flag = '1'
+        ORDER BY update_time DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insertSession" parameterType="map">
+        INSERT INTO ai_chat_sessions (
+            session_id, student_id, biz_domain, session_status, current_stage, current_round,
+            collected_slots_json, missing_dimensions_json, last_message_at,
+            created_by, updated_by, create_time, update_time, delete_flag
+        ) VALUES (
+            #{sessionId}, #{studentId}, #{bizDomain}, #{sessionStatus}, #{currentStage}, #{currentRound},
+            #{collectedSlotsJson}, #{missingDimensionsJson}, #{lastMessageAt},
+            #{createdBy}, #{updatedBy}, #{now}, #{now}, '1'
+        )
+    </insert>
+
+    <update id="updateSessionAfterUserMessage" parameterType="map">
+        UPDATE ai_chat_sessions
+        SET current_round = #{currentRound},
+            current_stage = 'conversation',
+            last_message_at = #{lastMessageAt},
+            remark = NULL,
+            updated_by = #{studentId},
+            update_time = #{now}
+        WHERE session_id = #{sessionId}
+          AND student_id = #{studentId}
+          AND delete_flag = '1'
+    </update>
+
+    <update id="updateSessionAfterAssistantMessage" parameterType="map">
+        UPDATE ai_chat_sessions
+        SET last_message_at = #{lastMessageAt},
+            updated_by = #{studentId},
+            update_time = #{now}
+        WHERE session_id = #{sessionId}
+          AND student_id = #{studentId}
+          AND delete_flag = '1'
+    </update>
+
+    <update id="updateSessionStage" parameterType="map">
+        UPDATE ai_chat_sessions
+        SET current_stage = #{currentStage},
+            session_status = 'active',
+            remark = #{remark},
+            updated_by = #{studentId},
+            update_time = #{now}
+        WHERE session_id = #{sessionId}
+          AND student_id = #{studentId}
+          AND delete_flag = '1'
+    </update>
+
+    <update id="updateSessionProgress" parameterType="map">
+        UPDATE ai_chat_sessions
+        SET collected_slots_json = #{collectedSlotsJson},
+            missing_dimensions_json = #{missingDimensionsJson},
+            current_stage = #{currentStage},
+            updated_by = #{studentId},
+            update_time = #{now}
+        WHERE session_id = #{sessionId}
+          AND student_id = #{studentId}
+          AND delete_flag = '1'
+    </update>
+
+    <update id="updateSessionFinalProfile" parameterType="map">
+        UPDATE ai_chat_sessions
+        SET final_profile_id = #{finalProfileId},
+            current_stage = #{currentStage},
+            session_status = 'active',
+            completed_at = NULL,
+            remark = #{remark},
+            updated_by = #{studentId},
+            update_time = #{now}
+        WHERE session_id = #{sessionId}
+          AND student_id = #{studentId}
+          AND delete_flag = '1'
+    </update>
+
+    <select id="listVisibleMessages" resultType="map">
+        SELECT id, message_role, message_type, sequence_no, content, create_time
+        FROM ai_chat_messages
+        WHERE session_id = #{sessionId}
+          AND delete_flag = '1'
+          AND is_visible = 1
+          <if test="beforeId != null">
+          AND id &lt; #{beforeId}
+          </if>
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listRecentVisibleMessages" resultType="map">
+        SELECT message_role, message_type, sequence_no, content, create_time
+        FROM ai_chat_messages
+        WHERE session_id = #{sessionId}
+          AND delete_flag = '1'
+          AND is_visible = 1
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findLatestProgressState" resultType="map">
+        SELECT content_json
+        FROM ai_chat_messages
+        WHERE session_id = #{sessionId}
+          AND delete_flag = '1'
+          AND message_role = 'system'
+          AND message_type = 'internal_state'
+          AND content = 'progress_extraction_result'
+        ORDER BY sequence_no DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insertMessage" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ai_chat_messages (
+            session_id, student_id, message_role, message_type, sequence_no,
+            content, content_json, is_visible, stream_chunk_count,
+            create_time, update_time, delete_flag
+        ) VALUES (
+            #{sessionId}, #{studentId}, #{messageRole}, #{messageType}, #{sequenceNo},
+            #{content}, #{contentJson}, #{isVisible}, #{streamChunkCount},
+            #{now}, #{now}, '1'
+        )
+    </insert>
+
+    <select id="selectNextSequenceNo" resultType="int">
+        SELECT COALESCE(MAX(sequence_no), 0) + 1
+        FROM ai_chat_messages
+        WHERE session_id = #{sessionId}
+          AND delete_flag = '1'
+    </select>
+
+    <select id="selectCurrentRound" resultType="int">
+        SELECT current_round
+        FROM ai_chat_sessions
+        WHERE session_id = #{sessionId}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findProfileResultBySessionId" resultType="map">
+        SELECT id, session_id, student_id, result_status, profile_json, radar_scores_json,
+               summary_text, db_payload_json, save_error_message, create_time, update_time
+        FROM ai_chat_profile_results
+        WHERE session_id = #{sessionId}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findLatestProfileResultBySessionId" resultType="map">
+        SELECT id, session_id, student_id, result_status, profile_json, radar_scores_json,
+               summary_text, db_payload_json, save_error_message, create_time, update_time
+        FROM ai_chat_profile_results
+        WHERE session_id = #{sessionId}
+          AND delete_flag = '1'
+        ORDER BY update_time DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findLatestProfileResultByStudentId" resultType="map">
+        SELECT session_id, result_status, radar_scores_json, summary_text, save_error_message, create_time, update_time
+        FROM ai_chat_profile_results
+        WHERE student_id = #{studentId}
+          AND delete_flag = '1'
+        ORDER BY update_time DESC, create_time DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insertProfileResult" parameterType="map">
+        INSERT INTO ai_chat_profile_results (
+            session_id, student_id, biz_domain, result_status, profile_json,
+            radar_scores_json, summary_text, db_payload_json, save_error_message,
+            create_time, update_time, delete_flag
+        ) VALUES (
+            #{sessionId}, #{studentId}, #{bizDomain}, #{resultStatus}, #{profileJson},
+            #{radarScoresJson}, #{summaryText}, #{dbPayloadJson}, #{saveErrorMessage},
+            #{now}, #{now}, '1'
+        )
+    </insert>
+
+    <update id="updateProfileResult" parameterType="map">
+        UPDATE ai_chat_profile_results
+        SET student_id = #{studentId},
+            biz_domain = #{bizDomain},
+            result_status = #{resultStatus},
+            profile_json = #{profileJson},
+            radar_scores_json = #{radarScoresJson},
+            summary_text = #{summaryText},
+            db_payload_json = #{dbPayloadJson},
+            save_error_message = #{saveErrorMessage},
+            update_time = #{now}
+        WHERE id = #{profileResultId}
+    </update>
+
+    <select id="findLatestGuidedResultByStudentId" resultType="map">
+        SELECT student_id, result_status, radar_scores_json, summary_text,
+               save_error_message, create_time, update_time
+        FROM student_profile_guided_results
+        WHERE student_id = #{studentId}
+          AND delete_flag = '1'
+        ORDER BY update_time DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findDraftBySessionId" resultType="map">
+        SELECT draft_id, session_id, student_id, biz_domain, draft_json, last_patch_json,
+               source_round, version_no, create_time, update_time
+        FROM ai_chat_profile_drafts
+        WHERE session_id = #{sessionId}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <insert id="insertProfileDraft" parameterType="map">
+        INSERT INTO ai_chat_profile_drafts (
+            session_id, student_id, biz_domain, draft_json, last_patch_json,
+            source_round, version_no, create_time, update_time, delete_flag
+        ) VALUES (
+            #{sessionId}, #{studentId}, #{bizDomain}, #{draftJson}, #{lastPatchJson},
+            #{sourceRound}, #{versionNo}, #{now}, #{now}, '1'
+        )
+    </insert>
+
+    <update id="updateProfileDraft" parameterType="map">
+        UPDATE ai_chat_profile_drafts
+        SET student_id = #{studentId},
+            biz_domain = #{bizDomain},
+            draft_json = #{draftJson},
+            last_patch_json = #{lastPatchJson},
+            source_round = #{sourceRound},
+            version_no = #{versionNo},
+            update_time = #{now}
+        WHERE draft_id = #{draftId}
+    </update>
+
+</mapper>

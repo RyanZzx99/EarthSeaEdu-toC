@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+/** AI 建档对话接口，负责会话、消息、档案表单、草稿和雷达结果的请求转发。 */
 @RestController
 @RequestMapping("/api/v1/ai-chat")
 public class AiChatController {
@@ -34,6 +35,7 @@ public class AiChatController {
         this.aiChatDraftService = aiChatDraftService;
     }
 
+    /** 获取当前学生的 AI 建档会话，可按需自动创建新会话。 */
     @GetMapping("/sessions/current")
     public AiChatResponses.CurrentSessionEnvelope getCurrentSession(
         @RequestParam("biz_domain") String bizDomain,
@@ -43,6 +45,7 @@ public class AiChatController {
         return aiChatReadService.getCurrentSession(authorizationHeader, bizDomain, createIfMissing);
     }
 
+    /** 获取指定 AI 建档会话详情。 */
     @GetMapping("/sessions/{sessionId}")
     public AiChatResponses.SessionDetailResponse getSessionDetail(
         @PathVariable("sessionId") String sessionId,
@@ -51,6 +54,7 @@ public class AiChatController {
         return aiChatReadService.getSessionDetail(authorizationHeader, sessionId);
     }
 
+    /** 分页获取指定 AI 建档会话的可见消息列表。 */
     @GetMapping("/sessions/{sessionId}/messages")
     public AiChatResponses.MessageListResponse getMessages(
         @PathVariable("sessionId") String sessionId,
@@ -61,6 +65,7 @@ public class AiChatController {
         return aiChatReadService.getMessages(authorizationHeader, sessionId, limit, beforeId);
     }
 
+    /** 获取指定 AI 建档会话的最终档案结果。 */
     @GetMapping("/sessions/{sessionId}/result")
     public AiChatResponses.ProfileResultResponse getResult(
         @PathVariable("sessionId") String sessionId,
@@ -69,6 +74,7 @@ public class AiChatController {
         return aiChatReadService.getResult(authorizationHeader, sessionId);
     }
 
+    /** 获取指定 AI 建档会话的雷达评分结果。 */
     @GetMapping("/sessions/{sessionId}/radar")
     public AiChatResponses.RadarResponse getRadar(
         @PathVariable("sessionId") String sessionId,
@@ -77,6 +83,7 @@ public class AiChatController {
         return aiChatReadService.getRadar(authorizationHeader, sessionId);
     }
 
+    /** 获取指定 AI 建档会话对应的官方档案表单快照。 */
     @GetMapping("/sessions/{sessionId}/archive-form")
     public AiChatResponses.ArchiveFormResponse getArchiveForm(
         @PathVariable("sessionId") String sessionId,
@@ -85,6 +92,7 @@ public class AiChatController {
         return aiChatReadService.getArchiveForm(authorizationHeader, sessionId);
     }
 
+    /** 保存官方档案表单，并记录后续雷达重算需要的变更范围。 */
     @PostMapping("/sessions/{sessionId}/archive-form")
     public AiChatResponses.ArchiveFormMutationResponse saveArchiveForm(
         @PathVariable("sessionId") String sessionId,
@@ -94,6 +102,7 @@ public class AiChatController {
         return aiChatWriteService.saveArchiveForm(authorizationHeader, sessionId, payload.archiveForm());
     }
 
+    /** 基于官方档案表单重新生成雷达评分。 */
     @PostMapping("/sessions/{sessionId}/archive-form/regenerate-radar")
     public Map<String, Object> regenerateArchiveRadar(
         @PathVariable("sessionId") String sessionId,
@@ -102,6 +111,7 @@ public class AiChatController {
         return aiChatDraftService.regenerateArchiveRadar(authorizationHeader, sessionId);
     }
 
+    /** 获取指定 AI 建档会话的草稿档案。 */
     @GetMapping("/sessions/{sessionId}/draft")
     public Map<String, Object> getDraft(
         @PathVariable("sessionId") String sessionId,
@@ -110,6 +120,7 @@ public class AiChatController {
         return aiChatDraftService.getDraftDetail(authorizationHeader, sessionId);
     }
 
+    /** 将官方档案快照同步到 AI 建档草稿。 */
     @PostMapping("/sessions/{sessionId}/draft/sync-from-official")
     public Map<String, Object> syncDraftFromOfficial(
         @PathVariable("sessionId") String sessionId,
@@ -118,6 +129,7 @@ public class AiChatController {
         return aiChatDraftService.syncFromOfficialSnapshot(authorizationHeader, sessionId);
     }
 
+    /** 从最新对话中抽取档案补丁并合并到草稿。 */
     @PostMapping("/sessions/{sessionId}/draft/extract-latest-patch")
     public Map<String, Object> extractLatestDraftPatch(
         @PathVariable("sessionId") String sessionId,
@@ -126,6 +138,7 @@ public class AiChatController {
         return aiChatDraftService.extractLatestPatch(authorizationHeader, sessionId);
     }
 
+    /** 基于 AI 建档草稿重新生成雷达评分。 */
     @PostMapping("/sessions/{sessionId}/draft/regenerate-radar")
     public Map<String, Object> regenerateDraftRadar(
         @PathVariable("sessionId") String sessionId,

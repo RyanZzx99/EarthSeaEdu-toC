@@ -8,13 +8,10 @@ server:
   forward-headers-strategy: framework
 
 spring:
+  config:
+    import: optional:file:.env[.properties],optional:file:java-backend/.env[.properties]
   application:
     name: ${APP_NAME:EarthSeaEdu Java API}
-  datasource:
-    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:${MYSQL_DB:earthseaedu}}?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
-    username: ${MYSQL_USER:root}
-    password: ${MYSQL_PASSWORD:123456}
-    driver-class-name: com.mysql.cj.jdbc.Driver
   data:
     redis:
       host: ${REDIS_HOST:127.0.0.1}
@@ -32,6 +29,7 @@ spring:
     validate-on-migrate: false
 
 mybatis:
+  mapper-locations: classpath*:mapper/**/*.xml
   configuration:
     map-underscore-to-camel-case: true
     call-setters-on-nulls: true
@@ -60,6 +58,23 @@ earthsea:
   sms-code-expire-minutes: ${SMS_CODE_EXPIRE_MINUTES:5}
   sms-send-cooldown-seconds: ${SMS_SEND_COOLDOWN_SECONDS:60}
   sms-daily-limit: ${SMS_DAILY_LIMIT:10}
+  mysql:
+    host: ${MYSQL_HOST:127.0.0.1}
+    port: ${MYSQL_PORT:3306}
+    database: ${MYSQL_DATABASE:${MYSQL_DB:earthseaedu}}
+    user: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:123456}
+    charset: ${MYSQL_CHARSET:utf8mb4}
+  ssh:
+    enabled: ${SSH_ENABLED:false}
+    host: ${SSH_HOST:}
+    port: ${SSH_PORT:22}
+    user: ${SSH_USER:}
+    password: ${SSH_PASSWORD:}
+    remote-bind-host: ${SSH_REMOTE_BIND_HOST:127.0.0.1}
+    remote-bind-port: ${SSH_REMOTE_BIND_PORT:3306}
+    local-bind-host: ${SSH_LOCAL_BIND_HOST:127.0.0.1}
+    local-bind-port: ${SSH_LOCAL_BIND_PORT:0}
   jwt:
     secret-key: ${JWT_SECRET_KEY:replace_this_with_a_very_strong_secret_key}
     algorithm: ${JWT_ALGORITHM:HS256}
@@ -86,3 +101,5 @@ earthsea:
     model-read-timeout-seconds: ${AI_MODEL_READ_TIMEOUT_SECONDS:300}
     model-stream-read-timeout-seconds: ${AI_MODEL_STREAM_READ_TIMEOUT_SECONDS:300}
     model-default-temperature: ${AI_MODEL_DEFAULT_TEMPERATURE:0.3}
+    model-non-stream-retry-count: ${AI_MODEL_NON_STREAM_RETRY_COUNT:1}
+    model-non-stream-retry-backoff-seconds: ${AI_MODEL_NON_STREAM_RETRY_BACKOFF_SECONDS:1.0}

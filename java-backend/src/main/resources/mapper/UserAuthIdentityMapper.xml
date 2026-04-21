@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.UserAuthIdentityMapper">
+
+    <sql id="BaseColumns">
+        id, user_id, identity_type, identity_key, identity_extra, create_time, update_time, delete_flag
+    </sql>
+
+    <select id="findActiveByUserIdAndType" resultType="com.earthseaedu.backend.model.auth.UserAuthIdentity">
+        SELECT <include refid="BaseColumns"/>
+        FROM user_auth_identities
+        WHERE user_id = #{userId}
+          AND identity_type = #{identityType}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveByTypeAndKey" resultType="com.earthseaedu.backend.model.auth.UserAuthIdentity">
+        SELECT <include refid="BaseColumns"/>
+        FROM user_auth_identities
+        WHERE identity_type = #{identityType}
+          AND identity_key = #{identityKey}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.auth.UserAuthIdentity" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO user_auth_identities (
+            user_id, identity_type, identity_key, identity_extra, create_time, update_time, delete_flag
+        ) VALUES (
+            #{userId}, #{identityType}, #{identityKey}, #{identityExtra}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.earthseaedu.backend.model.auth.UserAuthIdentity">
+        UPDATE user_auth_identities
+        SET user_id = #{userId},
+            identity_type = #{identityType},
+            identity_key = #{identityKey},
+            identity_extra = #{identityExtra},
+            update_time = #{updateTime},
+            delete_flag = #{deleteFlag}
+        WHERE id = #{id}
+    </update>
+
+</mapper>

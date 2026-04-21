@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.NicknameRulePublishLogMapper">
+
+    <select id="findLatestActive" resultType="com.earthseaedu.backend.model.nickname.NicknameRulePublishLog">
+        SELECT id, publish_batch_no, scope, change_summary, published_by, published_time, snapshot_json,
+               rollback_batch_no, create_time, update_time, delete_flag
+        FROM nickname_rule_publish_logs
+        WHERE delete_flag = '1'
+        ORDER BY published_time DESC, id DESC
+        LIMIT 1
+    </select>
+
+</mapper>

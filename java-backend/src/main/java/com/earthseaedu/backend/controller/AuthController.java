@@ -37,6 +37,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.view.RedirectView;
 import org.springframework.web.util.UriComponentsBuilder;
 
+/** 认证、账号、后台管理和导入管理接口，负责请求绑定、鉴权入口和服务层转发。 */
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
@@ -67,6 +68,7 @@ public class AuthController {
         this.properties = properties;
     }
 
+    /** 获取微信扫码授权地址，返回授权 URL 和一次性 state。 */
     @GetMapping("/wechat/authorize-url")
     public AuthResponses.WechatAuthorizeUrlResponse getWechatAuthorizeUrl() {
         String state = authService.createWechatState();
@@ -74,6 +76,7 @@ public class AuthController {
         return new AuthResponses.WechatAuthorizeUrlResponse(authorizeUrl, state);
     }
 
+    /** 处理微信开放平台回调，入参为 code、state 或错误信息，重定向回前端登录页。 */
     @GetMapping("/wechat/callback")
     public RedirectView wechatCallback(
         @RequestParam(value = "code", required = false) String code,
@@ -107,6 +110,7 @@ public class AuthController {
         return new RedirectView(redirectUrl, true);
     }
 
+    /** 发送短信验证码，入参为手机号和业务类型，返回发送结果和调试码。 */
     @PostMapping("/sms/send-code")
     public Map<String, Object> sendSmsCode(@Valid @RequestBody AuthRequests.SendSmsCodeRequest payload) {
         String code = authService.sendAndSaveSmsCode(payload.mobile(), payload.bizType());
@@ -118,6 +122,7 @@ public class AuthController {
         return response;
     }
 
+    /** 检查短信登录是否需要邀请码，入参为手机号，返回邀请码要求。 */
     @PostMapping("/login/sms/invite-required")
     public AuthResponses.InviteRequirementCheckResponse checkSmsInviteRequired(
         @Valid @RequestBody AuthRequests.SmsInviteRequirementCheckRequest payload
@@ -125,6 +130,7 @@ public class AuthController {
         return authService.checkSmsLoginInviteRequirement(payload.mobile());
     }
 
+    /** 检查微信绑定手机号是否需要邀请码，入参为绑定凭证和手机号，返回邀请码要求。 */
     @PostMapping("/wechat/bind-mobile/invite-required")
     public AuthResponses.InviteRequirementCheckResponse checkWechatBindInviteRequired(
         @Valid @RequestBody AuthRequests.WechatBindInviteRequirementCheckRequest payload
@@ -138,6 +144,7 @@ public class AuthController {
         return authService.checkWechatBindInviteRequirement(claims.getSubject(), payload.mobile());
     }
 
+    /** 手机号密码登录，入参为手机号和密码，返回登录令牌并记录登录日志。 */
     @PostMapping("/login/password")
     public AuthResponses.LoginResponse passwordLogin(
         @Valid @RequestBody AuthRequests.PasswordLoginRequest payload,
@@ -169,6 +176,7 @@ public class AuthController {
         }
     }
 
+    /** 使用邀请码注册并登录，入参为手机号、密码和邀请码，返回登录令牌。 */
     @PostMapping("/login/temp-register")
     public AuthResponses.LoginResponse tempRegisterLogin(
         @Valid @RequestBody AuthRequests.TempRegisterLoginRequest payload,
@@ -204,6 +212,7 @@ public class AuthController {
         }
     }
 
+    /** 短信验证码登录，入参为手机号、验证码和可选邀请码，返回登录令牌。 */
     @PostMapping("/login/sms")
     public AuthResponses.LoginResponse smsLogin(
         @Valid @RequestBody AuthRequests.SmsLoginRequest payload,
@@ -239,6 +248,7 @@ public class AuthController {
         }
     }
 
+    /** 微信扫码登录，入参为回调 code 和 state，返回登录结果或后续注册要求。 */
     @PostMapping("/login/wechat")
     public Object wechatLogin(
         @Valid @RequestBody AuthRequests.WechatLoginRequest payload,
@@ -272,6 +282,7 @@ public class AuthController {
         }
     }
 
+    /** 微信临时账号邀请码注册，入参为注册凭证和邀请码，返回登录令牌。 */
     @PostMapping("/login/wechat/invite-register")
     public AuthResponses.LoginResponse wechatInviteRegister(
         @Valid @RequestBody AuthRequests.WechatInviteRegisterRequest payload,
@@ -312,6 +323,7 @@ public class AuthController {
         }
     }
 
+    /** 微信账号绑定手机号，入参为绑定凭证、手机号、验证码和可选邀请码，返回登录令牌。 */
     @PostMapping("/wechat/bind-mobile")
     public AuthResponses.LoginResponse wechatBindMobile(
         @Valid @RequestBody AuthRequests.WechatBindMobileRequest payload,
@@ -354,6 +366,7 @@ public class AuthController {
         }
     }
 
+    /** 设置或修改当前账号密码，入参为新密码和可选当前密码，返回操作结果。 */
     @PostMapping("/password/set")
     public AuthResponses.SimpleMessageResponse setPassword(
         @Valid @RequestBody AuthRequests.SetPasswordRequest payload,
@@ -364,6 +377,7 @@ public class AuthController {
         return new AuthResponses.SimpleMessageResponse("密码设置成功");
     }
 
+    /** 查询当前登录用户资料，入参为 Authorization，返回用户基础资料。 */
     @GetMapping("/me")
     public AuthResponses.UserProfileResponse me(
         @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization
@@ -376,6 +390,7 @@ public class AuthController {
         return profile;
     }
 
+    /** 修改当前用户昵称，入参为昵称和登录态，返回更新后的昵称。 */
     @PostMapping("/me/nickname")
     public AuthResponses.NicknameResponse updateMyNickname(
         @Valid @RequestBody AuthRequests.UpdateNicknameRequest payload,
@@ -391,6 +406,7 @@ public class AuthController {
         );
     }
 
+    /** 检查当前用户昵称可用性，入参为昵称和登录态，返回可用性判断。 */
     @PostMapping("/me/nickname/check")
     public AuthResponses.AvailabilityCheckResponse checkMyNickname(
         @Valid @RequestBody AuthRequests.CheckNicknameAvailabilityRequest payload,
@@ -406,6 +422,7 @@ public class AuthController {
         );
     }
 
+    /** 激活当前账号教师端权限，入参为教师邀请码，返回激活结果。 */
     @PostMapping("/me/teacher/activate")
     public AuthResponses.TeacherPortalActivateResponse activateTeacherPortal(
         @Valid @RequestBody AuthRequests.TeacherPortalActivateRequest payload,
@@ -415,6 +432,7 @@ public class AuthController {
         return authService.activateTeacherPortalWithInvite(userId, payload.inviteCode());
     }
 
+    /** 绑定当前账号手机号，入参为手机号，返回绑定后的账号信息。 */
     @PostMapping("/me/mobile/bind")
     public AuthResponses.MobileBindResponse bindMyMobile(
         @Valid @RequestBody AuthRequests.BindMyMobileRequest payload,
@@ -424,6 +442,7 @@ public class AuthController {
         return authService.bindMobileForCurrentUser(userId, payload.mobile());
     }
 
+    /** 通过短信重置当前账号密码，入参为手机号、验证码和新密码，返回操作结果。 */
     @PostMapping("/me/password/reset-by-sms")
     public AuthResponses.SimpleMessageResponse resetMyPasswordBySms(
         @Valid @RequestBody AuthRequests.ResetPasswordBySmsRequest payload,
@@ -434,6 +453,7 @@ public class AuthController {
         return new AuthResponses.SimpleMessageResponse("密码重置成功");
     }
 
+    /** 检查当前账号新密码是否可用，入参为新密码，返回可用性判断。 */
     @PostMapping("/me/password/check")
     public AuthResponses.AvailabilityCheckResponse checkMyPassword(
         @Valid @RequestBody AuthRequests.CheckPasswordAvailabilityRequest payload,
@@ -443,6 +463,7 @@ public class AuthController {
         return authService.checkPasswordAvailability(userId, payload.newPassword());
     }
 
+    /** 检查短信重置场景的新密码是否可用，入参为新密码，返回可用性判断。 */
     @PostMapping("/me/password/check-for-reset")
     public AuthResponses.AvailabilityCheckResponse checkMyResetPassword(
         @Valid @RequestBody AuthRequests.CheckResetPasswordAvailabilityRequest payload,
@@ -452,11 +473,13 @@ public class AuthController {
         return authService.checkResetPasswordAvailability(userId, payload.newPassword());
     }
 
+    /** 退出登录占位接口，无入参，返回成功消息。 */
     @PostMapping("/logout")
     public AuthResponses.SimpleMessageResponse logout() {
         return new AuthResponses.SimpleMessageResponse("退出成功");
     }
 
+    /** 管理员批量生成邀请码，入参为生成数量、过期天数、备注和用途，返回邀请码列表。 */
     @PostMapping("/invite-codes/generate")
     public AuthResponses.InviteCodeItemsResponse generateInviteCodes(
         @Valid @RequestBody AuthRequests.GenerateInviteCodesRequest payload,
@@ -471,6 +494,7 @@ public class AuthController {
         );
     }
 
+    /** 管理员发放邀请码，入参为邀请码和手机号，返回发放后的邀请码信息。 */
     @PostMapping("/invite-codes/issue")
     public AuthResponses.InviteCodeItem issueInviteCode(
         @Valid @RequestBody AuthRequests.IssueInviteCodeRequest payload,
@@ -480,6 +504,7 @@ public class AuthController {
         return authService.issueInviteCode(payload.code(), payload.mobile());
     }
 
+    /** 管理员查询邀请码列表，入参为筛选条件和数量上限，返回分页列表。 */
     @GetMapping("/invite-codes")
     public AuthResponses.InviteCodeListResponse listInviteCodes(
         @RequestParam(value = "status", required = false) String status,
@@ -493,6 +518,7 @@ public class AuthController {
         return authService.listInviteCodes(status, mobile, codeKeyword, inviteScene, limit);
     }
 
+    /** 管理员更新邀请码状态，入参为邀请码和目标状态，返回更新后的邀请码。 */
     @PostMapping("/invite-codes/update-status")
     public AuthResponses.InviteCodeItem updateInviteCodeStatus(
         @Valid @RequestBody AuthRequests.UpdateInviteCodeStatusRequest payload,
@@ -502,6 +528,7 @@ public class AuthController {
         return authService.updateInviteCodeStatus(payload.code(), payload.status());
     }
 
+    /** 管理员更新用户状态，入参为用户 ID 或手机号及目标状态，返回更新结果。 */
     @PostMapping("/users/update-status")
     public AuthResponses.UserStatusResponse updateUserStatus(
         @Valid @RequestBody AuthRequests.UpdateUserStatusRequest payload,
@@ -511,6 +538,7 @@ public class AuthController {
         return authService.updateUserStatus(payload.status(), payload.userId(), payload.mobile());
     }
 
+    /** 管理员查询昵称规则分组，入参为状态和分组类型，返回分组列表。 */
     @GetMapping("/nickname/rule-groups")
     public Map<String, Object> listNicknameRuleGroups(
         @RequestParam(value = "status", required = false) String status,
@@ -529,6 +557,7 @@ public class AuthController {
         return response;
     }
 
+    /** 管理员创建昵称规则分组，入参为分组编码、名称、类型和状态，返回创建结果。 */
     @PostMapping("/nickname/rule-groups")
     public Map<String, Object> createNicknameRuleGroup(
         @Valid @RequestBody AuthRequests.CreateNicknameRuleGroupRequest payload,
@@ -547,6 +576,7 @@ public class AuthController {
         return nicknameGuardService.toRuleGroupPayload(row);
     }
 
+    /** 管理员创建昵称词条规则，入参为分组、词条、匹配方式和决策，返回创建结果。 */
     @PostMapping("/nickname/word-rules")
     public Map<String, Object> createNicknameWordRule(
         @Valid @RequestBody AuthRequests.CreateNicknameWordRuleRequest payload,
@@ -567,6 +597,7 @@ public class AuthController {
         return nicknameGuardService.toWordRulePayload(row);
     }
 
+    /** 管理员查询昵称词条规则，入参为分组、状态、决策、关键字和数量上限，返回分页列表。 */
     @GetMapping("/nickname/word-rules")
     public Map<String, Object> listNicknameWordRules(
         @RequestParam(value = "group_id", required = false) Integer groupId,
@@ -590,6 +621,7 @@ public class AuthController {
         return response;
     }
 
+    /** 管理员创建昵称联系方式规则，入参为正则、分组、决策和风险等级，返回创建结果。 */
     @PostMapping("/nickname/contact-patterns")
     public Map<String, Object> createNicknameContactPattern(
         @Valid @RequestBody AuthRequests.CreateNicknameContactPatternRequest payload,
@@ -611,6 +643,7 @@ public class AuthController {
         return nicknameGuardService.toContactPatternPayload(row);
     }
 
+    /** 管理员查询昵称联系方式规则，入参为分组、状态、类型、关键字和数量上限，返回分页列表。 */
     @GetMapping("/nickname/contact-patterns")
     public Map<String, Object> listNicknameContactPatterns(
         @RequestParam(value = "group_id", required = false) Integer groupId,
@@ -634,6 +667,7 @@ public class AuthController {
         return response;
     }
 
+    /** 管理员更新昵称规则状态，入参为目标类型、目标 ID 和状态，返回更新结果。 */
     @PostMapping("/nickname/rules/update-status")
     public Map<String, Object> updateNicknameRuleTargetStatus(
         @Valid @RequestBody AuthRequests.UpdateNicknameRuleTargetStatusRequest payload,
@@ -647,6 +681,7 @@ public class AuthController {
         );
     }
 
+    /** 管理员查询昵称审核日志，入参为决策、场景、命中分组和数量上限，返回分页日志。 */
     @GetMapping("/nickname/audit-logs")
     public Map<String, Object> listNicknameAuditLogs(
         @RequestParam(value = "decision", required = false) String decision,
@@ -668,6 +703,7 @@ public class AuthController {
         return response;
     }
 
+    /** 查询 AI 建档 Prompt 配置列表，入参为业务域、阶段、状态、关键词和数量上限，返回分页配置项。 */
     @GetMapping("/ai-prompts")
     public Map<String, Object> listAiPrompts(
         @RequestParam(value = "biz_domain", required = false) String bizDomain,
@@ -691,6 +727,7 @@ public class AuthController {
         return response;
     }
 
+    /** 管理员创建题库导入任务，入参为来源模式、题库名、入口路径和文件，返回任务详情。 */
     @PostMapping(value = "/question-banks/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Map<String, Object> importQuestionBank(
         @RequestParam("source_mode") String sourceMode,
@@ -703,6 +740,7 @@ public class AuthController {
         return questionBankImportService.createImportJob(sourceMode, bankName, entryPathsJson, files);
     }
 
+    /** 管理员查询题库导入任务，入参为任务 ID，返回导入进度和结果。 */
     @GetMapping("/question-banks/import-jobs/{job_id}")
     public Map<String, Object> getQuestionBankImportJob(
         @PathVariable("job_id") long jobId,
@@ -712,6 +750,7 @@ public class AuthController {
         return questionBankImportService.getImportJobDetail(jobId);
     }
 
+    /** 更新指定 AI 建档 Prompt 配置，入参为 Prompt ID 与配置请求体，返回更新后的配置。 */
     @PostMapping("/ai-prompts/{prompt_id}/update")
     public Map<String, Object> updateAiPrompt(
         @PathVariable("prompt_id") long promptId,
@@ -739,6 +778,7 @@ public class AuthController {
         return aiConfigAdminService.toAiPromptUpdatePayload(row);
     }
 
+    /** 查询 AI 建档运行时配置，入参为管理员密钥，返回当前覆盖值和环境默认值。 */
     @GetMapping("/ai-runtime-configs")
     public Map<String, Object> listAiRuntimeConfigs(
         @RequestHeader(value = "X-Admin-Key", required = false) String adminKey
@@ -749,6 +789,7 @@ public class AuthController {
         return response;
     }
 
+    /** 更新 AI 建档运行时配置，入参为配置键与覆盖值，返回更新后的生效配置。 */
     @PostMapping("/ai-runtime-configs/{config_key}/update")
     public Map<String, Object> updateAiRuntimeConfig(
         @PathVariable("config_key") String configKey,

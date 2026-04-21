@@ -1,0 +1,768 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.MockExamMapper">
+
+    <select id="listPapers" resultType="map">
+        SELECT p.exam_paper_id, p.paper_code, p.paper_name, p.module_name, p.subject_type,
+               p.book_code, p.test_no, p.create_time,
+               b.bank_name, b.exam_type AS exam_category
+        FROM exam_paper p
+        JOIN exam_bank b ON b.exam_bank_id = p.exam_bank_id
+        WHERE p.delete_flag = '1'
+          AND p.status = 1
+          AND b.delete_flag = '1'
+          AND b.status = 1
+          AND b.exam_type = 'IELTS'
+        <if test="subjectType != null and subjectType != ''">
+          AND LOWER(p.subject_type) = #{subjectType}
+        </if>
+        ORDER BY p.subject_type ASC, p.book_code ASC, p.test_no ASC, p.exam_paper_id ASC
+    </select>
+
+    <select id="findPaperRow" resultType="map">
+        SELECT p.exam_paper_id, p.paper_code, p.paper_name, p.module_name, p.subject_type,
+               p.book_code, p.test_no, p.create_time,
+               b.bank_name, b.exam_type AS exam_category
+        FROM exam_paper p
+        JOIN exam_bank b ON b.exam_bank_id = p.exam_bank_id
+        WHERE p.exam_paper_id = #{examPaperId}
+          AND p.delete_flag = '1'
+          AND p.status = 1
+          AND b.delete_flag = '1'
+          AND b.status = 1
+          AND b.exam_type = 'IELTS'
+        LIMIT 1
+    </select>
+
+    <select id="listPaperSets" resultType="map">
+        SELECT mockexam_paper_set_id, set_name, exam_category, exam_content, paper_count,
+               status, remark, create_time, update_time
+        FROM mockexam_paper_set
+        WHERE delete_flag = '1'
+          AND status = 1
+        <if test="examCategory != null and examCategory != ''">
+          AND exam_category = #{examCategory}
+        </if>
+        <if test="examContent != null and examContent != ''">
+          AND exam_content = #{examContent}
+        </if>
+        ORDER BY create_time DESC, mockexam_paper_set_id DESC
+    </select>
+
+    <select id="findPaperSet" resultType="map">
+        SELECT mockexam_paper_set_id, set_name, exam_category, exam_content, paper_count,
+               status, created_by, remark, create_time, update_time
+        FROM mockexam_paper_set
+        WHERE mockexam_paper_set_id = #{paperSetId}
+          AND delete_flag = '1'
+        <if test="requireEnabled">
+          AND status = 1
+        </if>
+        LIMIT 1
+    </select>
+
+    <select id="listPaperSetItems" resultType="map">
+        SELECT i.mockexam_paper_set_id, i.exam_paper_id, i.sort_order,
+               p.paper_name, p.paper_code, p.subject_type, p.status AS paper_status,
+               b.status AS bank_status
+        FROM mockexam_paper_set_item i
+        JOIN exam_paper p ON p.exam_paper_id = i.exam_paper_id
+        JOIN exam_bank b ON b.exam_bank_id = p.exam_bank_id
+        WHERE i.delete_flag = '1'
+          AND p.delete_flag = '1'
+          AND b.delete_flag = '1'
+          AND b.exam_type = 'IELTS'
+          AND p.status = 1
+          AND b.status = 1
+          AND i.mockexam_paper_set_id IN
+        <foreach collection="paperSetIds" item="paperSetId" open="(" separator="," close=")">
+            #{paperSetId}
+        </foreach>
+        ORDER BY i.mockexam_paper_set_id ASC, COALESCE(i.sort_order, 0), i.mockexam_paper_set_item_id ASC
+    </select>
+
+    <select id="listSubmissions" resultType="map">
+        SELECT mockexam_submission_id, exam_paper_id, paper_code, title, exam_category, exam_content,
+               score_percent, total_questions, correct_count, wrong_count, gradable_questions,
+               elapsed_seconds, payload_json, create_time
+        FROM mockexam_submission
+        WHERE user_id = #{userId}
+          AND delete_flag = '1'
+          AND status = 1
+        <if test="examContent != null and examContent != ''">
+          AND exam_content = #{examContent}
+        </if>
+        ORDER BY create_time DESC, mockexam_submission_id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findSubmission" resultType="map">
+        SELECT mockexam_submission_id, user_id, exam_paper_id, paper_code, title, exam_category, exam_content,
+               payload_json, answered_count, total_questions, gradable_questions, elapsed_seconds,
+               correct_count, wrong_count, unanswered_count, score_percent, status, create_time, update_time
+        FROM mockexam_submission
+        WHERE mockexam_submission_id = #{submissionId}
+          AND user_id = #{userId}
+          AND delete_flag = '1'
+          AND status = 1
+        LIMIT 1
+    </select>
+
+    <select id="listProgresses" resultType="map">
+        SELECT mockexam_progress_id, exam_paper_id, paper_code, title, exam_category, exam_content,
+               answered_count, total_questions, elapsed_seconds, current_question_id,
+               current_question_index, current_question_no, last_active_time, status, payload_json
+        FROM mockexam_progress
+        WHERE user_id = #{userId}
+          AND delete_flag = '1'
+          AND status = 1
+        ORDER BY last_active_time DESC, mockexam_progress_id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findActiveProgress" resultType="map">
+        SELECT mockexam_progress_id, user_id, exam_paper_id, paper_code, title, exam_category, exam_content,
+               payload_json, current_question_id, current_question_index, current_question_no,
+               answered_count, total_questions, elapsed_seconds, mockexam_submission_id,
+               status, last_active_time, create_time, update_time
+        FROM mockexam_progress
+        WHERE mockexam_progress_id = #{progressId}
+          AND user_id = #{userId}
+          AND delete_flag = '1'
+          AND status = 1
+        LIMIT 1
+    </select>
+
+    <select id="findActiveProgressIdByPaper" resultType="map">
+        SELECT mockexam_progress_id
+        FROM mockexam_progress
+        WHERE user_id = #{userId}
+          AND exam_paper_id = #{examPaperId}
+          AND delete_flag = '1'
+          AND status = 1
+        ORDER BY last_active_time DESC, mockexam_progress_id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findActiveProgressIdByPaperCode" resultType="map">
+        SELECT mockexam_progress_id
+        FROM mockexam_progress
+        WHERE user_id = #{userId}
+          AND paper_code = #{paperCode}
+          AND delete_flag = '1'
+          AND status = 1
+        ORDER BY last_active_time DESC, mockexam_progress_id DESC
+        LIMIT 1
+    </select>
+
+    <select id="listQuestionFavorites" resultType="map">
+        SELECT f.mockexam_question_favorite_id, f.exam_question_id, f.exam_paper_id, f.paper_code,
+               f.paper_title, f.exam_content, f.exam_section_id, f.exam_group_id, f.question_id,
+               f.question_no, f.question_type, f.stat_type, f.create_time,
+               s.section_title, g.group_title,
+               COALESCE(NULLIF(q.stem_text, ''), NULLIF(q.content_text, ''), q.stem_html, q.content_html, '') AS preview_source
+        FROM mockexam_question_favorite f
+        LEFT JOIN exam_section s ON s.exam_section_id = f.exam_section_id
+        LEFT JOIN exam_group g ON g.exam_group_id = f.exam_group_id
+        LEFT JOIN exam_question q ON q.exam_question_id = f.exam_question_id
+        WHERE f.user_id = #{userId}
+          AND f.delete_flag = '1'
+        <if test="examPaperId != null">
+          AND f.exam_paper_id = #{examPaperId}
+        </if>
+        ORDER BY f.create_time DESC, f.mockexam_question_favorite_id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listEntityFavorites" resultType="map">
+        SELECT target_type, target_id, exam_paper_id, paper_set_id, paper_code, title,
+               exam_category, exam_content, create_time
+        FROM mockexam_entity_favorite
+        WHERE user_id = #{userId}
+          AND delete_flag = '1'
+          AND status = 1
+        ORDER BY create_time DESC, mockexam_entity_favorite_id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findQuestionFavorite" resultType="map">
+        SELECT mockexam_question_favorite_id
+        FROM mockexam_question_favorite
+        WHERE user_id = #{userId}
+          AND exam_question_id = #{examQuestionId}
+        ORDER BY mockexam_question_favorite_id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findActiveQuestionFavorite" resultType="map">
+        SELECT mockexam_question_favorite_id
+        FROM mockexam_question_favorite
+        WHERE user_id = #{userId}
+          AND exam_question_id = #{examQuestionId}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findQuestionWrongCount" resultType="map">
+        SELECT wrong_count
+        FROM mockexam_wrong_question_stat
+        WHERE user_id = #{userId}
+          AND exam_question_id = #{examQuestionId}
+          AND delete_flag = '1'
+          AND status = 1
+        LIMIT 1
+    </select>
+
+    <select id="listWrongQuestions" resultType="map">
+        SELECT mockexam_wrong_question_stat_id, exam_question_id, exam_paper_id, paper_code, paper_title,
+               exam_section_id, section_title, exam_group_id, group_title, exam_content,
+               question_id, question_no, question_type, stat_type, preview_text, wrong_count,
+               latest_wrong_time, update_time
+        FROM mockexam_wrong_question_stat
+        WHERE user_id = #{userId}
+          AND delete_flag = '1'
+          AND status = 1
+        ORDER BY latest_wrong_time DESC, update_time DESC, mockexam_wrong_question_stat_id DESC
+    </select>
+
+    <select id="findWrongQuestionSnapshot" resultType="map">
+        SELECT q.exam_question_id, q.question_id, q.question_code, q.question_no, q.raw_type, q.stat_type,
+               q.stem_text, q.content_text, q.stem_html, q.content_html,
+               g.exam_group_id, g.group_title, g.stat_type AS group_stat_type,
+               s.exam_section_id, s.section_title,
+               p.exam_paper_id, p.paper_code, p.paper_name, p.subject_type,
+               b.exam_type AS exam_category
+        FROM exam_question q
+        JOIN exam_group g ON g.exam_group_id = q.exam_group_id
+        JOIN exam_section s ON s.exam_section_id = g.exam_section_id
+        JOIN exam_paper p ON p.exam_paper_id = s.exam_paper_id
+        JOIN exam_bank b ON b.exam_bank_id = p.exam_bank_id
+        WHERE q.exam_question_id = #{examQuestionId}
+          AND q.delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findSubmissionQuestionStateId" resultType="map">
+        SELECT mockexam_submission_question_state_id
+        FROM mockexam_submission_question_state
+        WHERE mockexam_submission_id = #{submissionId}
+          AND delete_flag = '1'
+          AND (exam_question_id = #{examQuestionId} OR question_id = #{questionId})
+        ORDER BY mockexam_submission_question_state_id DESC
+        LIMIT 1
+    </select>
+
+    <select id="countActiveWrongQuestions" resultType="map">
+        SELECT COUNT(1) AS total
+        FROM mockexam_wrong_question_stat
+        WHERE user_id = #{userId}
+          AND delete_flag = '1'
+          AND status = 1
+          AND exam_question_id IN
+        <foreach collection="examQuestionIds" item="examQuestionId" open="(" separator="," close=")">
+            #{examQuestionId}
+        </foreach>
+    </select>
+
+    <select id="findQuestionSnapshot" resultType="map">
+        SELECT q.exam_question_id, q.exam_group_id, q.question_id, q.question_code, q.question_no,
+               q.raw_type, q.stat_type, q.stem_html, q.stem_text, q.content_html, q.content_text,
+               q.source_blank_id, q.sort_order, q.score,
+               g.group_id, g.group_title, g.raw_type AS group_raw_type, g.stat_type AS group_stat_type,
+               g.instructions_html AS group_instructions_html, g.instructions_text AS group_instructions_text,
+               g.content_html AS group_content_html, g.content_text AS group_content_text,
+               s.exam_section_id, s.exam_paper_id, s.section_id, s.section_no, s.section_title,
+               s.content_html AS section_content_html, s.content_text AS section_content_text,
+               s.instructions_html AS section_instructions_html, s.instructions_text AS section_instructions_text,
+               s.primary_audio_asset_id,
+               p.paper_code, p.paper_name, p.module_name, p.subject_type,
+               b.bank_name, b.exam_type AS exam_category
+        FROM exam_question q
+        JOIN exam_group g ON g.exam_group_id = q.exam_group_id
+        JOIN exam_section s ON s.exam_section_id = g.exam_section_id
+        JOIN exam_paper p ON p.exam_paper_id = s.exam_paper_id
+        JOIN exam_bank b ON b.exam_bank_id = p.exam_bank_id
+        WHERE q.exam_question_id = #{examQuestionId}
+          AND q.delete_flag = '1'
+          AND q.status = 1
+          AND g.delete_flag = '1'
+          AND s.delete_flag = '1'
+          AND p.delete_flag = '1'
+          AND b.delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="listSectionsByPaper" resultType="map">
+        SELECT exam_section_id, exam_paper_id, section_id, section_no, section_title,
+               content_html, content_text, instructions_html, instructions_text, sort_order,
+               primary_audio_asset_id, primary_image_asset_id
+        FROM exam_section
+        WHERE exam_paper_id = #{examPaperId}
+          AND delete_flag = '1'
+          AND status = 1
+        ORDER BY COALESCE(sort_order, 0), COALESCE(section_no, 0), exam_section_id
+    </select>
+
+    <select id="listGroupsBySections" resultType="map">
+        SELECT exam_group_id, exam_section_id, group_id, group_title, raw_type, stat_type,
+               instructions_html, instructions_text, content_html, content_text,
+               has_shared_options, has_blanks, primary_image_asset_id, structure_json, sort_order
+        FROM exam_group
+        WHERE delete_flag = '1'
+          AND status = 1
+          AND exam_section_id IN
+        <foreach collection="sectionIds" item="sectionId" open="(" separator="," close=")">
+            #{sectionId}
+        </foreach>
+        ORDER BY COALESCE(sort_order, 0), exam_group_id
+    </select>
+
+    <select id="listQuestionsByGroups" resultType="map">
+        SELECT exam_question_id, exam_group_id, question_id, question_code, question_no,
+               raw_type, stat_type, stem_html, stem_text, content_html, content_text,
+               source_blank_id, sort_order, score
+        FROM exam_question
+        WHERE delete_flag = '1'
+          AND status = 1
+          AND exam_group_id IN
+        <foreach collection="groupIds" item="groupId" open="(" separator="," close=")">
+            #{groupId}
+        </foreach>
+        ORDER BY COALESCE(sort_order, 0), COALESCE(question_no, 0), exam_question_id
+    </select>
+
+    <select id="listOptionsByGroups" resultType="map">
+        SELECT exam_group_option_id, exam_group_id, option_key, option_html, option_text, sort_order
+        FROM exam_group_option
+        WHERE delete_flag = '1'
+          AND status = 1
+          AND exam_group_id IN
+        <foreach collection="groupIds" item="groupId" open="(" separator="," close=")">
+            #{groupId}
+        </foreach>
+        ORDER BY COALESCE(sort_order, 0), exam_group_option_id
+    </select>
+
+    <select id="listAnswersByQuestions" resultType="map">
+        SELECT exam_question_answer_id, exam_question_id, answer_raw, answer_json
+        FROM exam_question_answer
+        WHERE delete_flag = '1'
+          AND status = 1
+          AND exam_question_id IN
+        <foreach collection="questionIds" item="questionId" open="(" separator="," close=")">
+            #{questionId}
+        </foreach>
+        ORDER BY exam_question_answer_id
+    </select>
+
+    <select id="listBlanksByQuestions" resultType="map">
+        SELECT exam_question_blank_id, exam_question_id, blank_id, sort_order
+        FROM exam_question_blank
+        WHERE delete_flag = '1'
+          AND status = 1
+          AND exam_question_id IN
+        <foreach collection="questionIds" item="questionId" open="(" separator="," close=")">
+            #{questionId}
+        </foreach>
+        ORDER BY COALESCE(sort_order, 0), exam_question_blank_id
+    </select>
+
+    <select id="listAssets" resultType="map">
+        SELECT exam_asset_id, exam_section_id, exam_group_id, exam_question_id, asset_type,
+               asset_role, asset_name, source_path, storage_path, asset_url, sort_order
+        FROM exam_asset
+        WHERE delete_flag = '1'
+          AND status = 1
+          AND (
+            <trim prefixOverrides="OR">
+                <if test="sectionIds != null and sectionIds.size() > 0">
+                  OR exam_section_id IN
+                  <foreach collection="sectionIds" item="sectionId" open="(" separator="," close=")">
+                    #{sectionId}
+                  </foreach>
+                </if>
+                <if test="groupIds != null and groupIds.size() > 0">
+                  OR exam_group_id IN
+                  <foreach collection="groupIds" item="groupId" open="(" separator="," close=")">
+                    #{groupId}
+                  </foreach>
+                </if>
+                <if test="questionIds != null and questionIds.size() > 0">
+                  OR exam_question_id IN
+                  <foreach collection="questionIds" item="questionId" open="(" separator="," close=")">
+                    #{questionId}
+                  </foreach>
+                </if>
+            </trim>
+          )
+        ORDER BY COALESCE(sort_order, 0), exam_asset_id
+    </select>
+
+    <select id="listOptionsForGroup" resultType="map">
+        SELECT exam_group_option_id, exam_group_id, option_key, option_html, option_text, sort_order
+        FROM exam_group_option
+        WHERE exam_group_id = #{examGroupId}
+          AND delete_flag = '1'
+          AND status = 1
+        ORDER BY COALESCE(sort_order, 0), exam_group_option_id
+    </select>
+
+    <select id="listQuestionAnswers" resultType="map">
+        SELECT exam_question_answer_id, exam_question_id, answer_raw, answer_json
+        FROM exam_question_answer
+        WHERE exam_question_id = #{examQuestionId}
+          AND delete_flag = '1'
+          AND status = 1
+        ORDER BY exam_question_answer_id
+    </select>
+
+    <select id="listQuestionBlanks" resultType="map">
+        SELECT exam_question_blank_id, exam_question_id, blank_id, sort_order
+        FROM exam_question_blank
+        WHERE exam_question_id = #{examQuestionId}
+          AND delete_flag = '1'
+          AND status = 1
+        ORDER BY COALESCE(sort_order, 0), exam_question_blank_id
+    </select>
+
+    <select id="listQuestionAssets" resultType="map">
+        SELECT exam_asset_id, exam_section_id, exam_group_id, exam_question_id, asset_type,
+               asset_role, asset_name, source_path, storage_path, asset_url, sort_order
+        FROM exam_asset
+        WHERE exam_question_id = #{examQuestionId}
+          AND delete_flag = '1'
+          AND status = 1
+        ORDER BY COALESCE(sort_order, 0), exam_asset_id
+    </select>
+
+    <select id="listSectionAssets" resultType="map">
+        SELECT exam_asset_id, exam_section_id, exam_group_id, exam_question_id, asset_type,
+               asset_role, asset_name, source_path, storage_path, asset_url, sort_order
+        FROM exam_asset
+        WHERE exam_section_id = #{sectionId}
+          AND delete_flag = '1'
+          AND status = 1
+        ORDER BY COALESCE(sort_order, 0), exam_asset_id
+    </select>
+
+    <select id="listGroupAssets" resultType="map">
+        SELECT exam_asset_id, exam_section_id, exam_group_id, exam_question_id, asset_type,
+               asset_role, asset_name, source_path, storage_path, asset_url, sort_order
+        FROM exam_asset
+        WHERE exam_group_id = #{groupId}
+          AND delete_flag = '1'
+          AND status = 1
+        ORDER BY COALESCE(sort_order, 0), exam_asset_id
+    </select>
+
+    <select id="findPromptConfig" resultType="map">
+        SELECT prompt_content, model_name, temperature, top_p, max_tokens
+        FROM ai_prompt_configs
+        WHERE prompt_key = #{promptKey}
+          AND status = 'active'
+          AND delete_flag = '1'
+        ORDER BY update_time DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findRuntimeConfig" resultType="map">
+        SELECT config_value, status
+        FROM ai_runtime_configs
+        WHERE config_key = #{configKey}
+          AND delete_flag = '1'
+        ORDER BY update_time DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <update id="markProgressSubmitted" parameterType="map">
+        UPDATE mockexam_progress
+        SET status = 2,
+            mockexam_submission_id = #{submissionId},
+            elapsed_seconds = #{elapsedSeconds},
+            last_active_time = #{now},
+            update_time = #{now}
+        WHERE mockexam_progress_id = #{progressId}
+          AND user_id = #{userId}
+    </update>
+
+    <update id="discardProgress" parameterType="map">
+        UPDATE mockexam_progress
+        SET status = 0,
+            last_active_time = #{now},
+            update_time = #{now}
+        WHERE mockexam_progress_id = #{progressId}
+          AND user_id = #{userId}
+    </update>
+
+    <update id="deleteQuestionFavorite">
+        UPDATE mockexam_question_favorite
+        SET delete_flag = '0',
+            update_time = #{now}
+        WHERE user_id = #{userId}
+          AND exam_question_id = #{examQuestionId}
+    </update>
+
+    <insert id="insertQuestionFavorite" parameterType="map">
+        INSERT INTO mockexam_question_favorite (
+            user_id, exam_paper_id, paper_code, paper_title, exam_section_id, exam_group_id,
+            exam_question_id, question_id, question_no, question_type, stat_type,
+            exam_category, exam_content, create_time, update_time, delete_flag
+        ) VALUES (
+            #{userId}, #{examPaperId}, #{paperCode}, #{paperTitle}, #{examSectionId}, #{examGroupId},
+            #{examQuestionId}, #{questionId}, #{questionNo}, #{questionType}, #{statType},
+            #{examCategory}, #{examContent}, #{now}, #{now}, '1'
+        )
+    </insert>
+
+    <update id="updateQuestionFavorite" parameterType="map">
+        UPDATE mockexam_question_favorite
+        SET exam_paper_id = #{examPaperId},
+            paper_code = #{paperCode},
+            paper_title = #{paperTitle},
+            exam_section_id = #{examSectionId},
+            exam_group_id = #{examGroupId},
+            question_id = #{questionId},
+            question_no = #{questionNo},
+            question_type = #{questionType},
+            stat_type = #{statType},
+            exam_category = #{examCategory},
+            exam_content = #{examContent},
+            create_time = #{now},
+            update_time = #{now},
+            delete_flag = '1'
+        WHERE mockexam_question_favorite_id = #{favoriteId}
+    </update>
+
+    <update id="resolveWrongQuestions">
+        UPDATE mockexam_wrong_question_stat
+        SET status = 0,
+            delete_flag = '0',
+            update_time = #{now}
+        WHERE user_id = #{userId}
+          AND delete_flag = '1'
+          AND status = 1
+          AND exam_question_id IN
+        <foreach collection="examQuestionIds" item="examQuestionId" open="(" separator="," close=")">
+            #{examQuestionId}
+        </foreach>
+    </update>
+
+    <insert id="insertSubmission" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="mockexam_submission_id">
+        INSERT INTO mockexam_submission (
+            user_id, exam_paper_id, paper_code, title, exam_category, exam_content, payload_json,
+            answered_count, total_questions, gradable_questions, elapsed_seconds,
+            correct_count, wrong_count, unanswered_count, score_percent,
+            status, create_time, update_time, delete_flag
+        ) VALUES (
+            #{userId}, #{examPaperId}, #{paperCode}, #{title}, #{examCategory}, #{examContent}, #{payloadJson},
+            #{answeredCount}, #{totalQuestions}, #{gradableQuestions}, #{elapsedSeconds},
+            #{correctCount}, #{wrongCount}, #{unansweredCount}, #{scorePercent},
+            1, #{now}, #{now}, '1'
+        )
+    </insert>
+
+    <insert id="insertProgress" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="mockexam_progress_id">
+        INSERT INTO mockexam_progress (
+            user_id, exam_paper_id, paper_code, title, exam_category, exam_content, payload_json,
+            current_question_id, current_question_index, current_question_no,
+            answered_count, total_questions, elapsed_seconds, status,
+            last_active_time, create_time, update_time, delete_flag
+        ) VALUES (
+            #{userId}, #{examPaperId}, #{paperCode}, #{title}, #{examCategory}, #{examContent}, #{payloadJson},
+            #{currentQuestionId}, #{currentQuestionIndex}, #{currentQuestionNo},
+            #{answeredCount}, #{totalQuestions}, #{elapsedSeconds}, 1,
+            #{now}, #{now}, #{now}, '1'
+        )
+    </insert>
+
+    <update id="updateProgress" parameterType="map">
+        UPDATE mockexam_progress
+        SET exam_paper_id = #{examPaperId},
+            paper_code = #{paperCode},
+            title = #{title},
+            exam_category = #{examCategory},
+            exam_content = #{examContent},
+            payload_json = #{payloadJson},
+            current_question_id = #{currentQuestionId},
+            current_question_index = #{currentQuestionIndex},
+            current_question_no = #{currentQuestionNo},
+            answered_count = #{answeredCount},
+            total_questions = #{totalQuestions},
+            elapsed_seconds = #{elapsedSeconds},
+            status = 1,
+            last_active_time = #{now},
+            update_time = #{now}
+        WHERE mockexam_progress_id = #{progressId}
+          AND user_id = #{userId}
+    </update>
+
+    <delete id="deleteSubmissionAnswers">
+        DELETE FROM mockexam_submission_answer WHERE mockexam_submission_id = #{submissionId}
+    </delete>
+
+    <delete id="deleteSubmissionStates">
+        DELETE FROM mockexam_submission_question_state WHERE mockexam_submission_id = #{submissionId}
+    </delete>
+
+    <insert id="insertSubmissionAnswer" parameterType="map">
+        INSERT INTO mockexam_submission_answer (
+            mockexam_submission_id, exam_question_id, question_id, question_no,
+            question_type, stat_type, blank_id, item_id, answer_value, sort_order,
+            create_time, update_time, delete_flag
+        ) VALUES (
+            #{submissionId}, #{examQuestionId}, #{questionId}, #{questionNo},
+            #{questionType}, #{statType}, #{blankId}, #{itemId}, #{answerValue}, #{sortOrder},
+            #{now}, #{now}, '1'
+        )
+    </insert>
+
+    <insert id="insertSubmissionState" parameterType="map">
+        INSERT INTO mockexam_submission_question_state (
+            mockexam_submission_id, exam_question_id, question_id, question_no, question_index,
+            question_type, stat_type, is_marked, is_answered, is_correct,
+            create_time, update_time, delete_flag
+        ) VALUES (
+            #{submissionId}, #{examQuestionId}, #{questionId}, #{questionNo}, #{questionIndex},
+            #{questionType}, #{statType}, #{marked}, #{answered}, #{correct},
+            #{now}, #{now}, '1'
+        )
+    </insert>
+
+    <delete id="deleteProgressAnswers">
+        DELETE FROM mockexam_progress_answer WHERE mockexam_progress_id = #{progressId}
+    </delete>
+
+    <delete id="deleteProgressStates">
+        DELETE FROM mockexam_progress_question_state WHERE mockexam_progress_id = #{progressId}
+    </delete>
+
+    <insert id="insertProgressAnswer" parameterType="map">
+        INSERT INTO mockexam_progress_answer (
+            mockexam_progress_id, exam_question_id, question_id, question_no,
+            question_type, stat_type, blank_id, item_id, answer_value, sort_order,
+            create_time, update_time, delete_flag
+        ) VALUES (
+            #{progressId}, #{examQuestionId}, #{questionId}, #{questionNo},
+            #{questionType}, #{statType}, #{blankId}, #{itemId}, #{answerValue}, #{sortOrder},
+            #{now}, #{now}, '1'
+        )
+    </insert>
+
+    <insert id="insertProgressState" parameterType="map">
+        INSERT INTO mockexam_progress_question_state (
+            mockexam_progress_id, exam_question_id, question_id, question_no, question_index,
+            question_type, stat_type, is_marked, is_answered,
+            create_time, update_time, delete_flag
+        ) VALUES (
+            #{progressId}, #{examQuestionId}, #{questionId}, #{questionNo}, #{questionIndex},
+            #{questionType}, #{statType}, #{marked}, #{answered},
+            #{now}, #{now}, '1'
+        )
+    </insert>
+
+    <select id="listSubmissionAnswers" resultType="map">
+        SELECT mockexam_submission_answer_id, exam_question_id, question_id, question_no,
+               question_type, stat_type, blank_id, item_id, answer_value, sort_order
+        FROM mockexam_submission_answer
+        WHERE mockexam_submission_id = #{submissionId}
+          AND delete_flag = '1'
+        ORDER BY question_id ASC, sort_order ASC, mockexam_submission_answer_id ASC
+    </select>
+
+    <select id="listSubmissionStates" resultType="map">
+        SELECT question_id, is_marked
+        FROM mockexam_submission_question_state
+        WHERE mockexam_submission_id = #{submissionId}
+          AND delete_flag = '1'
+    </select>
+
+    <select id="listProgressAnswers" resultType="map">
+        SELECT mockexam_progress_answer_id, exam_question_id, question_id, question_no,
+               question_type, stat_type, blank_id, item_id, answer_value, sort_order
+        FROM mockexam_progress_answer
+        WHERE mockexam_progress_id = #{progressId}
+          AND delete_flag = '1'
+        ORDER BY question_id ASC, sort_order ASC, mockexam_progress_answer_id ASC
+    </select>
+
+    <select id="listProgressStates" resultType="map">
+        SELECT question_id, is_marked
+        FROM mockexam_progress_question_state
+        WHERE mockexam_progress_id = #{progressId}
+          AND delete_flag = '1'
+    </select>
+
+    <insert id="upsertWrongQuestionStat" parameterType="map">
+        INSERT INTO mockexam_wrong_question_stat (
+            user_id, exam_paper_id, paper_code, paper_title, exam_section_id, section_title,
+            exam_group_id, group_title, exam_question_id, question_id, question_no,
+            question_type, stat_type, exam_category, exam_content, preview_text, wrong_count,
+            latest_wrong_submission_id, latest_wrong_question_state_id, latest_wrong_time,
+            latest_user_answer_json, latest_marked, status, create_time, update_time, delete_flag
+        ) VALUES (
+            #{userId}, #{examPaperId}, #{paperCode}, #{paperTitle}, #{examSectionId}, #{sectionTitle},
+            #{examGroupId}, #{groupTitle}, #{examQuestionId}, #{questionId}, #{questionNo},
+            #{questionType}, #{statType}, #{examCategory}, #{examContent}, #{previewText}, 1,
+            #{latestWrongSubmissionId}, #{latestWrongQuestionStateId}, #{latestWrongTime},
+            #{latestUserAnswerJson}, #{latestMarked}, 1, #{now}, #{now}, '1'
+        )
+        ON DUPLICATE KEY UPDATE
+            exam_paper_id = VALUES(exam_paper_id),
+            paper_code = VALUES(paper_code),
+            paper_title = VALUES(paper_title),
+            exam_section_id = VALUES(exam_section_id),
+            section_title = VALUES(section_title),
+            exam_group_id = VALUES(exam_group_id),
+            group_title = VALUES(group_title),
+            question_id = VALUES(question_id),
+            question_no = VALUES(question_no),
+            question_type = VALUES(question_type),
+            stat_type = VALUES(stat_type),
+            exam_category = VALUES(exam_category),
+            exam_content = VALUES(exam_content),
+            preview_text = VALUES(preview_text),
+            wrong_count = wrong_count + 1,
+            latest_wrong_submission_id = VALUES(latest_wrong_submission_id),
+            latest_wrong_question_state_id = VALUES(latest_wrong_question_state_id),
+            latest_wrong_time = VALUES(latest_wrong_time),
+            latest_user_answer_json = VALUES(latest_user_answer_json),
+            latest_marked = VALUES(latest_marked),
+            status = 1,
+            update_time = VALUES(update_time),
+            delete_flag = '1'
+    </insert>
+
+    <update id="deleteEntityFavorite" parameterType="map">
+        UPDATE mockexam_entity_favorite
+        SET status = 0,
+            delete_flag = '0',
+            update_time = #{now}
+        WHERE user_id = #{userId}
+          AND target_type = #{targetType}
+          AND target_id = #{targetId}
+    </update>
+
+    <insert id="upsertEntityFavorite" parameterType="map">
+        INSERT INTO mockexam_entity_favorite (
+            user_id, target_type, target_id, exam_paper_id, paper_set_id,
+            paper_code, title, exam_category, exam_content, status,
+            create_time, update_time, delete_flag
+        ) VALUES (
+            #{userId}, #{targetType}, #{targetId}, #{examPaperId}, #{paperSetId},
+            #{paperCode}, #{title}, #{examCategory}, #{examContent}, 1,
+            #{now}, #{now}, '1'
+        )
+        ON DUPLICATE KEY UPDATE
+            exam_paper_id = VALUES(exam_paper_id),
+            paper_set_id = VALUES(paper_set_id),
+            paper_code = VALUES(paper_code),
+            title = VALUES(title),
+            exam_category = VALUES(exam_category),
+            exam_content = VALUES(exam_content),
+            status = 1,
+            create_time = VALUES(create_time),
+            update_time = VALUES(update_time),
+            delete_flag = '1'
+    </insert>
+
+</mapper>

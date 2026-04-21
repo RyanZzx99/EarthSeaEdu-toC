@@ -15,6 +15,8 @@ public class EarthSeaProperties {
     private int smsCodeExpireMinutes = 5;
     private int smsSendCooldownSeconds = 60;
     private int smsDailyLimit = 10;
+    private final Mysql mysql = new Mysql();
+    private final Ssh ssh = new Ssh();
     private final Jwt jwt = new Jwt();
     private final TencentCloud tencentcloud = new TencentCloud();
     private final Wechat wechat = new Wechat();
@@ -100,6 +102,14 @@ public class EarthSeaProperties {
         this.smsDailyLimit = smsDailyLimit;
     }
 
+    public Mysql getMysql() {
+        return mysql;
+    }
+
+    public Ssh getSsh() {
+        return ssh;
+    }
+
     public Jwt getJwt() {
         return jwt;
     }
@@ -114,6 +124,147 @@ public class EarthSeaProperties {
 
     public AiRuntime getAiRuntime() {
         return aiRuntime;
+    }
+
+    public static class Mysql {
+        private String host = "127.0.0.1";
+        private int port = 3306;
+        private String database = "earthseaedu";
+        private String user = "root";
+        private String password = "123456";
+        private String charset = "utf8mb4";
+
+        public String getHost() {
+            return host;
+        }
+
+        public void setHost(String host) {
+            this.host = host;
+        }
+
+        public int getPort() {
+            return port;
+        }
+
+        public void setPort(int port) {
+            this.port = port;
+        }
+
+        public String getDatabase() {
+            return database;
+        }
+
+        public void setDatabase(String database) {
+            this.database = database;
+        }
+
+        public String getUser() {
+            return user;
+        }
+
+        public void setUser(String user) {
+            this.user = user;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
+        }
+
+        public String getCharset() {
+            return charset;
+        }
+
+        public void setCharset(String charset) {
+            this.charset = charset;
+        }
+    }
+
+    public static class Ssh {
+        private boolean enabled = false;
+        private String host = "";
+        private int port = 22;
+        private String user = "";
+        private String password = "";
+        private String remoteBindHost = "127.0.0.1";
+        private int remoteBindPort = 3306;
+        private String localBindHost = "127.0.0.1";
+        private int localBindPort = 0;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getHost() {
+            return host;
+        }
+
+        public void setHost(String host) {
+            this.host = host;
+        }
+
+        public int getPort() {
+            return port;
+        }
+
+        public void setPort(int port) {
+            this.port = port;
+        }
+
+        public String getUser() {
+            return user;
+        }
+
+        public void setUser(String user) {
+            this.user = user;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
+        }
+
+        public String getRemoteBindHost() {
+            return remoteBindHost;
+        }
+
+        public void setRemoteBindHost(String remoteBindHost) {
+            this.remoteBindHost = remoteBindHost;
+        }
+
+        public int getRemoteBindPort() {
+            return remoteBindPort;
+        }
+
+        public void setRemoteBindPort(int remoteBindPort) {
+            this.remoteBindPort = remoteBindPort;
+        }
+
+        public String getLocalBindHost() {
+            return localBindHost;
+        }
+
+        public void setLocalBindHost(String localBindHost) {
+            this.localBindHost = localBindHost;
+        }
+
+        public int getLocalBindPort() {
+            return localBindPort;
+        }
+
+        public void setLocalBindPort(int localBindPort) {
+            this.localBindPort = localBindPort;
+        }
     }
 
     public static class Jwt {
@@ -268,6 +419,8 @@ public class EarthSeaProperties {
         private int modelReadTimeoutSeconds = 300;
         private int modelStreamReadTimeoutSeconds = 300;
         private double modelDefaultTemperature = 0.3;
+        private int modelNonStreamRetryCount = 1;
+        private double modelNonStreamRetryBackoffSeconds = 1.0;
 
         public String getModelBaseUrl() {
             return modelBaseUrl;
@@ -324,6 +477,21 @@ public class EarthSeaProperties {
         public void setModelDefaultTemperature(double modelDefaultTemperature) {
             this.modelDefaultTemperature = modelDefaultTemperature;
         }
-    }
 
+        public int getModelNonStreamRetryCount() {
+            return modelNonStreamRetryCount;
+        }
+
+        public void setModelNonStreamRetryCount(int modelNonStreamRetryCount) {
+            this.modelNonStreamRetryCount = modelNonStreamRetryCount;
+        }
+
+        public double getModelNonStreamRetryBackoffSeconds() {
+            return modelNonStreamRetryBackoffSeconds;
+        }
+
+        public void setModelNonStreamRetryBackoffSeconds(double modelNonStreamRetryBackoffSeconds) {
+            this.modelNonStreamRetryBackoffSeconds = modelNonStreamRetryBackoffSeconds;
+        }
+    }
 }

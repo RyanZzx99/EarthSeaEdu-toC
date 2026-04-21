@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.NicknameWordRuleMapper">
+
+    <sql id="BaseColumns">
+        id, group_id, word, normalized_word, match_type, decision, status, priority, risk_level, source, note,
+        effective_start_time, effective_end_time, version_no, created_by, updated_by, create_time, update_time,
+        delete_flag
+    </sql>
+
+    <sql id="ListFilters">
+        WHERE delete_flag = '1'
+        <if test="groupId != null">AND group_id = #{groupId}</if>
+        <if test="status != null">AND status = #{status}</if>
+        <if test="decision != null">AND decision = #{decision}</if>
+        <if test="keyword != null">
+            AND (word LIKE CONCAT('%', #{keyword}, '%')
+             OR normalized_word LIKE CONCAT('%', #{normalizedKeyword}, '%'))
+        </if>
+    </sql>
+
+    <select id="list" resultType="com.earthseaedu.backend.model.nickname.NicknameWordRule">
+        SELECT <include refid="BaseColumns"/>
+        FROM nickname_word_rules
+        <include refid="ListFilters"/>
+        ORDER BY priority ASC, id ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(1)
+        FROM nickname_word_rules
+        <include refid="ListFilters"/>
+    </select>
+
+    <select id="findActiveById" resultType="com.earthseaedu.backend.model.nickname.NicknameWordRule">
+        SELECT <include refid="BaseColumns"/>
+        FROM nickname_word_rules
+        WHERE id = #{id}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findDuplicate" resultType="com.earthseaedu.backend.model.nickname.NicknameWordRule">
+        SELECT <include refid="BaseColumns"/>
+        FROM nickname_word_rules
+        WHERE group_id = #{groupId}
+          AND normalized_word = #{normalizedWord}
+          AND match_type = #{matchType}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.nickname.NicknameWordRule" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO nickname_word_rules (
+            group_id, word, normalized_word, match_type, decision, status, priority, risk_level, source, note,
+            effective_start_time, effective_end_time, version_no, created_by, updated_by, create_time, update_time,
+            delete_flag
+        ) VALUES (
+            #{groupId}, #{word}, #{normalizedWord}, #{matchType}, #{decision}, #{status}, #{priority},
+            #{riskLevel}, #{source}, #{note}, #{effectiveStartTime}, #{effectiveEndTime}, #{versionNo},
+            #{createdBy}, #{updatedBy}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.earthseaedu.backend.model.nickname.NicknameWordRule">
+        UPDATE nickname_word_rules
+        SET group_id = #{groupId},
+            word = #{word},
+            normalized_word = #{normalizedWord},
+            match_type = #{matchType},
+            decision = #{decision},
+            status = #{status},
+            priority = #{priority},
+            risk_level = #{riskLevel},
+            source = #{source},
+            note = #{note},
+            effective_start_time = #{effectiveStartTime},
+            effective_end_time = #{effectiveEndTime},
+            version_no = #{versionNo},
+            created_by = #{createdBy},
+            updated_by = #{updatedBy},
+            update_time = #{updateTime},
+            delete_flag = #{deleteFlag}
+        WHERE id = #{id}
+    </update>
+
+    <select id="listRuntimeRuleMaps" resultType="map">
+        SELECT w.id AS ruleId,
+               g.group_code AS groupCode,
+               g.group_type AS groupType,
+               w.word AS word,
+               w.normalized_word AS normalizedWord,
+               w.match_type AS matchType,
+               w.decision AS decision,
+               w.priority AS priority,
+               w.risk_level AS riskLevel,
+               w.status AS ruleStatus,
+               w.delete_flag AS ruleDeleteFlag,
+               w.effective_start_time AS ruleEffectiveStartTime,
+               w.effective_end_time AS ruleEffectiveEndTime,
+               g.status AS groupStatus,
+               g.delete_flag AS groupDeleteFlag,
+               g.effective_start_time AS groupEffectiveStartTime,
+               g.effective_end_time AS groupEffectiveEndTime
+        FROM nickname_word_rules w
+        JOIN nickname_rule_groups g ON w.group_id = g.id
+        WHERE w.delete_flag = '1'
+          AND g.delete_flag = '1'
+        ORDER BY w.priority ASC, g.priority ASC, w.id ASC
+    </select>
+
+</mapper>

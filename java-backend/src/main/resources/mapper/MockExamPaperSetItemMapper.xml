@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.MockExamPaperSetItemMapper">
+
+    <select id="findBySetIds" resultType="com.earthseaedu.backend.model.mockexam.MockExamPaperSetItem">
+        SELECT mockexam_paper_set_item_id, mockexam_paper_set_id, exam_paper_id, sort_order, create_time, update_time, delete_flag
+        FROM mockexam_paper_set_item
+        WHERE delete_flag = '1'
+          AND mockexam_paper_set_id IN
+          <foreach collection="paperSetIds" item="paperSetId" open="(" separator="," close=")">
+              #{paperSetId}
+          </foreach>
+        ORDER BY mockexam_paper_set_id ASC, sort_order ASC, mockexam_paper_set_item_id ASC
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.mockexam.MockExamPaperSetItem">
+        INSERT INTO mockexam_paper_set_item (
+            mockexam_paper_set_id, exam_paper_id, sort_order, create_time, update_time, delete_flag
+        ) VALUES (
+            #{mockexamPaperSetId}, #{examPaperId}, #{sortOrder}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+</mapper>

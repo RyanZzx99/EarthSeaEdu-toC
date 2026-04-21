@@ -9,11 +9,19 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 
+/** 教师端请求 DTO 集合。 */
 public final class TeacherRequests {
 
     private TeacherRequests() {
     }
 
+    /**
+     * 创建教师模考套卷请求。
+     *
+     * @param setName 套卷名称，必填，最长 255 个字符
+     * @param examPaperIds 试卷 ID 列表，必填，元素不能为 null
+     * @param remark 备注，选填，最长 500 个字符
+     */
     public record TeacherMockExamPaperSetCreateRequest(
         @JsonProperty("set_name")
         @NotBlank(message = "set_name is required")
@@ -27,6 +35,11 @@ public final class TeacherRequests {
     ) {
     }
 
+    /**
+     * 更新教师模考套卷状态请求。
+     *
+     * @param status 目标状态，必填，0 表示停用，1 表示启用
+     */
     public record TeacherMockExamPaperSetStatusUpdateRequest(
         @NotNull(message = "status is required")
         @Min(value = 0, message = "status must be 0 or 1")

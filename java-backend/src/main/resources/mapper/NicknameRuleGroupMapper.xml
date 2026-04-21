@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.NicknameRuleGroupMapper">
+
+    <sql id="BaseColumns">
+        id, group_code, group_name, group_type, scope, status, priority, description, effective_start_time,
+        effective_end_time, version_no, created_by, updated_by, create_time, update_time, delete_flag
+    </sql>
+
+    <select id="list" resultType="com.earthseaedu.backend.model.nickname.NicknameRuleGroup">
+        SELECT <include refid="BaseColumns"/>
+        FROM nickname_rule_groups
+        WHERE delete_flag = '1'
+        <if test="status != null">AND status = #{status}</if>
+        <if test="groupType != null">AND group_type = #{groupType}</if>
+        ORDER BY priority ASC, id ASC
+    </select>
+
+    <select id="findActiveById" resultType="com.earthseaedu.backend.model.nickname.NicknameRuleGroup">
+        SELECT <include refid="BaseColumns"/>
+        FROM nickname_rule_groups
+        WHERE id = #{id}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveByGroupCode" resultType="com.earthseaedu.backend.model.nickname.NicknameRuleGroup">
+        SELECT <include refid="BaseColumns"/>
+        FROM nickname_rule_groups
+        WHERE group_code = #{groupCode}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.nickname.NicknameRuleGroup" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO nickname_rule_groups (
+            group_code, group_name, group_type, scope, status, priority, description, effective_start_time,
+            effective_end_time, version_no, created_by, updated_by, create_time, update_time, delete_flag
+        ) VALUES (
+            #{groupCode}, #{groupName}, #{groupType}, #{scope}, #{status}, #{priority}, #{description},
+            #{effectiveStartTime}, #{effectiveEndTime}, #{versionNo}, #{createdBy}, #{updatedBy},
+            #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.earthseaedu.backend.model.nickname.NicknameRuleGroup">
+        UPDATE nickname_rule_groups
+        SET group_code = #{groupCode},
+            group_name = #{groupName},
+            group_type = #{groupType},
+            scope = #{scope},
+            status = #{status},
+            priority = #{priority},
+            description = #{description},
+            effective_start_time = #{effectiveStartTime},
+            effective_end_time = #{effectiveEndTime},
+            version_no = #{versionNo},
+            created_by = #{createdBy},
+            updated_by = #{updatedBy},
+            update_time = #{updateTime},
+            delete_flag = #{deleteFlag}
+        WHERE id = #{id}
+    </update>
+
+</mapper>
