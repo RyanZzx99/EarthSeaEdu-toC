@@ -355,6 +355,15 @@ function QuestionAnswerReveal({ question, evaluation, hideReferenceAnswer = fals
   const correctText = getAnswerDisplayText(question);
   const modelAnswer = String(question?.modelAnswer || "").trim();
   const analysis = String(question?.analysis || question?.explanation || "").trim();
+  const markSchemePoints = Array.isArray(question?.markSchemePoints)
+    ? question.markSchemePoints.filter(
+        (item) =>
+          item &&
+          (String(item.guidance_text || "").trim() ||
+            String(item.comments_text || "").trim() ||
+            item.mark_value != null)
+      )
+    : [];
 
   let stateText = "当前题型暂不支持自动判分";
   let stateClass = "";
@@ -386,6 +395,38 @@ function QuestionAnswerReveal({ question, evaluation, hideReferenceAnswer = fals
         <div>
           <div className="practice-exam-answer-title">范文示例</div>
           <div className="practice-exam-answer-text">{modelAnswer}</div>
+        </div>
+      ) : null}
+      {markSchemePoints.length ? (
+        <div>
+          <div className="practice-exam-answer-title">Mark Scheme</div>
+          <div className="practice-exam-mark-scheme-list">
+            {markSchemePoints.map((item, index) => {
+              const pointCode = String(item.point_code || `P${index + 1}`).trim();
+              const markValue = item.mark_value;
+              const guidanceText = String(item.guidance_text || "").trim();
+              const commentsText = String(item.comments_text || "").trim();
+              return (
+                <div
+                  key={`${question?.id || "question"}-mark-point-${pointCode}-${index}`}
+                  className="practice-exam-mark-scheme-item"
+                >
+                  <div className="practice-exam-mark-scheme-head">
+                    <span className="practice-exam-mark-scheme-code">{pointCode}</span>
+                    {markValue != null && String(markValue).trim() ? (
+                      <span className="practice-exam-mark-scheme-score">{markValue} mark</span>
+                    ) : null}
+                  </div>
+                  {guidanceText ? (
+                    <div className="practice-exam-mark-scheme-guidance">{guidanceText}</div>
+                  ) : null}
+                  {commentsText ? (
+                    <div className="practice-exam-mark-scheme-comments">{commentsText}</div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
         </div>
       ) : null}
       {analysis ? (

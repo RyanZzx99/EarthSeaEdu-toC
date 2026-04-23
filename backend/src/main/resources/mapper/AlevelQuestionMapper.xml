@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.AlevelQuestionMapper">
+
+    <sql id="BaseColumns">
+        alevel_question_id, alevel_paper_id, alevel_module_id, parent_question_id, question_code, question_no_display,
+        mark_scheme_question_key, question_type, response_mode, auto_gradable, stem_html, stem_text, content_html,
+        content_text, answer_input_schema_json, max_score, source_page_no, source_bbox_json, sort_order, status,
+        remark, create_time, update_time, delete_flag
+    </sql>
+
+    <select id="findActiveById" resultType="com.earthseaedu.backend.model.alevel.AlevelQuestion">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_question
+        WHERE alevel_question_id = #{questionId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveByQuestionCode" resultType="com.earthseaedu.backend.model.alevel.AlevelQuestion">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_question
+        WHERE question_code = #{questionCode}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveByPaperId" resultType="com.earthseaedu.backend.model.alevel.AlevelQuestion">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_question
+        WHERE alevel_paper_id = #{paperId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, alevel_question_id ASC
+    </select>
+
+    <select id="findActiveByModuleId" resultType="com.earthseaedu.backend.model.alevel.AlevelQuestion">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_question
+        WHERE alevel_module_id = #{moduleId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, alevel_question_id ASC
+    </select>
+
+    <select id="findActiveByParentQuestionId" resultType="com.earthseaedu.backend.model.alevel.AlevelQuestion">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_question
+        WHERE parent_question_id = #{parentQuestionId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, alevel_question_id ASC
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.alevel.AlevelQuestion" useGeneratedKeys="true" keyProperty="alevelQuestionId">
+        INSERT INTO alevel_question (
+            alevel_paper_id, alevel_module_id, parent_question_id, question_code, question_no_display,
+            mark_scheme_question_key, question_type, response_mode, auto_gradable, stem_html, stem_text, content_html,
+            content_text, answer_input_schema_json, max_score, source_page_no, source_bbox_json, sort_order, status,
+            remark, create_time, update_time, delete_flag
+        ) VALUES (
+            #{alevelPaperId}, #{alevelModuleId}, #{parentQuestionId}, #{questionCode}, #{questionNoDisplay},
+            #{markSchemeQuestionKey}, #{questionType}, #{responseMode}, #{autoGradable}, #{stemHtml}, #{stemText},
+            #{contentHtml}, #{contentText}, #{answerInputSchemaJson}, #{maxScore}, #{sourcePageNo},
+            #{sourceBboxJson}, #{sortOrder}, #{status}, #{remark}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="deactivateByPaperId">
+        UPDATE alevel_question
+        SET status = 0,
+            question_code = CONCAT('ARCHIVED_', alevel_question_id),
+            update_time = #{updateTime}
+        WHERE alevel_paper_id = #{paperId}
+          AND status = 1
+          AND delete_flag = '1'
+    </update>
+
+    <update id="updateStatus">
+        UPDATE alevel_question
+        SET status = #{status},
+            update_time = #{updateTime},
+            delete_flag = '1'
+        WHERE alevel_question_id = #{questionId}
+    </update>
+
+</mapper>

@@ -4,6 +4,7 @@ frontend/node_modules/
 # Frontend build output
 frontend/dist/
 java-backend/target/
+backend/target/
 sql
 
 # Frontend local runtime logs
@@ -12,6 +13,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+backend-root-run*.log
+backend-run*.log
+backend/*.log
 
 # Local environment files
 .env
@@ -19,6 +23,11 @@ pnpm-debug.log*
 frontend/.env
 frontend/.env.*
 !java-backend/.env.example
+
+# IDE local files
+.idea/workspace.xml
+.idea/dataSources.local.xml
+.idea/dataSources/
 
 # Local exam assets
 storage/

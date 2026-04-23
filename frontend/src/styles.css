@@ -4195,11 +4195,14 @@ button.guided-chat-selected-tag {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
+  align-items: start;
 }
 
 .profile-target-edit-block {
   display: grid;
   gap: 12px;
+  align-content: start;
+  min-width: 0;
 }
 
 .profile-target-edit-head {
@@ -4849,6 +4852,22 @@ button.guided-chat-selected-tag {
   font-size: 14px;
 }
 
+.profile-form-month-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr);
+  gap: 10px;
+}
+
+.profile-form-month-picker-select {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .profile-form-month-picker {
+    grid-template-columns: 1fr;
+  }
+}
+
 .profile-search-select {
   position: relative;
 }
@@ -5098,7 +5117,7 @@ button.guided-chat-selected-tag {
 
 .profile-form-row-inline {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 12px;
 }
 
@@ -5108,16 +5127,24 @@ button.guided-chat-selected-tag {
 }
 
 .profile-form-row-side {
-  flex: 0 0 auto;
+  flex: 0 0 108px;
+  width: 108px;
   display: flex;
+  align-self: stretch;
   align-items: flex-end;
   justify-content: flex-end;
-  padding-top: 30px;
 }
 
 .profile-form-row-side .secondary-btn {
   min-height: 40px;
   padding: 0 14px;
+}
+
+.profile-form-row-side-placeholder {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  visibility: hidden;
 }
 
 .check-message {
@@ -5422,7 +5449,10 @@ button.guided-chat-selected-tag {
   }
 
   .profile-form-row-side {
+    flex: 0 0 auto;
+    width: 100%;
     padding-top: 0;
+    justify-content: flex-end;
   }
 
   .home-ai-header,

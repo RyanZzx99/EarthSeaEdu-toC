@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.AlevelPaperMapper">
+
+    <sql id="BaseColumns">
+        alevel_paper_id, paper_code, paper_name, exam_board, qualification, subject_code, subject_name, unit_code,
+        unit_name, exam_session, source_name, duration_seconds, total_score, status, remark, create_time,
+        update_time, delete_flag
+    </sql>
+
+    <select id="findActiveById" resultType="com.earthseaedu.backend.model.alevel.AlevelPaper">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_paper
+        WHERE alevel_paper_id = #{paperId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveByPaperCode" resultType="com.earthseaedu.backend.model.alevel.AlevelPaper">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_paper
+        WHERE paper_code = #{paperCode}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveBySubjectAndSession" resultType="com.earthseaedu.backend.model.alevel.AlevelPaper">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_paper
+        WHERE subject_code = #{subjectCode}
+          AND exam_session = #{examSession}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY alevel_paper_id DESC
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.alevel.AlevelPaper" useGeneratedKeys="true" keyProperty="alevelPaperId">
+        INSERT INTO alevel_paper (
+            paper_code, paper_name, exam_board, qualification, subject_code, subject_name, unit_code, unit_name,
+            exam_session, source_name, duration_seconds, total_score, status, remark, create_time, update_time,
+            delete_flag
+        ) VALUES (
+            #{paperCode}, #{paperName}, #{examBoard}, #{qualification}, #{subjectCode}, #{subjectName}, #{unitCode},
+            #{unitName}, #{examSession}, #{sourceName}, #{durationSeconds}, #{totalScore}, #{status}, #{remark},
+            #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="updateMetadata" parameterType="com.earthseaedu.backend.model.alevel.AlevelPaper">
+        UPDATE alevel_paper
+        SET paper_name = #{paperName},
+            exam_board = #{examBoard},
+            qualification = #{qualification},
+            subject_code = #{subjectCode},
+            subject_name = #{subjectName},
+            unit_code = #{unitCode},
+            unit_name = #{unitName},
+            exam_session = #{examSession},
+            source_name = #{sourceName},
+            duration_seconds = #{durationSeconds},
+            total_score = #{totalScore},
+            status = #{status},
+            remark = #{remark},
+            update_time = #{updateTime},
+            delete_flag = #{deleteFlag}
+        WHERE alevel_paper_id = #{alevelPaperId}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE alevel_paper
+        SET status = #{status},
+            update_time = #{updateTime},
+            delete_flag = '1'
+        WHERE alevel_paper_id = #{paperId}
+    </update>
+
+</mapper>

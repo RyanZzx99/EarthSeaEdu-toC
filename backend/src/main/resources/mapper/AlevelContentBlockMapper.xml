@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.AlevelContentBlockMapper">
+
+    <sql id="BaseColumns">
+        alevel_content_block_id, owner_type, owner_id, block_type, content_html, content_text, structure_json,
+        source_file_id, source_page_no, source_bbox_json, sort_order, status, remark, create_time, update_time,
+        delete_flag
+    </sql>
+
+    <select id="findActiveByOwner" resultType="com.earthseaedu.backend.model.alevel.AlevelContentBlock">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_content_block
+        WHERE owner_type = #{ownerType}
+          AND owner_id = #{ownerId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, alevel_content_block_id ASC
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.alevel.AlevelContentBlock" useGeneratedKeys="true" keyProperty="alevelContentBlockId">
+        INSERT INTO alevel_content_block (
+            owner_type, owner_id, block_type, content_html, content_text, structure_json, source_file_id,
+            source_page_no, source_bbox_json, sort_order, status, remark, create_time, update_time, delete_flag
+        ) VALUES (
+            #{ownerType}, #{ownerId}, #{blockType}, #{contentHtml}, #{contentText}, #{structureJson}, #{sourceFileId},
+            #{sourcePageNo}, #{sourceBboxJson}, #{sortOrder}, #{status}, #{remark}, #{createTime}, #{updateTime},
+            #{deleteFlag}
+        )
+    </insert>
+
+</mapper>

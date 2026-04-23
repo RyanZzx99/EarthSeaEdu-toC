@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.AlevelQuestionOptionMapper">
+
+    <sql id="BaseColumns">
+        alevel_question_option_id, alevel_question_id, option_key, option_html, option_text, structure_json, sort_order,
+        status, remark, create_time, update_time, delete_flag
+    </sql>
+
+    <select id="findActiveByQuestionId" resultType="com.earthseaedu.backend.model.alevel.AlevelQuestionOption">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_question_option
+        WHERE alevel_question_id = #{questionId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, alevel_question_option_id ASC
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.alevel.AlevelQuestionOption" useGeneratedKeys="true" keyProperty="alevelQuestionOptionId">
+        INSERT INTO alevel_question_option (
+            alevel_question_id, option_key, option_html, option_text, structure_json, sort_order, status, remark,
+            create_time, update_time, delete_flag
+        ) VALUES (
+            #{alevelQuestionId}, #{optionKey}, #{optionHtml}, #{optionText}, #{structureJson}, #{sortOrder},
+            #{status}, #{remark}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="deactivateByPaperId">
+        UPDATE alevel_question_option option_row
+        INNER JOIN alevel_question question_row
+                ON question_row.alevel_question_id = option_row.alevel_question_id
+        SET option_row.status = 0,
+            option_row.update_time = #{updateTime}
+        WHERE question_row.alevel_paper_id = #{paperId}
+          AND question_row.delete_flag = '1'
+          AND option_row.status = 1
+          AND option_row.delete_flag = '1'
+    </update>
+
+</mapper>

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.AlevelAssetMapper">
+
+    <sql id="BaseColumns">
+        alevel_asset_id, owner_type, owner_id, asset_type, asset_role, asset_name, source_path, storage_path,
+        asset_url, file_hash, mime_type, source_page_no, source_bbox_json, sort_order, status, remark, create_time,
+        update_time, delete_flag
+    </sql>
+
+    <select id="findActiveByOwner" resultType="com.earthseaedu.backend.model.alevel.AlevelAsset">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_asset
+        WHERE owner_type = #{ownerType}
+          AND owner_id = #{ownerId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, alevel_asset_id ASC
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.alevel.AlevelAsset" useGeneratedKeys="true" keyProperty="alevelAssetId">
+        INSERT INTO alevel_asset (
+            owner_type, owner_id, asset_type, asset_role, asset_name, source_path, storage_path, asset_url,
+            file_hash, mime_type, source_page_no, source_bbox_json, sort_order, status, remark, create_time,
+            update_time, delete_flag
+        ) VALUES (
+            #{ownerType}, #{ownerId}, #{assetType}, #{assetRole}, #{assetName}, #{sourcePath}, #{storagePath},
+            #{assetUrl}, #{fileHash}, #{mimeType}, #{sourcePageNo}, #{sourceBboxJson}, #{sortOrder}, #{status},
+            #{remark}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="deactivateByOwner">
+        UPDATE alevel_asset
+        SET status = 0,
+            update_time = #{updateTime}
+        WHERE owner_type = #{ownerType}
+          AND owner_id = #{ownerId}
+          AND status = 1
+          AND delete_flag = '1'
+    </update>
+
+</mapper>
