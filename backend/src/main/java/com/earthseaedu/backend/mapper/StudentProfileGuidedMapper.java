@@ -13,6 +13,8 @@ public interface StudentProfileGuidedMapper {
         @Param("questionnaireCode") String questionnaireCode
     );
 
+    int expireSession(@Param("sessionId") String sessionId);
+
     int completeSession(Map<String, Object> row);
 
     int activateSession(Map<String, Object> row);
@@ -32,7 +34,8 @@ public interface StudentProfileGuidedMapper {
 
     Map<String, Object> findOwnedSession(
         @Param("studentId") String studentId,
-        @Param("sessionId") String sessionId
+        @Param("sessionId") String sessionId,
+        @Param("questionnaireCode") String questionnaireCode
     );
 
     List<Map<String, Object>> listAnswerJson(@Param("sessionId") String sessionId);

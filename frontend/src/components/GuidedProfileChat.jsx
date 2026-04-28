@@ -76,6 +76,62 @@ function resolveRepeatableRowField(question, rows, row, rowIndex, field) {
   };
 }
 
+function hasValue(value) {
+  return String(value ?? "").trim() !== "";
+}
+
+function hasAnyRowValue(row) {
+  return Object.values(row || {}).some(hasValue);
+}
+
+function shouldValidateRequiredField(question, answerValue, field) {
+  if (!field?.required) {
+    return false;
+  }
+  if (
+    ["Q13", "Q14", "Q15"].includes(question?.code) &&
+    field.name !== "has_experience" &&
+    answerValue?.has_experience !== "yes"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function collectMissingRequiredLabels(question, answerValue) {
+  if (!question || answerValue?.skip || answerValue?.skipped) {
+    return [];
+  }
+  const missing = [];
+  const collect = (fields, source, prefix = "") => {
+    (fields || []).forEach((field) => {
+      if (shouldValidateRequiredField(question, source, field) && !hasValue(source?.[field.name])) {
+        missing.push(`${prefix}${field.label}`);
+      }
+    });
+  };
+
+  if (question.type === "repeatable_form") {
+    collect(question.fields, answerValue);
+    const rows = Array.isArray(answerValue?.rows) ? answerValue.rows : [];
+    const minRows = Number(question.min_rows || 0);
+    if (minRows > 0 && rows.length === 0) {
+      missing.push("至少填写一条成绩");
+    }
+    const rowsToCheck = Math.max(rows.length, minRows);
+    for (let index = 0; index < rowsToCheck; index += 1) {
+      const row = rows[index] || {};
+      if (index < minRows || hasAnyRowValue(row)) {
+        collect(question.row_fields, row, `第${index + 1}条`);
+      }
+    }
+    return missing;
+  }
+
+  collect(question.fields, answerValue);
+  return missing;
+}
+
 function buildInitialAnswer(question, bundle) {
   if (!question) {
     return {};
@@ -344,6 +400,11 @@ export default function GuidedProfileChat({ onClose, onResultReady }) {
     if (!session?.session_id || !activeQuestion) {
       return;
     }
+    const missingRequiredLabels = collectMissingRequiredLabels(activeQuestion, nextAnswer);
+    if (missingRequiredLabels.length > 0) {
+      showActionHint("\u8bf7\u586b\u5199\u5fc5\u586b\u9879\uff1a" + missingRequiredLabels.join("\u3001"));
+      return;
+    }
     const totalQuestions = Number(activeQuestion.total || bundle?.questions?.length || 0);
     const willComplete =
       !editingQuestionCode &&
@@ -359,6 +420,18 @@ export default function GuidedProfileChat({ onClose, onResultReady }) {
       applyNextBundle(response.data);
     } catch (error) {
       const message = getErrorMessage(error, "保存答案失败");
+      if (message.includes("\u8bf7\u586b\u5199\u5fc5\u586b\u9879")) {
+        showActionHint(message);
+        return;
+      }
+      if (message.includes("\u8bf7\u5148\u586b\u5199")) {
+        showActionHint(message);
+        return;
+      }
+      if (message.includes("请填写必填项")) {
+        showActionHint(message);
+        return;
+      }
       if (message.includes("请先填写") || message.includes("璇峰厛濉啓")) {
         showActionHint(message);
       } else {
@@ -786,6 +859,7 @@ export default function GuidedProfileChat({ onClose, onResultReady }) {
     }
     const disabled = Boolean(options.disabled);
     const targetAnswer = options.answerValue || answer;
+    const canSkip = question.skippable !== false;
     return (
       <div className={`guided-chat-question-panel ${disabled ? "is-readonly" : ""}`}>
         {question.type === "single" ? renderSingle(question, { answerValue: targetAnswer, disabled }) : null}
@@ -802,9 +876,11 @@ export default function GuidedProfileChat({ onClose, onResultReady }) {
           <>
             {actionHint ? <div className="guided-chat-action-hint">{actionHint}</div> : null}
             <div className="guided-chat-action-row">
-              <button type="button" className="guided-chat-skip" onClick={skipQuestion} disabled={saving}>
-                下一步，跳过此题
-              </button>
+              {canSkip ? (
+                <button type="button" className="guided-chat-skip" onClick={skipQuestion} disabled={saving}>
+                  下一步，跳过此题
+                </button>
+              ) : null}
               <button type="button" className="guided-chat-submit" onClick={() => submitAnswer()} disabled={saving}>
                 保存答案
                 <Send size={15} />

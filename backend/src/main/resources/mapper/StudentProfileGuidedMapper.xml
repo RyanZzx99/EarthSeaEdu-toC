@@ -13,6 +13,15 @@
           AND session_status IN ('active', 'exited', 'completed', 'failed')
     </update>
 
+    <update id="expireSession">
+        UPDATE student_profile_guided_sessions
+        SET delete_flag = '0',
+            session_status = 'exited',
+            exited_at = COALESCE(exited_at, NOW())
+        WHERE session_id = #{sessionId}
+          AND delete_flag = '1'
+    </update>
+
     <update id="completeSession" parameterType="map">
         UPDATE student_profile_guided_sessions
         SET session_status = 'completed',
@@ -95,6 +104,7 @@
         FROM student_profile_guided_sessions
         WHERE session_id = #{sessionId}
           AND student_id = #{studentId}
+          AND questionnaire_code = #{questionnaireCode}
           AND delete_flag = '1'
         LIMIT 1
     </select>
