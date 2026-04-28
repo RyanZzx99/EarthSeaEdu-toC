@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.AlevelQuestionMaterialRefMapper">
+
+    <sql id="BaseColumns">
+        alevel_question_material_ref_id, alevel_question_id, material_type, relation_type, display_mode,
+        alevel_source_file_id, alevel_pdf_page_id, alevel_content_block_id, alevel_asset_id, source_page_no,
+        source_bbox_json, title, caption_html, caption_text, structure_json, match_status, match_confidence,
+        sort_order, status, remark, create_time, update_time, delete_flag
+    </sql>
+
+    <select id="findActiveById" resultType="com.earthseaedu.backend.model.alevel.AlevelQuestionMaterialRef">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_question_material_ref
+        WHERE alevel_question_material_ref_id = #{materialRefId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveByQuestionId" resultType="com.earthseaedu.backend.model.alevel.AlevelQuestionMaterialRef">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_question_material_ref
+        WHERE alevel_question_id = #{questionId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, alevel_question_material_ref_id ASC
+    </select>
+
+    <select id="findActiveByQuestionIds" resultType="com.earthseaedu.backend.model.alevel.AlevelQuestionMaterialRef">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_question_material_ref
+        WHERE alevel_question_id IN
+        <foreach collection="questionIds" item="questionId" open="(" separator="," close=")">
+            #{questionId}
+        </foreach>
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY alevel_question_id ASC, sort_order ASC, alevel_question_material_ref_id ASC
+    </select>
+
+    <select id="findActiveByPdfPageId" resultType="com.earthseaedu.backend.model.alevel.AlevelQuestionMaterialRef">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_question_material_ref
+        WHERE alevel_pdf_page_id = #{pdfPageId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, alevel_question_material_ref_id ASC
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.alevel.AlevelQuestionMaterialRef" useGeneratedKeys="true" keyProperty="alevelQuestionMaterialRefId">
+        INSERT INTO alevel_question_material_ref (
+            alevel_question_id, material_type, relation_type, display_mode, alevel_source_file_id,
+            alevel_pdf_page_id, alevel_content_block_id, alevel_asset_id, source_page_no, source_bbox_json,
+            title, caption_html, caption_text, structure_json, match_status, match_confidence, sort_order,
+            status, remark, create_time, update_time, delete_flag
+        ) VALUES (
+            #{alevelQuestionId}, #{materialType}, #{relationType}, #{displayMode}, #{alevelSourceFileId},
+            #{alevelPdfPageId}, #{alevelContentBlockId}, #{alevelAssetId}, #{sourcePageNo}, #{sourceBboxJson},
+            #{title}, #{captionHtml}, #{captionText}, #{structureJson}, #{matchStatus}, #{matchConfidence},
+            #{sortOrder}, #{status}, #{remark}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.earthseaedu.backend.model.alevel.AlevelQuestionMaterialRef">
+        UPDATE alevel_question_material_ref
+        SET alevel_question_id = #{alevelQuestionId},
+            material_type = #{materialType},
+            relation_type = #{relationType},
+            display_mode = #{displayMode},
+            alevel_source_file_id = #{alevelSourceFileId},
+            alevel_pdf_page_id = #{alevelPdfPageId},
+            alevel_content_block_id = #{alevelContentBlockId},
+            alevel_asset_id = #{alevelAssetId},
+            source_page_no = #{sourcePageNo},
+            source_bbox_json = #{sourceBboxJson},
+            title = #{title},
+            caption_html = #{captionHtml},
+            caption_text = #{captionText},
+            structure_json = #{structureJson},
+            match_status = #{matchStatus},
+            match_confidence = #{matchConfidence},
+            sort_order = #{sortOrder},
+            status = #{status},
+            remark = #{remark},
+            update_time = #{updateTime},
+            delete_flag = #{deleteFlag}
+        WHERE alevel_question_material_ref_id = #{alevelQuestionMaterialRefId}
+    </update>
+
+    <update id="deactivateById">
+        UPDATE alevel_question_material_ref
+        SET status = 0,
+            update_time = #{updateTime}
+        WHERE alevel_question_material_ref_id = #{materialRefId}
+          AND status = 1
+          AND delete_flag = '1'
+    </update>
+
+    <update id="deactivateByQuestionId">
+        UPDATE alevel_question_material_ref
+        SET status = 0,
+            update_time = #{updateTime}
+        WHERE alevel_question_id = #{questionId}
+          AND status = 1
+          AND delete_flag = '1'
+    </update>
+
+    <update id="deactivateByPaperId">
+        UPDATE alevel_question_material_ref
+        SET status = 0,
+            update_time = #{updateTime}
+        WHERE alevel_question_id IN (
+            SELECT alevel_question_id
+            FROM alevel_question
+            WHERE alevel_paper_id = #{paperId}
+        )
+          AND status = 1
+          AND delete_flag = '1'
+    </update>
+
+</mapper>

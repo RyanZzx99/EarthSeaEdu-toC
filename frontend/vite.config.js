@@ -4,19 +4,68 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   server: {
-    // 中文注释：允许局域网访问，便于本机和移动端联调
+    // Allow LAN access for local desktop and mobile debugging.
     host: "0.0.0.0",
     port: 5173,
     proxy: {
+      "/api/v1/ai-chat": {
+        target: "http://127.0.0.1:8080",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/ws/ai-chat": {
+        target: "ws://127.0.0.1:8080",
+        changeOrigin: true,
+        secure: false,
+        ws: true,
+      },
+      "/api/v1/mockexam": {
+        target: "http://127.0.0.1:8080",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/api/v1/teacher/mockexam": {
+        target: "http://127.0.0.1:8080",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/api/v1/auth/question-banks": {
+        target: "http://127.0.0.1:8080",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/api/v1/auth": {
+        target: "http://127.0.0.1:8080",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/api/v1/student-profile/guided": {
+        target: "http://127.0.0.1:8080",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/api/v1/teacher/students/archive": {
+        target: "http://127.0.0.1:8080",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/api/v1/health": {
+        target: "http://127.0.0.1:8080",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/api/v1/db-health": {
+        target: "http://127.0.0.1:8080",
+        changeOrigin: true,
+        secure: false,
+      },
       "/api": {
-        // 中文注释：认证接口继续复用本地 FastAPI 服务
-        target: "http://127.0.0.1:8000",
+        target: "http://127.0.0.1:8080",
         changeOrigin: true,
         secure: false,
       },
       "/exam-assets": {
-        // 中文注释：本地题库音频/图片也走后端静态挂载
-        target: "http://127.0.0.1:8000",
+        target: "http://127.0.0.1:8080",
         changeOrigin: true,
         secure: false,
       },

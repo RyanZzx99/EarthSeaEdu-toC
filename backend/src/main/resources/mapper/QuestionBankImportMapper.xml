@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.QuestionBankImportMapper">
+
+    <update id="updateImportJobStoragePath">
+        UPDATE exam_import_job
+        SET storage_path = #{storagePath},
+            progress_message = #{progressMessage},
+            update_time = CURRENT_TIMESTAMP
+        WHERE exam_import_job_id = #{jobId}
+    </update>
+
+    <select id="findActiveImportJobById" resultType="map">
+        SELECT *
+        FROM exam_import_job
+        WHERE exam_import_job_id = #{jobId}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <insert id="insertImportJob" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO exam_import_job (
+            job_name, bank_name, source_mode, storage_path, status, uploaded_file_count,
+            progress_message, delete_flag
+        ) VALUES (
+            #{jobName}, #{bankName}, #{sourceMode}, NULL, 'pending', #{uploadedFileCount},
+            #{progressMessage}, '1'
+        )
+    </insert>
+
+    <update id="markImportJobRunning">
+        UPDATE exam_import_job
+        SET status = 'running',
+            start_time = CURRENT_TIMESTAMP,
+            progress_message = #{progressMessage},
+            update_time = CURRENT_TIMESTAMP
+        WHERE exam_import_job_id = #{jobId}
+    </update>
+
+    <insert id="insertExamPaper" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO exam_paper (
+            exam_bank_id, paper_code, paper_name, module_name, subject_type, book_code, test_no,
+            status, delete_flag
+        ) VALUES (
+            #{examBankId}, #{paperCode}, #{paperName}, #{moduleName}, #{subjectType}, #{bookCode}, #{testNo},
+            1, '1'
+        )
+    </insert>
+
+    <insert id="insertExamSection" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO exam_section (
+            exam_paper_id, section_id, section_no, section_title, content_html, content_text,
+            instructions_html, instructions_text, sort_order, source_file, status, delete_flag
+        ) VALUES (
+            #{examPaperId}, #{sectionId}, #{sectionNo}, #{sectionTitle}, #{contentHtml}, #{contentText},
+            #{instructionsHtml}, #{instructionsText}, #{sortOrder}, #{sourceFile}, 1, '1'
+        )
+    </insert>
+
+    <update id="updateExamSectionPrimaryAudioAssetId">
+        UPDATE exam_section
+        SET primary_audio_asset_id = #{assetId}
+        WHERE exam_section_id = #{sectionId}
+    </update>
+
+    <update id="updateExamSectionPrimaryImageAssetId">
+        UPDATE exam_section
+        SET primary_image_asset_id = #{assetId}
+        WHERE exam_section_id = #{sectionId}
+    </update>
+
+    <insert id="insertExamGroup" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO exam_group (
+            exam_section_id, group_id, group_title, raw_type, stat_type, instructions_html, instructions_text,
+            content_html, content_text, has_shared_options, has_blanks, structure_json, sort_order, status, delete_flag
+        ) VALUES (
+            #{examSectionId}, #{groupId}, #{groupTitle}, #{rawType}, #{statType}, #{instructionsHtml}, #{instructionsText},
+            #{contentHtml}, #{contentText}, #{hasSharedOptions}, #{hasBlanks}, #{structureJson}, #{sortOrder}, 1, '1'
+        )
+    </insert>
+
+    <update id="updateExamGroupPrimaryImageAssetId">
+        UPDATE exam_group
+        SET primary_image_asset_id = #{assetId}
+        WHERE exam_group_id = #{groupId}
+    </update>
+
+    <insert id="insertExamGroupOption">
+        INSERT INTO exam_group_option (
+            exam_group_id, option_key, option_html, option_text, sort_order, status, delete_flag
+        ) VALUES (
+            #{groupId}, #{optionKey}, #{optionHtml}, #{optionText}, #{sortOrder}, 1, '1'
+        )
+    </insert>
+
+    <insert id="insertExamQuestion" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO exam_question (
+            exam_group_id, question_id, question_code, question_no, raw_type, stat_type,
+            stem_html, stem_text, content_html, content_text, source_blank_id, sort_order, score,
+            status, delete_flag
+        ) VALUES (
+            #{examGroupId}, #{questionId}, #{questionCode}, #{questionNo}, #{rawType}, #{statType},
+            #{stemHtml}, #{stemText}, #{contentHtml}, #{contentText}, #{sourceBlankId}, #{sortOrder}, #{score},
+            1, '1'
+        )
+    </insert>
+
+    <insert id="insertExamQuestionBlank">
+        INSERT INTO exam_question_blank (
+            exam_question_id, blank_id, sort_order, status, delete_flag
+        ) VALUES (
+            #{questionId}, #{blankId}, #{sortOrder}, 1, '1'
+        )
+    </insert>
+
+    <insert id="insertExamQuestionAnswer">
+        INSERT INTO exam_question_answer (
+            exam_question_id, answer_raw, answer_json, status, delete_flag
+        ) VALUES (
+            #{questionId}, #{answerRaw}, #{answerJson}, 1, '1'
+        )
+    </insert>
+
+    <insert id="insertExamAsset" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO exam_asset (
+            exam_section_id, exam_group_id, exam_question_id, owner_type, asset_type,
+            asset_role, asset_name, source_path, storage_path, asset_url, sort_order, status, delete_flag
+        ) VALUES (
+            #{examSectionId}, #{examGroupId}, #{examQuestionId}, #{ownerType}, #{assetType},
+            #{assetRole}, #{assetName}, #{sourcePath}, #{storagePath}, #{assetUrl}, #{sortOrder}, 1, '1'
+        )
+    </insert>
+
+    <select id="findActiveBankByCode" resultType="map">
+        SELECT exam_bank_id, subject_scope
+        FROM exam_bank
+        WHERE bank_code = #{bankCode}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <insert id="insertExamBank" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO exam_bank (
+            bank_code, bank_name, exam_type, subject_scope, source_name, status, delete_flag
+        ) VALUES (
+            #{bankCode}, #{bankName}, 'IELTS', #{subjectScope}, #{sourceName}, 1, '1'
+        )
+    </insert>
+
+    <update id="updateExamBank">
+        UPDATE exam_bank
+        SET bank_name = #{bankName},
+            subject_scope = #{subjectScope},
+            source_name = #{sourceName},
+            status = 1,
+            delete_flag = '1',
+            update_time = CURRENT_TIMESTAMP
+        WHERE exam_bank_id = #{bankId}
+    </update>
+
+    <select id="findActivePaperCodes" resultType="string">
+        SELECT paper_code
+        FROM exam_paper
+        WHERE delete_flag = '1'
+          AND paper_code IN
+          <foreach collection="paperCodes" item="paperCode" open="(" separator="," close=")">
+              #{paperCode}
+          </foreach>
+    </select>
+
+    <update id="updateJobProgress" parameterType="map">
+        UPDATE exam_import_job
+        SET resolved_file_count = #{resolvedFileCount},
+            manifest_count = #{manifestCount},
+            success_count = #{successCount},
+            failure_count = #{failureCount},
+            imported_bank_count = #{importedBankCount},
+            imported_paper_count = #{importedPaperCount},
+            imported_section_count = #{importedSectionCount},
+            imported_group_count = #{importedGroupCount},
+            imported_question_count = #{importedQuestionCount},
+            imported_answer_count = #{importedAnswerCount},
+            imported_blank_count = #{importedBlankCount},
+            imported_option_count = #{importedOptionCount},
+            imported_asset_count = #{importedAssetCount},
+            progress_message = #{progressMessage},
+            result_json = #{resultJson},
+            update_time = CURRENT_TIMESTAMP
+        WHERE exam_import_job_id = #{jobId}
+    </update>
+
+    <update id="updateJobCompleted" parameterType="map">
+        UPDATE exam_import_job
+        SET status = 'completed',
+            resolved_file_count = #{resolvedFileCount},
+            manifest_count = #{manifestCount},
+            success_count = #{successCount},
+            failure_count = #{failureCount},
+            imported_bank_count = #{importedBankCount},
+            imported_paper_count = #{importedPaperCount},
+            imported_section_count = #{importedSectionCount},
+            imported_group_count = #{importedGroupCount},
+            imported_question_count = #{importedQuestionCount},
+            imported_answer_count = #{importedAnswerCount},
+            imported_blank_count = #{importedBlankCount},
+            imported_option_count = #{importedOptionCount},
+            imported_asset_count = #{importedAssetCount},
+            progress_message = #{progressMessage},
+            result_json = #{resultJson},
+            finish_time = CURRENT_TIMESTAMP,
+            update_time = CURRENT_TIMESTAMP
+        WHERE exam_import_job_id = #{jobId}
+    </update>
+
+    <update id="markJobFailed">
+        UPDATE exam_import_job
+        SET status = 'failed',
+            error_message = #{errorMessage},
+            progress_message = #{progressMessage},
+            finish_time = COALESCE(finish_time, CURRENT_TIMESTAMP),
+            update_time = CURRENT_TIMESTAMP
+        WHERE exam_import_job_id = #{jobId}
+    </update>
+
+</mapper>

@@ -49,7 +49,7 @@ export function buildFavoriteSummarySets(items) {
     }
 
     const examPaperId = Number(item?.exam_paper_id || item?.target_id || 0);
-    if (examPaperId > 0) {
+    if (Number.isFinite(examPaperId) && examPaperId !== 0) {
       paperIds.add(examPaperId);
     }
   });

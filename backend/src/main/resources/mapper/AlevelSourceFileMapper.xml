@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.AlevelSourceFileMapper">
+
+    <sql id="BaseColumns">
+        alevel_source_file_id, alevel_paper_id, bundle_code, source_file_type, source_file_name, source_file_hash,
+        storage_path, asset_url, page_count, parse_status, parse_result_json, parse_warning_json, import_version,
+        is_verified, status, error_message, remark, create_time, update_time, delete_flag
+    </sql>
+
+    <select id="findActiveById" resultType="com.earthseaedu.backend.model.alevel.AlevelSourceFile">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_source_file
+        WHERE alevel_source_file_id = #{sourceFileId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveByPaperId" resultType="com.earthseaedu.backend.model.alevel.AlevelSourceFile">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_source_file
+        WHERE alevel_paper_id = #{paperId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY create_time ASC, alevel_source_file_id ASC
+    </select>
+
+    <select id="findActiveByBundleCode" resultType="com.earthseaedu.backend.model.alevel.AlevelSourceFile">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_source_file
+        WHERE bundle_code = #{bundleCode}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY create_time ASC, alevel_source_file_id ASC
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.alevel.AlevelSourceFile" useGeneratedKeys="true" keyProperty="alevelSourceFileId">
+        INSERT INTO alevel_source_file (
+            alevel_paper_id, bundle_code, source_file_type, source_file_name, source_file_hash, storage_path,
+            asset_url, page_count, parse_status, parse_result_json, parse_warning_json, import_version, is_verified,
+            status, error_message, remark, create_time, update_time, delete_flag
+        ) VALUES (
+            #{alevelPaperId}, #{bundleCode}, #{sourceFileType}, #{sourceFileName}, #{sourceFileHash}, #{storagePath},
+            #{assetUrl}, #{pageCount}, #{parseStatus}, #{parseResultJson}, #{parseWarningJson}, #{importVersion},
+            #{isVerified}, #{status}, #{errorMessage}, #{remark}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="deactivateDuplicatesBySourceName">
+        UPDATE alevel_source_file
+        SET status = 0,
+            update_time = #{updateTime}
+        WHERE source_file_name = #{sourceFileName}
+          AND alevel_source_file_id != #{keepSourceFileId}
+          AND status = 1
+          AND delete_flag = '1'
+    </update>
+
+    <update id="deactivateStaleByPaperId">
+        UPDATE alevel_source_file
+        SET status = 0,
+            update_time = #{updateTime}
+        WHERE alevel_paper_id = #{paperId}
+          AND status = 1
+          AND delete_flag = '1'
+        <if test="keepSourceFileIds != null and keepSourceFileIds.size() > 0">
+          AND alevel_source_file_id NOT IN
+          <foreach collection="keepSourceFileIds" item="sourceFileId" open="(" separator="," close=")">
+            #{sourceFileId}
+          </foreach>
+        </if>
+    </update>
+
+    <update id="bindPaperId">
+        UPDATE alevel_source_file
+        SET alevel_paper_id = #{paperId},
+            update_time = #{updateTime},
+            delete_flag = '1'
+        WHERE alevel_source_file_id = #{sourceFileId}
+    </update>
+
+    <update id="updateParseState">
+        UPDATE alevel_source_file
+        SET parse_status = #{parseStatus},
+            parse_result_json = #{parseResultJson},
+            parse_warning_json = #{parseWarningJson},
+            error_message = #{errorMessage},
+            update_time = #{updateTime},
+            delete_flag = '1'
+        WHERE alevel_source_file_id = #{sourceFileId}
+    </update>
+
+</mapper>

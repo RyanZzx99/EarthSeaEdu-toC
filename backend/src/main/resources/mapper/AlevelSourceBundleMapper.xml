@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.AlevelSourceBundleMapper">
+
+    <sql id="BaseColumns">
+        alevel_source_bundle_id, alevel_import_batch_id, alevel_paper_id, bundle_code, bundle_name, exam_board,
+        qualification, subject_code, subject_name, unit_code, unit_name, exam_session, session_code, source_name,
+        file_count, has_question_paper, has_mark_scheme, has_insert, has_exam_report, bundle_status,
+        detection_json, warning_json, error_message, import_version, status, remark, create_time, update_time,
+        delete_flag
+    </sql>
+
+    <select id="findActiveById" resultType="com.earthseaedu.backend.model.alevel.AlevelSourceBundle">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_source_bundle
+        WHERE alevel_source_bundle_id = #{bundleId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveByBundleCode" resultType="com.earthseaedu.backend.model.alevel.AlevelSourceBundle">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_source_bundle
+        WHERE bundle_code = #{bundleCode}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveByImportBatchId" resultType="com.earthseaedu.backend.model.alevel.AlevelSourceBundle">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_source_bundle
+        WHERE alevel_import_batch_id = #{batchId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY create_time ASC, alevel_source_bundle_id ASC
+    </select>
+
+    <select id="findActiveByPaperId" resultType="com.earthseaedu.backend.model.alevel.AlevelSourceBundle">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_source_bundle
+        WHERE alevel_paper_id = #{paperId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY create_time ASC, alevel_source_bundle_id ASC
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.alevel.AlevelSourceBundle" useGeneratedKeys="true" keyProperty="alevelSourceBundleId">
+        INSERT INTO alevel_source_bundle (
+            alevel_import_batch_id, alevel_paper_id, bundle_code, bundle_name, exam_board, qualification,
+            subject_code, subject_name, unit_code, unit_name, exam_session, session_code, source_name, file_count,
+            has_question_paper, has_mark_scheme, has_insert, has_exam_report, bundle_status, detection_json,
+            warning_json, error_message, import_version, status, remark, create_time, update_time, delete_flag
+        ) VALUES (
+            #{alevelImportBatchId}, #{alevelPaperId}, #{bundleCode}, #{bundleName}, #{examBoard}, #{qualification},
+            #{subjectCode}, #{subjectName}, #{unitCode}, #{unitName}, #{examSession}, #{sessionCode}, #{sourceName},
+            #{fileCount}, #{hasQuestionPaper}, #{hasMarkScheme}, #{hasInsert}, #{hasExamReport}, #{bundleStatus},
+            #{detectionJson}, #{warningJson}, #{errorMessage}, #{importVersion}, #{status}, #{remark}, #{createTime},
+            #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.earthseaedu.backend.model.alevel.AlevelSourceBundle">
+        UPDATE alevel_source_bundle
+        SET alevel_import_batch_id = #{alevelImportBatchId},
+            alevel_paper_id = #{alevelPaperId},
+            bundle_name = #{bundleName},
+            exam_board = #{examBoard},
+            qualification = #{qualification},
+            subject_code = #{subjectCode},
+            subject_name = #{subjectName},
+            unit_code = #{unitCode},
+            unit_name = #{unitName},
+            exam_session = #{examSession},
+            session_code = #{sessionCode},
+            source_name = #{sourceName},
+            file_count = #{fileCount},
+            has_question_paper = #{hasQuestionPaper},
+            has_mark_scheme = #{hasMarkScheme},
+            has_insert = #{hasInsert},
+            has_exam_report = #{hasExamReport},
+            bundle_status = #{bundleStatus},
+            detection_json = #{detectionJson},
+            warning_json = #{warningJson},
+            error_message = #{errorMessage},
+            import_version = #{importVersion},
+            status = #{status},
+            remark = #{remark},
+            update_time = #{updateTime},
+            delete_flag = #{deleteFlag}
+        WHERE alevel_source_bundle_id = #{alevelSourceBundleId}
+    </update>
+
+    <update id="deactivateById">
+        UPDATE alevel_source_bundle
+        SET status = 0,
+            update_time = #{updateTime}
+        WHERE alevel_source_bundle_id = #{bundleId}
+          AND status = 1
+          AND delete_flag = '1'
+    </update>
+
+    <update id="refreshSummary">
+        UPDATE alevel_source_bundle b
+        SET file_count = (
+                SELECT COUNT(*)
+                FROM alevel_source_bundle_file f
+                WHERE f.alevel_source_bundle_id = #{bundleId}
+                  AND f.status = 1
+                  AND f.delete_flag = '1'
+            ),
+            has_question_paper = CASE WHEN EXISTS (
+                SELECT 1
+                FROM alevel_source_bundle_file f
+                WHERE f.alevel_source_bundle_id = #{bundleId}
+                  AND f.file_role = 'QUESTION_PAPER'
+                  AND f.status = 1
+                  AND f.delete_flag = '1'
+            ) THEN 1 ELSE 0 END,
+            has_mark_scheme = CASE WHEN EXISTS (
+                SELECT 1
+                FROM alevel_source_bundle_file f
+                WHERE f.alevel_source_bundle_id = #{bundleId}
+                  AND f.file_role = 'MARK_SCHEME'
+                  AND f.status = 1
+                  AND f.delete_flag = '1'
+            ) THEN 1 ELSE 0 END,
+            has_insert = CASE WHEN EXISTS (
+                SELECT 1
+                FROM alevel_source_bundle_file f
+                WHERE f.alevel_source_bundle_id = #{bundleId}
+                  AND f.file_role = 'INSERT'
+                  AND f.status = 1
+                  AND f.delete_flag = '1'
+            ) THEN 1 ELSE 0 END,
+            has_exam_report = CASE WHEN EXISTS (
+                SELECT 1
+                FROM alevel_source_bundle_file f
+                WHERE f.alevel_source_bundle_id = #{bundleId}
+                  AND f.file_role = 'EXAM_REPORT'
+                  AND f.status = 1
+                  AND f.delete_flag = '1'
+            ) THEN 1 ELSE 0 END,
+            bundle_status = CASE WHEN EXISTS (
+                SELECT 1
+                FROM alevel_source_bundle_file f
+                WHERE f.alevel_source_bundle_id = #{bundleId}
+                  AND f.file_role = 'QUESTION_PAPER'
+                  AND f.status = 1
+                  AND f.delete_flag = '1'
+            ) THEN 'READY' ELSE 'PENDING' END,
+            update_time = #{updateTime}
+        WHERE b.alevel_source_bundle_id = #{bundleId}
+          AND b.status = 1
+          AND b.delete_flag = '1'
+    </update>
+
+</mapper>

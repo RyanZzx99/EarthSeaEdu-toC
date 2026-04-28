@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.AlevelQuestionAnswerMapper">
+
+    <sql id="BaseColumns">
+        alevel_question_answer_id, alevel_question_id, answer_raw, answer_json, mark_scheme_json,
+        mark_scheme_excerpt_text, grading_mode, status, remark, create_time, update_time, delete_flag
+    </sql>
+
+    <select id="findActiveByQuestionId" resultType="com.earthseaedu.backend.model.alevel.AlevelQuestionAnswer">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_question_answer
+        WHERE alevel_question_id = #{questionId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.alevel.AlevelQuestionAnswer" useGeneratedKeys="true" keyProperty="alevelQuestionAnswerId">
+        INSERT INTO alevel_question_answer (
+            alevel_question_id, answer_raw, answer_json, mark_scheme_json, mark_scheme_excerpt_text, grading_mode,
+            status, remark, create_time, update_time, delete_flag
+        ) VALUES (
+            #{alevelQuestionId}, #{answerRaw}, #{answerJson}, #{markSchemeJson}, #{markSchemeExcerptText},
+            #{gradingMode}, #{status}, #{remark}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="deactivateByPaperId">
+        UPDATE alevel_question_answer answer_row
+        INNER JOIN alevel_question question_row
+                ON question_row.alevel_question_id = answer_row.alevel_question_id
+        SET answer_row.status = 0,
+            answer_row.update_time = #{updateTime}
+        WHERE question_row.alevel_paper_id = #{paperId}
+          AND question_row.delete_flag = '1'
+          AND answer_row.status = 1
+          AND answer_row.delete_flag = '1'
+    </update>
+
+    <update id="updateByQuestionId">
+        UPDATE alevel_question_answer
+        SET answer_raw = #{answerRaw},
+            answer_json = #{answerJson},
+            mark_scheme_json = #{markSchemeJson},
+            mark_scheme_excerpt_text = #{markSchemeExcerptText},
+            grading_mode = #{gradingMode},
+            update_time = #{updateTime},
+            delete_flag = '1'
+        WHERE alevel_question_id = #{questionId}
+    </update>
+
+</mapper>

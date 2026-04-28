@@ -1,0 +1,378 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.StudentProfileMapper">
+
+    <select id="countTable" resultType="java.lang.Integer">
+        SELECT COUNT(1)
+        FROM information_schema.tables
+        WHERE table_schema = DATABASE()
+          AND table_name = #{tableName}
+    </select>
+
+    <select id="showColumns" resultType="map">
+        SHOW COLUMNS FROM `${tableName}`
+    </select>
+
+    <select id="selectMultiRows" resultType="map">
+        SELECT
+        <foreach collection="columns" item="column" separator=",">
+            `${column}`
+        </foreach>
+        FROM `${tableName}`
+        WHERE `student_id` = #{studentId}
+          AND `delete_flag` = '1'
+        <choose>
+            <when test="tableName == 'student_basic_info_curriculum_system'">
+                ORDER BY is_primary DESC, curriculum_system_code ASC
+            </when>
+            <when test="tableName == 'student_academic_curriculum_gpa'">
+                ORDER BY curriculum_system_code ASC, gpa_scope_code ASC, student_academic_curriculum_gpa_id ASC
+            </when>
+            <when test="tableName == 'student_academic_us_high_school_subject'">
+                ORDER BY school_year_label DESC, term_code ASC, student_academic_us_high_school_subject_id ASC
+            </when>
+            <when test="tableName == 'student_academic_a_level_subject'">
+                ORDER BY al_subject_id ASC, stage_code ASC, is_predicted ASC, grade_code ASC
+            </when>
+            <when test="tableName == 'student_academic_ap_subject'">
+                ORDER BY year_taken DESC, ap_course_id ASC, student_academic_ap_subject_id ASC
+            </when>
+            <when test="tableName == 'student_academic_ib_subject'">
+                ORDER BY ib_subject_id ASC, level_code ASC, is_predicted ASC
+            </when>
+            <when test="tableName == 'student_academic_chinese_high_school_subject'">
+                ORDER BY chs_subject_id ASC
+            </when>
+            <when test="tableName == 'student_academic_ossd_subject'">
+                ORDER BY course_name_text ASC, student_academic_ossd_subject_id ASC
+            </when>
+            <when test="tableName == 'student_academic_other_curriculum_subject'">
+                ORDER BY curriculum_system_code ASC, school_year_label DESC, term_code ASC, subject_name_text ASC, student_academic_other_curriculum_subject_id ASC
+            </when>
+            <when test="tableName == 'student_standardized_sat'">
+                ORDER BY test_date DESC, is_best_score DESC, student_standardized_sat_id DESC
+            </when>
+            <when test="tableName == 'student_standardized_act'">
+                ORDER BY test_date DESC, is_best_score DESC, student_standardized_act_id DESC
+            </when>
+            <when test="tableName == 'student_activity_experience'">
+                ORDER BY start_time DESC, end_time DESC, student_activity_experience_id DESC
+            </when>
+            <when test="tableName == 'student_enterprise_internship'">
+                ORDER BY start_time DESC, end_time DESC, student_enterprise_internship_id DESC
+            </when>
+            <when test="tableName == 'student_research_experience'">
+                ORDER BY student_research_experience_id DESC
+            </when>
+            <when test="tableName == 'student_competition_record'">
+                ORDER BY competition_year DESC, competition_name ASC, student_competition_record_id DESC
+            </when>
+        </choose>
+    </select>
+
+    <select id="selectDictionaryOptions" resultType="map">
+        SELECT `${valueColumn}` AS value,
+               `${labelCnColumn}` AS label_cn,
+               `${labelEnColumn}` AS label_en
+        FROM `${tableName}`
+        WHERE `delete_flag` = '1'
+        ORDER BY value ASC
+    </select>
+
+    <select id="listLanguageTestRecordsByStudentId" resultType="map">
+        SELECT
+            student_language_test_record_id,
+            student_id,
+            test_type_code,
+            status_code,
+            test_date,
+            exam_name_text,
+            total_score,
+            score_scale_text,
+            cefr_level_code,
+            evidence_level_code,
+            is_best_score,
+            notes
+        FROM student_language_test_record
+        WHERE student_id = #{studentId}
+          AND delete_flag = '1'
+        ORDER BY test_date DESC, is_best_score DESC, student_language_test_record_id DESC
+    </select>
+
+    <select id="listLanguageTestScoreItemsByStudentId" resultType="map">
+        SELECT
+            item.student_language_test_score_item_id,
+            item.student_language_test_record_id,
+            item.score_item_code,
+            item.score_value,
+            item.score_scale_text
+        FROM student_language_test_score_item item
+        INNER JOIN student_language_test_record record
+          ON record.student_language_test_record_id = item.student_language_test_record_id
+        WHERE record.student_id = #{studentId}
+          AND record.delete_flag = '1'
+          AND item.delete_flag = '1'
+        ORDER BY
+            record.test_date DESC,
+            record.student_language_test_record_id DESC,
+            item.score_item_code ASC,
+            item.student_language_test_score_item_id ASC
+    </select>
+
+    <select id="listLanguageTestTypeOptions" resultType="map">
+        SELECT
+            test_type_code AS value,
+            test_type_name_cn AS label_cn,
+            test_type_name_en AS label_en
+        FROM dict_language_test_type
+        WHERE delete_flag = '1'
+        ORDER BY sort_order ASC, test_type_code ASC
+    </select>
+
+    <select id="listLanguageTestScoreItemOptions" resultType="map">
+        SELECT
+            score_item_code AS value,
+            score_item_name_cn AS label_cn,
+            score_item_name_en AS label_en
+        FROM dict_language_test_score_item
+        WHERE delete_flag = '1'
+        ORDER BY sort_order ASC, score_item_code ASC
+    </select>
+
+    <select id="listActivityAttachmentsByStudentId" resultType="map">
+        SELECT
+            attachment.student_activity_attachment_id,
+            attachment.student_activity_experience_id,
+            attachment.file_name,
+            attachment.file_url,
+            attachment.file_key,
+            attachment.sort_order
+        FROM student_activity_attachment attachment
+        INNER JOIN student_activity_experience experience
+          ON experience.student_activity_experience_id = attachment.student_activity_experience_id
+        WHERE experience.student_id = #{studentId}
+          AND experience.delete_flag = '1'
+          AND attachment.delete_flag = '1'
+        ORDER BY
+            experience.start_time DESC,
+            experience.student_activity_experience_id DESC,
+            attachment.sort_order ASC,
+            attachment.student_activity_attachment_id ASC
+    </select>
+
+    <select id="listEnterpriseInternshipAttachmentsByStudentId" resultType="map">
+        SELECT
+            attachment.student_enterprise_internship_attachment_id,
+            attachment.student_enterprise_internship_id,
+            attachment.file_name,
+            attachment.file_url,
+            attachment.file_key,
+            attachment.sort_order
+        FROM student_enterprise_internship_attachment attachment
+        INNER JOIN student_enterprise_internship internship
+          ON internship.student_enterprise_internship_id = attachment.student_enterprise_internship_id
+        WHERE internship.student_id = #{studentId}
+          AND internship.delete_flag = '1'
+          AND attachment.delete_flag = '1'
+        ORDER BY
+            internship.start_time DESC,
+            internship.student_enterprise_internship_id DESC,
+            attachment.sort_order ASC,
+            attachment.student_enterprise_internship_attachment_id ASC
+    </select>
+
+    <select id="listResearchAttachmentsByStudentId" resultType="map">
+        SELECT
+            attachment.student_research_attachment_id,
+            attachment.student_research_experience_id,
+            attachment.file_name,
+            attachment.file_url,
+            attachment.file_key,
+            attachment.sort_order
+        FROM student_research_attachment attachment
+        INNER JOIN student_research_experience experience
+          ON experience.student_research_experience_id = attachment.student_research_experience_id
+        WHERE experience.student_id = #{studentId}
+          AND experience.delete_flag = '1'
+          AND attachment.delete_flag = '1'
+        ORDER BY
+            experience.student_research_experience_id DESC,
+            attachment.sort_order ASC,
+            attachment.student_research_attachment_id ASC
+    </select>
+
+    <select id="listCompetitionAttachmentsByStudentId" resultType="map">
+        SELECT
+            attachment.student_competition_attachment_id,
+            attachment.student_competition_record_id,
+            attachment.file_name,
+            attachment.file_url,
+            attachment.file_key,
+            attachment.sort_order
+        FROM student_competition_attachment attachment
+        INNER JOIN student_competition_record record
+          ON record.student_competition_record_id = attachment.student_competition_record_id
+        WHERE record.student_id = #{studentId}
+          AND record.delete_flag = '1'
+          AND attachment.delete_flag = '1'
+        ORDER BY
+            record.competition_year DESC,
+            record.student_competition_record_id DESC,
+            attachment.sort_order ASC,
+            attachment.student_competition_attachment_id ASC
+    </select>
+
+    <update id="softDeleteLanguageTestScoreItemsByStudentId">
+        UPDATE student_language_test_score_item item
+        INNER JOIN student_language_test_record record
+          ON record.student_language_test_record_id = item.student_language_test_record_id
+        SET item.delete_flag = '0',
+            item.update_time = CURRENT_TIMESTAMP
+        WHERE record.student_id = #{studentId}
+          AND item.delete_flag = '1'
+    </update>
+
+    <update id="softDeleteLanguageTestRecordsByStudentId">
+        UPDATE student_language_test_record
+        SET delete_flag = '0',
+            update_time = CURRENT_TIMESTAMP
+        WHERE student_id = #{studentId}
+          AND delete_flag = '1'
+    </update>
+
+    <update id="softDeleteActivityAttachmentsByStudentId">
+        UPDATE student_activity_attachment attachment
+        INNER JOIN student_activity_experience experience
+          ON experience.student_activity_experience_id = attachment.student_activity_experience_id
+        SET attachment.delete_flag = '0',
+            attachment.update_time = CURRENT_TIMESTAMP
+        WHERE experience.student_id = #{studentId}
+          AND attachment.delete_flag = '1'
+    </update>
+
+    <update id="softDeleteEnterpriseInternshipAttachmentsByStudentId">
+        UPDATE student_enterprise_internship_attachment attachment
+        INNER JOIN student_enterprise_internship internship
+          ON internship.student_enterprise_internship_id = attachment.student_enterprise_internship_id
+        SET attachment.delete_flag = '0',
+            attachment.update_time = CURRENT_TIMESTAMP
+        WHERE internship.student_id = #{studentId}
+          AND attachment.delete_flag = '1'
+    </update>
+
+    <update id="softDeleteResearchAttachmentsByStudentId">
+        UPDATE student_research_attachment attachment
+        INNER JOIN student_research_experience experience
+          ON experience.student_research_experience_id = attachment.student_research_experience_id
+        SET attachment.delete_flag = '0',
+            attachment.update_time = CURRENT_TIMESTAMP
+        WHERE experience.student_id = #{studentId}
+          AND attachment.delete_flag = '1'
+    </update>
+
+    <update id="softDeleteCompetitionAttachmentsByStudentId">
+        UPDATE student_competition_attachment attachment
+        INNER JOIN student_competition_record record
+          ON record.student_competition_record_id = attachment.student_competition_record_id
+        SET attachment.delete_flag = '0',
+            attachment.update_time = CURRENT_TIMESTAMP
+        WHERE record.student_id = #{studentId}
+          AND attachment.delete_flag = '1'
+    </update>
+
+    <update id="softDeleteByStudent">
+        UPDATE `${tableName}`
+        SET delete_flag = '0',
+            update_time = CURRENT_TIMESTAMP
+        WHERE student_id = #{studentId}
+          AND delete_flag = '1'
+    </update>
+
+    <select id="countActiveLanguageParentsByStudentId" resultType="java.lang.Integer">
+        SELECT COUNT(1)
+        FROM student_language
+        WHERE student_id = #{studentId}
+          AND delete_flag = '1'
+        FOR UPDATE
+    </select>
+
+    <insert id="insertLanguageParent" parameterType="map">
+        INSERT INTO student_language
+          (
+            student_language_id,
+            student_id,
+            use_best_single_test,
+            prefer_scored_over_estimated,
+            delete_flag
+          )
+        VALUES
+          (
+            #{studentLanguageId},
+            #{studentId},
+            1,
+            1,
+            '1'
+          )
+    </insert>
+
+    <insert id="insertLanguageTestRecord" parameterType="map" useGeneratedKeys="true" keyProperty="studentLanguageTestRecordId">
+        INSERT INTO student_language_test_record
+          (
+            student_id,
+            test_type_code,
+            status_code,
+            test_date,
+            exam_name_text,
+            total_score,
+            score_scale_text,
+            cefr_level_code,
+            evidence_level_code,
+            is_best_score,
+            notes,
+            delete_flag
+          )
+        VALUES
+          (
+            #{studentId},
+            #{testTypeCode},
+            #{statusCode},
+            #{testDate},
+            #{examNameText},
+            #{totalScore},
+            #{scoreScaleText},
+            #{cefrLevelCode},
+            #{evidenceLevelCode},
+            #{isBestScore},
+            #{notes},
+            '1'
+          )
+    </insert>
+
+    <insert id="insertLanguageTestScoreItem" parameterType="map" useGeneratedKeys="true" keyProperty="studentLanguageTestScoreItemId">
+        INSERT INTO student_language_test_score_item
+          (
+            student_language_test_record_id,
+            score_item_code,
+            score_value,
+            score_scale_text,
+            delete_flag
+          )
+        VALUES
+          (
+            #{studentLanguageTestRecordId},
+            #{scoreItemCode},
+            #{scoreValue},
+            #{scoreScaleText},
+            '1'
+          )
+    </insert>
+
+    <insert id="insertDynamicRow" parameterType="map" useGeneratedKeys="true" keyProperty="generatedId">
+        INSERT INTO `${tableName}` (${columnList})
+        VALUES
+        <foreach collection="values" item="value" open="(" close=")" separator=",">
+            #{value}
+        </foreach>
+    </insert>
+
+</mapper>

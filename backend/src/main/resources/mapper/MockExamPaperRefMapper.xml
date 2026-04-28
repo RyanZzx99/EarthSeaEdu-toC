@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.MockExamPaperRefMapper">
+
+    <sql id="BaseColumns">
+        mockexam_paper_ref_id, source_type, source_paper_id, exam_category, exam_content, exam_board, subject_code,
+        subject_name, paper_code, paper_name, duration_seconds, total_score, payload_adapter, status, remark,
+        create_time, update_time, delete_flag
+    </sql>
+
+    <select id="findActiveById" resultType="com.earthseaedu.backend.model.mockexam.MockExamPaperRef">
+        SELECT <include refid="BaseColumns"/>
+        FROM mockexam_paper_ref
+        WHERE mockexam_paper_ref_id = #{paperRefId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveBySource" resultType="com.earthseaedu.backend.model.mockexam.MockExamPaperRef">
+        SELECT <include refid="BaseColumns"/>
+        FROM mockexam_paper_ref
+        WHERE source_type = #{sourceType}
+          AND source_paper_id = #{sourcePaperId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveByPaperCode" resultType="com.earthseaedu.backend.model.mockexam.MockExamPaperRef">
+        SELECT <include refid="BaseColumns"/>
+        FROM mockexam_paper_ref
+        WHERE paper_code = #{paperCode}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="listActiveByCategoryAndContent" resultType="map">
+        SELECT mockexam_paper_ref_id, source_type, source_paper_id, exam_category, exam_content, exam_board,
+               subject_code, subject_name, paper_code, paper_name, duration_seconds, total_score, payload_adapter,
+               status, remark, create_time, update_time
+        FROM mockexam_paper_ref
+        WHERE status = 1
+          AND delete_flag = '1'
+          AND exam_category = #{examCategory}
+        <if test="examContent != null and examContent != ''">
+          AND exam_content = #{examContent}
+        </if>
+        ORDER BY COALESCE(subject_name, ''), COALESCE(paper_code, ''), mockexam_paper_ref_id
+    </select>
+
+    <select id="listActiveContentsByCategory" resultType="string">
+        SELECT DISTINCT exam_content
+        FROM mockexam_paper_ref
+        WHERE status = 1
+          AND delete_flag = '1'
+          AND exam_category = #{examCategory}
+          AND exam_content IS NOT NULL
+          AND exam_content != ''
+        ORDER BY exam_content ASC
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.mockexam.MockExamPaperRef" useGeneratedKeys="true" keyProperty="mockexamPaperRefId">
+        INSERT INTO mockexam_paper_ref (
+            source_type, source_paper_id, exam_category, exam_content, exam_board, subject_code, subject_name,
+            paper_code, paper_name, duration_seconds, total_score, payload_adapter, status, remark, create_time,
+            update_time, delete_flag
+        ) VALUES (
+            #{sourceType}, #{sourcePaperId}, #{examCategory}, #{examContent}, #{examBoard}, #{subjectCode},
+            #{subjectName}, #{paperCode}, #{paperName}, #{durationSeconds}, #{totalScore}, #{payloadAdapter},
+            #{status}, #{remark}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="updateMetadata" parameterType="com.earthseaedu.backend.model.mockexam.MockExamPaperRef">
+        UPDATE mockexam_paper_ref
+        SET source_type = #{sourceType},
+            source_paper_id = #{sourcePaperId},
+            exam_category = #{examCategory},
+            exam_content = #{examContent},
+            exam_board = #{examBoard},
+            subject_code = #{subjectCode},
+            subject_name = #{subjectName},
+            paper_code = #{paperCode},
+            paper_name = #{paperName},
+            duration_seconds = #{durationSeconds},
+            total_score = #{totalScore},
+            payload_adapter = #{payloadAdapter},
+            status = #{status},
+            remark = #{remark},
+            update_time = #{updateTime},
+            delete_flag = #{deleteFlag}
+        WHERE mockexam_paper_ref_id = #{mockexamPaperRefId}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE mockexam_paper_ref
+        SET status = #{status},
+            update_time = #{updateTime},
+            delete_flag = '1'
+        WHERE mockexam_paper_ref_id = #{paperRefId}
+    </update>
+
+</mapper>

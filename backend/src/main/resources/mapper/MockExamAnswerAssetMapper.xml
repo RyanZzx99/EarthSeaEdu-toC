@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.MockExamAnswerAssetMapper">
+
+    <sql id="BaseColumns">
+        mockexam_answer_asset_id, owner_type, owner_id, user_id, mockexam_paper_ref_id, mockexam_question_ref_id,
+        asset_type, file_name, mime_type, source_path, storage_path, asset_url, file_hash, sort_order, status,
+        remark, create_time, update_time, delete_flag
+    </sql>
+
+    <select id="findActiveByOwner" resultType="com.earthseaedu.backend.model.mockexam.MockExamAnswerAsset">
+        SELECT <include refid="BaseColumns"/>
+        FROM mockexam_answer_asset
+        WHERE owner_type = #{ownerType}
+          AND owner_id = #{ownerId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, mockexam_answer_asset_id ASC
+    </select>
+
+    <select id="findActiveByQuestionRefId" resultType="com.earthseaedu.backend.model.mockexam.MockExamAnswerAsset">
+        SELECT <include refid="BaseColumns"/>
+        FROM mockexam_answer_asset
+        WHERE mockexam_question_ref_id = #{questionRefId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY create_time DESC, mockexam_answer_asset_id DESC
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.mockexam.MockExamAnswerAsset" useGeneratedKeys="true" keyProperty="mockexamAnswerAssetId">
+        INSERT INTO mockexam_answer_asset (
+            owner_type, owner_id, user_id, mockexam_paper_ref_id, mockexam_question_ref_id, asset_type, file_name,
+            mime_type, source_path, storage_path, asset_url, file_hash, sort_order, status, remark, create_time,
+            update_time, delete_flag
+        ) VALUES (
+            #{ownerType}, #{ownerId}, #{userId}, #{mockexamPaperRefId}, #{mockexamQuestionRefId}, #{assetType},
+            #{fileName}, #{mimeType}, #{sourcePath}, #{storagePath}, #{assetUrl}, #{fileHash}, #{sortOrder},
+            #{status}, #{remark}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="updateStatus">
+        UPDATE mockexam_answer_asset
+        SET status = #{status},
+            update_time = #{updateTime},
+            delete_flag = '1'
+        WHERE mockexam_answer_asset_id = #{answerAssetId}
+    </update>
+
+</mapper>

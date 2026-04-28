@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.AlevelModuleMapper">
+
+    <sql id="BaseColumns">
+        alevel_module_id, alevel_paper_id, module_code, module_name, module_type, instructions_html, instructions_text,
+        sort_order, status, remark, create_time, update_time, delete_flag
+    </sql>
+
+    <select id="findActiveById" resultType="com.earthseaedu.backend.model.alevel.AlevelModule">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_module
+        WHERE alevel_module_id = #{moduleId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveByPaperId" resultType="com.earthseaedu.backend.model.alevel.AlevelModule">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_module
+        WHERE alevel_paper_id = #{paperId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, alevel_module_id ASC
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.alevel.AlevelModule" useGeneratedKeys="true" keyProperty="alevelModuleId">
+        INSERT INTO alevel_module (
+            alevel_paper_id, module_code, module_name, module_type, instructions_html, instructions_text, sort_order,
+            status, remark, create_time, update_time, delete_flag
+        ) VALUES (
+            #{alevelPaperId}, #{moduleCode}, #{moduleName}, #{moduleType}, #{instructionsHtml}, #{instructionsText},
+            #{sortOrder}, #{status}, #{remark}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="deactivateByPaperId">
+        UPDATE alevel_module
+        SET status = 0,
+            module_code = CONCAT('ARCHIVED_', alevel_module_id),
+            update_time = #{updateTime}
+        WHERE alevel_paper_id = #{paperId}
+          AND status = 1
+          AND delete_flag = '1'
+    </update>
+
+</mapper>

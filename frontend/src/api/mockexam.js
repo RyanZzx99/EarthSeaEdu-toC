@@ -3,7 +3,7 @@ import { clearAccessToken, getAccessToken } from "../utils/authStorage";
 
 const request = axios.create({
   baseURL: "",
-  timeout: 10000,
+  timeout: 30000,
 });
 
 request.interceptors.request.use(
@@ -41,8 +41,40 @@ export function getMockExamPapers(params) {
   });
 }
 
-export function getMockExamPaper(examPaperId) {
-  return request.get(`/api/v1/mockexam/papers/${examPaperId}`);
+export function getMockExamPaper(examPaperId, params) {
+  return request.get(`/api/v1/mockexam/papers/${examPaperId}`, {
+    params,
+  });
+}
+
+export function getMockExamAlevelOptions() {
+  return request.get("/api/v1/mockexam/alevel/options");
+}
+
+export function getMockExamAlevelPapers(params) {
+  return request.get("/api/v1/mockexam/alevel/papers", {
+    params,
+  });
+}
+
+export function getMockExamAlevelPaper(examPaperId) {
+  return request.get(`/api/v1/mockexam/alevel/papers/${examPaperId}`);
+}
+
+export function getMockExamActOptions() {
+  return request.get("/api/v1/mockexam/act/options");
+}
+
+export function getMockExamActPapers(params) {
+  return request.get("/api/v1/mockexam/act/papers", {
+    params,
+  });
+}
+
+export function getMockExamActPaper(examPaperId, params) {
+  return request.get(`/api/v1/mockexam/act/papers/${examPaperId}`, {
+    params,
+  });
 }
 
 export function getMockExamPaperSets(params) {

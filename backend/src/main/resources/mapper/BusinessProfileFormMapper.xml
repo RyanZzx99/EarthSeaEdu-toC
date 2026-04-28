@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.BusinessProfileFormMapper">
+
+    <select id="countTable" resultType="java.lang.Integer">
+        SELECT COUNT(1)
+        FROM information_schema.tables
+        WHERE table_schema = DATABASE()
+          AND table_name = #{tableName}
+    </select>
+
+    <select id="showColumns" resultType="map">
+        SHOW COLUMNS FROM `${tableName}`
+    </select>
+
+    <select id="selectSingleRow" resultType="map">
+        SELECT
+        <foreach collection="columns" item="column" separator=",">
+            `${column}`
+        </foreach>
+        FROM `${tableName}`
+        WHERE `student_id` = #{studentId}
+          AND `delete_flag` = '1'
+        LIMIT 1
+    </select>
+
+    <select id="selectMultiRows" resultType="map">
+        SELECT
+        <foreach collection="columns" item="column" separator=",">
+            `${column}`
+        </foreach>
+        FROM `${tableName}`
+        WHERE `student_id` = #{studentId}
+          AND `delete_flag` = '1'
+        <choose>
+            <when test="tableName == 'student_basic_info_curriculum_system'">
+                ORDER BY is_primary DESC, curriculum_system_code ASC
+            </when>
+            <when test="tableName == 'student_academic_curriculum_gpa'">
+                ORDER BY curriculum_system_code ASC, gpa_scope_code ASC, student_academic_curriculum_gpa_id ASC
+            </when>
+            <when test="tableName == 'student_academic_us_high_school_course'">
+                ORDER BY school_year_label DESC, term_code ASC, student_us_high_school_course_record_id ASC
+            </when>
+            <when test="tableName == 'student_academic_a_level_subject'">
+                ORDER BY al_subject_id ASC, stage_code ASC, is_predicted ASC, grade_code ASC
+            </when>
+            <when test="tableName == 'student_academic_ap_course'">
+                ORDER BY year_taken DESC, ap_course_id ASC
+            </when>
+            <when test="tableName == 'student_academic_ib_subject'">
+                ORDER BY ib_subject_id ASC, level_code ASC, is_predicted ASC
+            </when>
+            <when test="tableName == 'student_academic_chinese_high_school_subject'">
+                ORDER BY chs_subject_id ASC
+            </when>
+            <when test="tableName == 'student_academic_ossd_subject'">
+                ORDER BY course_name_text ASC, student_academic_ossd_subject_id ASC
+            </when>
+            <when test="tableName == 'student_academic_other_curriculum_subject'">
+                ORDER BY curriculum_system_code ASC, school_year_label DESC, term_code ASC, subject_name_text ASC, student_academic_other_curriculum_subject_id ASC
+            </when>
+            <when test="tableName == 'student_language_ielts'">
+                ORDER BY test_date DESC, is_best_score DESC
+            </when>
+            <when test="tableName == 'student_language_toefl_ibt'">
+                ORDER BY test_date DESC, is_best_score DESC
+            </when>
+            <when test="tableName == 'student_language_toefl_home'">
+                ORDER BY test_date DESC, is_best_score DESC
+            </when>
+            <when test="tableName == 'student_language_det'">
+                ORDER BY test_date DESC, is_best_score DESC
+            </when>
+            <when test="tableName == 'student_language_pte'">
+                ORDER BY test_date DESC, is_best_score DESC
+            </when>
+            <when test="tableName == 'student_language_languagecert_academic'">
+                ORDER BY test_date DESC, is_best_score DESC
+            </when>
+            <when test="tableName == 'student_language_cambridge'">
+                ORDER BY test_date DESC, is_best_score DESC
+            </when>
+            <when test="tableName == 'student_language_other'">
+                ORDER BY test_date DESC, is_best_score DESC
+            </when>
+            <when test="tableName == 'student_standardized_test_records'">
+                ORDER BY test_date DESC, is_best_score DESC
+            </when>
+            <when test="tableName == 'student_competition_entries'">
+                ORDER BY sort_order ASC, competition_year DESC
+            </when>
+            <when test="tableName == 'student_activity_entries'">
+                ORDER BY sort_order ASC
+            </when>
+            <when test="tableName == 'student_project_entries'">
+                ORDER BY sort_order ASC
+            </when>
+        </choose>
+    </select>
+
+    <select id="selectProjectOutputRows" resultType="map">
+        SELECT
+        <foreach collection="columns" item="column" separator=",">
+            `${column}`
+        </foreach>
+        FROM `student_project_outputs`
+        WHERE `project_id` IN (
+            SELECT `project_id`
+            FROM `student_project_entries`
+            WHERE `student_id` = #{studentId}
+              AND `delete_flag` = '1'
+        )
+          AND `delete_flag` = '1'
+        ORDER BY project_id ASC, sort_order ASC
+    </select>
+
+    <select id="selectLanguageTestScoreItemRows" resultType="map">
+        SELECT
+        <foreach collection="columns" item="column" separator=",">
+            item.`${column}`
+        </foreach>
+        FROM `student_language_test_score_item` item
+        INNER JOIN `student_language_test_record` record
+          ON record.`student_language_test_record_id` = item.`student_language_test_record_id`
+        WHERE record.`student_id` = #{studentId}
+          AND record.`delete_flag` = '1'
+          AND item.`delete_flag` = '1'
+        ORDER BY
+            record.`test_date` DESC,
+            record.`student_language_test_record_id` DESC,
+            item.`score_item_code` ASC,
+            item.`student_language_test_score_item_id` ASC
+    </select>
+
+    <select id="selectGuidedTargetCountryEntries" resultType="map">
+        SELECT country_code, sort_order, is_primary, remark
+        FROM student_basic_info_target_country_entries
+        WHERE student_id = #{studentId}
+          AND delete_flag = '1'
+        ORDER BY is_primary DESC, sort_order ASC, id ASC
+    </select>
+
+    <select id="selectGuidedTargetMajorEntries" resultType="map">
+        SELECT major_direction_code, major_direction_label, major_code, sort_order, is_primary
+        FROM student_basic_info_target_major_entries
+        WHERE student_id = #{studentId}
+          AND delete_flag = '1'
+        ORDER BY is_primary DESC, sort_order ASC, id ASC
+    </select>
+
+    <select id="selectDictionaryOptions" resultType="map">
+        SELECT `${valueColumn}` AS value,
+               `${labelCnColumn}` AS label_cn,
+               `${labelEnColumn}` AS label_en
+        FROM `${tableName}`
+        WHERE `delete_flag` = '1'
+        ORDER BY value ASC
+    </select>
+
+</mapper>

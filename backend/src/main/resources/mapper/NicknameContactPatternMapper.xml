@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.NicknameContactPatternMapper">
+
+    <sql id="BaseColumns">
+        id, group_id, pattern_name, pattern_type, pattern_regex, decision, status, priority, risk_level,
+        normalized_hint, note, effective_start_time, effective_end_time, version_no, created_by, updated_by,
+        create_time, update_time, delete_flag
+    </sql>
+
+    <sql id="ListFilters">
+        WHERE delete_flag = '1'
+        <if test="groupId != null">AND group_id = #{groupId}</if>
+        <if test="status != null">AND status = #{status}</if>
+        <if test="patternType != null">AND pattern_type = #{patternType}</if>
+        <if test="keyword != null">
+            AND (pattern_name LIKE CONCAT('%', #{keyword}, '%')
+             OR pattern_regex LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+    </sql>
+
+    <select id="list" resultType="com.earthseaedu.backend.model.nickname.NicknameContactPattern">
+        SELECT <include refid="BaseColumns"/>
+        FROM nickname_contact_patterns
+        <include refid="ListFilters"/>
+        ORDER BY priority ASC, id ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(1)
+        FROM nickname_contact_patterns
+        <include refid="ListFilters"/>
+    </select>
+
+    <select id="findActiveById" resultType="com.earthseaedu.backend.model.nickname.NicknameContactPattern">
+        SELECT <include refid="BaseColumns"/>
+        FROM nickname_contact_patterns
+        WHERE id = #{id}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findDuplicate" resultType="com.earthseaedu.backend.model.nickname.NicknameContactPattern">
+        SELECT <include refid="BaseColumns"/>
+        FROM nickname_contact_patterns
+        WHERE pattern_name = #{patternName}
+          AND pattern_type = #{patternType}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.nickname.NicknameContactPattern" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO nickname_contact_patterns (
+            group_id, pattern_name, pattern_type, pattern_regex, decision, status, priority, risk_level,
+            normalized_hint, note, effective_start_time, effective_end_time, version_no, created_by, updated_by,
+            create_time, update_time, delete_flag
+        ) VALUES (
+            #{groupId}, #{patternName}, #{patternType}, #{patternRegex}, #{decision}, #{status}, #{priority},
+            #{riskLevel}, #{normalizedHint}, #{note}, #{effectiveStartTime}, #{effectiveEndTime}, #{versionNo},
+            #{createdBy}, #{updatedBy}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.earthseaedu.backend.model.nickname.NicknameContactPattern">
+        UPDATE nickname_contact_patterns
+        SET group_id = #{groupId},
+            pattern_name = #{patternName},
+            pattern_type = #{patternType},
+            pattern_regex = #{patternRegex},
+            decision = #{decision},
+            status = #{status},
+            priority = #{priority},
+            risk_level = #{riskLevel},
+            normalized_hint = #{normalizedHint},
+            note = #{note},
+            effective_start_time = #{effectiveStartTime},
+            effective_end_time = #{effectiveEndTime},
+            version_no = #{versionNo},
+            created_by = #{createdBy},
+            updated_by = #{updatedBy},
+            update_time = #{updateTime},
+            delete_flag = #{deleteFlag}
+        WHERE id = #{id}
+    </update>
+
+    <select id="listRuntimePatternMaps" resultType="map">
+        SELECT p.id AS patternId,
+               g.id AS groupId,
+               g.group_code AS groupCode,
+               p.pattern_name AS patternName,
+               p.pattern_type AS patternType,
+               p.pattern_regex AS patternRegex,
+               p.decision AS decision,
+               p.priority AS priority,
+               p.risk_level AS riskLevel,
+               p.status AS patternStatus,
+               p.delete_flag AS patternDeleteFlag,
+               p.effective_start_time AS patternEffectiveStartTime,
+               p.effective_end_time AS patternEffectiveEndTime,
+               g.status AS groupStatus,
+               g.delete_flag AS groupDeleteFlag,
+               g.effective_start_time AS groupEffectiveStartTime,
+               g.effective_end_time AS groupEffectiveEndTime
+        FROM nickname_contact_patterns p
+        LEFT JOIN nickname_rule_groups g ON p.group_id = g.id
+        WHERE p.delete_flag = '1'
+        ORDER BY p.priority ASC, p.id ASC
+    </select>
+
+</mapper>

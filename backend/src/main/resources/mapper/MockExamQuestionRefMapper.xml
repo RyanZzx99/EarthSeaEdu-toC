@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.MockExamQuestionRefMapper">
+
+    <sql id="BaseColumns">
+        mockexam_question_ref_id, mockexam_paper_ref_id, source_type, source_question_id, source_question_code,
+        question_no_display, question_type, response_mode, stat_type, max_score, preview_text, status, remark,
+        create_time, update_time, delete_flag
+    </sql>
+
+    <select id="findActiveById" resultType="com.earthseaedu.backend.model.mockexam.MockExamQuestionRef">
+        SELECT <include refid="BaseColumns"/>
+        FROM mockexam_question_ref
+        WHERE mockexam_question_ref_id = #{questionRefId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveBySource" resultType="com.earthseaedu.backend.model.mockexam.MockExamQuestionRef">
+        SELECT <include refid="BaseColumns"/>
+        FROM mockexam_question_ref
+        WHERE source_type = #{sourceType}
+          AND source_question_id = #{sourceQuestionId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveByPaperRefId" resultType="com.earthseaedu.backend.model.mockexam.MockExamQuestionRef">
+        SELECT <include refid="BaseColumns"/>
+        FROM mockexam_question_ref
+        WHERE mockexam_paper_ref_id = #{paperRefId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY mockexam_question_ref_id ASC
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.mockexam.MockExamQuestionRef" useGeneratedKeys="true" keyProperty="mockexamQuestionRefId">
+        INSERT INTO mockexam_question_ref (
+            mockexam_paper_ref_id, source_type, source_question_id, source_question_code, question_no_display,
+            question_type, response_mode, stat_type, max_score, preview_text, status, remark, create_time,
+            update_time, delete_flag
+        ) VALUES (
+            #{mockexamPaperRefId}, #{sourceType}, #{sourceQuestionId}, #{sourceQuestionCode}, #{questionNoDisplay},
+            #{questionType}, #{responseMode}, #{statType}, #{maxScore}, #{previewText}, #{status}, #{remark},
+            #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="updateMetadata" parameterType="com.earthseaedu.backend.model.mockexam.MockExamQuestionRef">
+        UPDATE mockexam_question_ref
+        SET mockexam_paper_ref_id = #{mockexamPaperRefId},
+            source_type = #{sourceType},
+            source_question_id = #{sourceQuestionId},
+            source_question_code = #{sourceQuestionCode},
+            question_no_display = #{questionNoDisplay},
+            question_type = #{questionType},
+            response_mode = #{responseMode},
+            stat_type = #{statType},
+            max_score = #{maxScore},
+            preview_text = #{previewText},
+            status = #{status},
+            remark = #{remark},
+            update_time = #{updateTime},
+            delete_flag = #{deleteFlag}
+        WHERE mockexam_question_ref_id = #{mockexamQuestionRefId}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE mockexam_question_ref
+        SET status = #{status},
+            update_time = #{updateTime},
+            delete_flag = '1'
+        WHERE mockexam_question_ref_id = #{questionRefId}
+    </update>
+
+</mapper>

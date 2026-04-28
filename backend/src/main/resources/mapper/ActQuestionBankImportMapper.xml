@@ -1,0 +1,324 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.ActQuestionBankImportMapper">
+
+    <insert id="insertImportBatch" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO act_import_batch (
+            batch_code, batch_name, import_source_type, origin_name, source_root_path, storage_root_path,
+            total_file_count, resolved_json_count, success_count, failure_count, import_status,
+            progress_percent, progress_message, operator_id, result_json, error_message, started_at,
+            finished_at, status, remark, delete_flag
+        ) VALUES (
+            #{batchCode}, #{batchName}, #{importSourceType}, #{originName}, #{sourceRootPath}, #{storageRootPath},
+            #{totalFileCount}, #{resolvedJsonCount}, #{successCount}, #{failureCount}, #{importStatus},
+            #{progressPercent}, #{progressMessage}, #{operatorId}, #{resultJson}, #{errorMessage}, #{startedAt},
+            #{finishedAt}, 1, #{remark}, '1'
+        )
+    </insert>
+
+    <update id="updateImportBatchProgress" parameterType="map">
+        UPDATE act_import_batch
+        SET resolved_json_count = #{resolvedJsonCount},
+            success_count = #{successCount},
+            failure_count = #{failureCount},
+            import_status = 'RUNNING',
+            progress_percent = #{progressPercent},
+            progress_message = #{progressMessage},
+            result_json = #{resultJson},
+            update_time = CURRENT_TIMESTAMP
+        WHERE act_import_batch_id = #{batchId}
+    </update>
+
+    <update id="updateImportBatchCompleted" parameterType="map">
+        UPDATE act_import_batch
+        SET resolved_json_count = #{resolvedJsonCount},
+            success_count = #{successCount},
+            failure_count = #{failureCount},
+            import_status = #{importStatus},
+            progress_percent = 100.00,
+            progress_message = #{progressMessage},
+            result_json = #{resultJson},
+            finished_at = CURRENT_TIMESTAMP,
+            update_time = CURRENT_TIMESTAMP
+        WHERE act_import_batch_id = #{batchId}
+    </update>
+
+    <update id="updateImportBatchFailed" parameterType="map">
+        UPDATE act_import_batch
+        SET import_status = 'FAILED',
+            progress_message = #{progressMessage},
+            error_message = #{errorMessage},
+            finished_at = CURRENT_TIMESTAMP,
+            update_time = CURRENT_TIMESTAMP
+        WHERE act_import_batch_id = #{batchId}
+    </update>
+
+    <select id="findActivePaperByCode" resultType="map">
+        SELECT act_paper_id, paper_code, paper_name, question_count, auto_gradable_question_count
+        FROM act_paper
+        WHERE paper_code = #{paperCode}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActivePaperById" resultType="map">
+        SELECT act_paper_id, paper_code, paper_name, exam_board, exam_type, test_date, region_code, region_name,
+               session_code, session_name, source_name, source_file_hash, duration_seconds, question_count,
+               auto_gradable_question_count, total_score, metadata_json, create_time, update_time
+        FROM act_paper
+        WHERE act_paper_id = #{paperId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="listActiveSectionNames" resultType="string">
+        SELECT section_name
+        FROM act_section
+        WHERE status = 1
+          AND delete_flag = '1'
+          AND section_name IS NOT NULL
+          AND section_name != ''
+        GROUP BY section_name
+        ORDER BY MIN(sort_order), section_name
+    </select>
+
+    <select id="listActivePaperIdsBySection" resultType="long">
+        SELECT DISTINCT act_paper_id
+        FROM act_section
+        WHERE status = 1
+          AND delete_flag = '1'
+          AND (
+            LOWER(section_name) = LOWER(#{section})
+            OR LOWER(section_code) = LOWER(#{section})
+          )
+        ORDER BY act_paper_id ASC
+    </select>
+
+    <select id="listActiveSectionsByPaperId" resultType="map">
+        SELECT act_section_id, act_paper_id, section_code, section_name, section_no, duration_seconds,
+               question_count, instructions_html, instructions_text, structure_json, sort_order
+        FROM act_section
+        WHERE act_paper_id = #{paperId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, act_section_id ASC
+    </select>
+
+    <select id="listActivePassagesByPaperId" resultType="map">
+        SELECT act_passage_id, act_paper_id, act_section_id, passage_code, passage_title, passage_type,
+               content_html, content_text, content_hash, structure_json, sort_order
+        FROM act_passage
+        WHERE act_paper_id = #{paperId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, act_passage_id ASC
+    </select>
+
+    <select id="listActiveGroupsByPaperId" resultType="map">
+        SELECT act_group_id, act_paper_id, act_section_id, act_passage_id, group_code, group_title,
+               source_question_no, raw_type, stat_type, instructions_html, instructions_text, content_html,
+               content_text, has_shared_options, has_blanks, structure_json, sort_order
+        FROM act_group
+        WHERE act_paper_id = #{paperId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, act_group_id ASC
+    </select>
+
+    <select id="listActiveQuestionsByPaperId" resultType="map">
+        SELECT act_question_id, act_paper_id, act_section_id, act_passage_id, act_group_id, question_code,
+               source_question_no, question_no_display, question_type, response_mode, auto_gradable, stem_html,
+               stem_text, content_html, content_text, answer_input_schema_json, score, source_json_path,
+               raw_json, sort_order
+        FROM act_question
+        WHERE act_paper_id = #{paperId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, act_question_id ASC
+    </select>
+
+    <select id="listActiveOptionsByGroupIds" resultType="map">
+        SELECT act_group_option_id, act_group_id, option_key, option_html, option_text, structure_json, sort_order
+        FROM act_group_option
+        WHERE status = 1
+          AND delete_flag = '1'
+          AND act_group_id IN
+        <foreach collection="groupIds" item="groupId" open="(" separator="," close=")">
+            #{groupId}
+        </foreach>
+        ORDER BY act_group_id ASC, sort_order ASC, act_group_option_id ASC
+    </select>
+
+    <select id="listActiveAnswersByQuestionIds" resultType="map">
+        SELECT act_question_answer_id, act_question_id, answer_raw, answer_json, explanation_html,
+               explanation_text, grading_mode
+        FROM act_question_answer
+        WHERE status = 1
+          AND delete_flag = '1'
+          AND act_question_id IN
+        <foreach collection="questionIds" item="questionId" open="(" separator="," close=")">
+            #{questionId}
+        </foreach>
+        ORDER BY act_question_id ASC, act_question_answer_id ASC
+    </select>
+
+    <select id="listActiveAssetsByPaperId" resultType="map">
+        SELECT act_asset_id, act_paper_id, act_section_id, act_passage_id, act_group_id,
+               act_group_option_id, act_question_id, owner_type, owner_id, asset_type, asset_role,
+               asset_name, source_path, source_json_path, source_html_field, storage_path, asset_url,
+               file_hash, source_data_uri_hash, mime_type, file_size, image_width_px, image_height_px,
+               sort_order
+        FROM act_asset
+        WHERE act_paper_id = #{paperId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY owner_type ASC, owner_id ASC, sort_order ASC, act_asset_id ASC
+    </select>
+
+    <select id="findActiveQuestionById" resultType="map">
+        SELECT q.act_question_id, q.act_paper_id, q.act_section_id, q.act_passage_id, q.act_group_id,
+               q.question_code, q.source_question_no, q.question_no_display, q.question_type, q.response_mode,
+               q.auto_gradable, q.stem_html, q.stem_text, q.content_html, q.content_text, q.answer_input_schema_json,
+               q.score, q.source_json_path, q.raw_json, q.sort_order,
+               g.group_code, g.group_title, g.raw_type AS group_raw_type, g.stat_type AS group_stat_type,
+               g.instructions_html AS group_instructions_html, g.instructions_text AS group_instructions_text,
+               g.content_html AS group_content_html, g.content_text AS group_content_text,
+               s.section_code, s.section_name, s.section_no, s.instructions_html AS section_instructions_html,
+               s.instructions_text AS section_instructions_text,
+               p.paper_code, p.paper_name, p.exam_board, p.exam_type
+        FROM act_question q
+        JOIN act_group g ON g.act_group_id = q.act_group_id AND g.status = 1 AND g.delete_flag = '1'
+        JOIN act_section s ON s.act_section_id = q.act_section_id AND s.status = 1 AND s.delete_flag = '1'
+        JOIN act_paper p ON p.act_paper_id = q.act_paper_id AND p.status = 1 AND p.delete_flag = '1'
+        WHERE q.act_question_id = #{questionId}
+          AND q.status = 1
+          AND q.delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveAnswerByQuestionId" resultType="map">
+        SELECT act_question_answer_id, act_question_id, answer_raw, answer_json, explanation_html,
+               explanation_text, grading_mode
+        FROM act_question_answer
+        WHERE act_question_id = #{questionId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="listActiveOptionsByGroupId" resultType="map">
+        SELECT act_group_option_id, act_group_id, option_key, option_html, option_text, structure_json, sort_order
+        FROM act_group_option
+        WHERE act_group_id = #{groupId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, act_group_option_id ASC
+    </select>
+
+    <insert id="insertActPaper" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO act_paper (
+            paper_code, paper_name, exam_board, exam_type, test_date, region_code, region_name,
+            session_code, session_name, source_name, source_file_hash, duration_seconds, question_count,
+            auto_gradable_question_count, total_score, metadata_json, status, remark, delete_flag
+        ) VALUES (
+            #{paperCode}, #{paperName}, #{examBoard}, #{examType}, #{testDate}, #{regionCode}, #{regionName},
+            #{sessionCode}, #{sessionName}, #{sourceName}, #{sourceFileHash}, #{durationSeconds}, #{questionCount},
+            #{autoGradableQuestionCount}, #{totalScore}, #{metadataJson}, 1, #{remark}, '1'
+        )
+    </insert>
+
+    <insert id="insertActSourceFile" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO act_source_file (
+            act_import_batch_id, act_paper_id, source_file_type, source_file_name, source_file_hash,
+            storage_path, asset_url, parse_status, parse_result_json, parse_warning_json, import_version,
+            status, error_message, remark, delete_flag
+        ) VALUES (
+            #{actImportBatchId}, #{actPaperId}, #{sourceFileType}, #{sourceFileName}, #{sourceFileHash},
+            #{storagePath}, #{assetUrl}, #{parseStatus}, #{parseResultJson}, #{parseWarningJson}, 1,
+            1, #{errorMessage}, #{remark}, '1'
+        )
+    </insert>
+
+    <insert id="insertActSection" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO act_section (
+            act_paper_id, section_code, section_name, section_no, duration_seconds, question_count,
+            instructions_html, instructions_text, structure_json, sort_order, status, remark, delete_flag
+        ) VALUES (
+            #{actPaperId}, #{sectionCode}, #{sectionName}, #{sectionNo}, #{durationSeconds}, #{questionCount},
+            #{instructionsHtml}, #{instructionsText}, #{structureJson}, #{sortOrder}, 1, #{remark}, '1'
+        )
+    </insert>
+
+    <insert id="insertActPassage" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO act_passage (
+            act_paper_id, act_section_id, passage_code, passage_title, passage_type, content_html,
+            content_text, content_hash, structure_json, sort_order, status, remark, delete_flag
+        ) VALUES (
+            #{actPaperId}, #{actSectionId}, #{passageCode}, #{passageTitle}, #{passageType}, #{contentHtml},
+            #{contentText}, #{contentHash}, #{structureJson}, #{sortOrder}, 1, #{remark}, '1'
+        )
+    </insert>
+
+    <insert id="insertActGroup" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO act_group (
+            act_paper_id, act_section_id, act_passage_id, group_code, group_title, source_question_no,
+            raw_type, stat_type, instructions_html, instructions_text, content_html, content_text,
+            has_shared_options, has_blanks, structure_json, sort_order, status, remark, delete_flag
+        ) VALUES (
+            #{actPaperId}, #{actSectionId}, #{actPassageId}, #{groupCode}, #{groupTitle}, #{sourceQuestionNo},
+            #{rawType}, #{statType}, #{instructionsHtml}, #{instructionsText}, #{contentHtml}, #{contentText},
+            #{hasSharedOptions}, #{hasBlanks}, #{structureJson}, #{sortOrder}, 1, #{remark}, '1'
+        )
+    </insert>
+
+    <insert id="insertActGroupOption" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO act_group_option (
+            act_group_id, option_key, option_html, option_text, structure_json, sort_order,
+            status, remark, delete_flag
+        ) VALUES (
+            #{actGroupId}, #{optionKey}, #{optionHtml}, #{optionText}, #{structureJson}, #{sortOrder},
+            1, #{remark}, '1'
+        )
+    </insert>
+
+    <insert id="insertActQuestion" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO act_question (
+            act_paper_id, act_section_id, act_passage_id, act_group_id, question_code, source_question_no,
+            question_no_display, question_type, response_mode, auto_gradable, stem_html, stem_text,
+            content_html, content_text, answer_input_schema_json, score, source_json_path, raw_json,
+            sort_order, status, remark, delete_flag
+        ) VALUES (
+            #{actPaperId}, #{actSectionId}, #{actPassageId}, #{actGroupId}, #{questionCode}, #{sourceQuestionNo},
+            #{questionNoDisplay}, #{questionType}, #{responseMode}, #{autoGradable}, #{stemHtml}, #{stemText},
+            #{contentHtml}, #{contentText}, #{answerInputSchemaJson}, #{score}, #{sourceJsonPath}, #{rawJson},
+            #{sortOrder}, 1, #{remark}, '1'
+        )
+    </insert>
+
+    <insert id="insertActQuestionAnswer" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO act_question_answer (
+            act_question_id, answer_raw, answer_json, explanation_html, explanation_text,
+            grading_mode, status, remark, delete_flag
+        ) VALUES (
+            #{actQuestionId}, #{answerRaw}, #{answerJson}, #{explanationHtml}, #{explanationText},
+            #{gradingMode}, 1, #{remark}, '1'
+        )
+    </insert>
+
+    <insert id="insertActAsset" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO act_asset (
+            act_paper_id, act_section_id, act_passage_id, act_group_id, act_group_option_id, act_question_id,
+            owner_type, owner_id, asset_type, asset_role, asset_name, source_path, source_json_path,
+            source_html_field, storage_path, asset_url, file_hash, source_data_uri_hash, mime_type,
+            file_size, image_width_px, image_height_px, sort_order, status, remark, delete_flag
+        ) VALUES (
+            #{actPaperId}, #{actSectionId}, #{actPassageId}, #{actGroupId}, #{actGroupOptionId}, #{actQuestionId},
+            #{ownerType}, #{ownerId}, #{assetType}, #{assetRole}, #{assetName}, #{sourcePath}, #{sourceJsonPath},
+            #{sourceHtmlField}, #{storagePath}, #{assetUrl}, #{fileHash}, #{sourceDataUriHash}, #{mimeType},
+            #{fileSize}, #{imageWidthPx}, #{imageHeightPx}, #{sortOrder}, 1, #{remark}, '1'
+        )
+    </insert>
+
+</mapper>

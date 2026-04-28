@@ -36,6 +36,29 @@ function formatTypeLabel(value) {
   return value || "题目";
 }
 
+function formatMaxScoreLabel(value) {
+  if (value == null || value === "") {
+    return "";
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return "";
+  }
+  return `${numeric} mark${numeric === 1 ? "" : "s"}`;
+}
+
+function isActExamCategory(value) {
+  return String(value || "").trim().toUpperCase() === "ACT";
+}
+
+function isActMathContent(value) {
+  return String(value || "").trim().toLowerCase() === "math";
+}
+
+function isActStimulusTitle(value) {
+  return /\bstimulus\b/i.test(String(value || "").trim());
+}
+
 function looksLikeHtml(value) {
   return /<[a-z][\s\S]*>/i.test(String(value || ""));
 }
@@ -67,6 +90,118 @@ function stripHtml(value) {
     .replace(/&quot;/gi, '"')
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function getAnswerDisplayHtml(question) {
+  const correctText = getAnswerDisplayText(question);
+  const questionType = inferQuestionType(question);
+  if (questionType !== "single" && questionType !== "multiple") {
+    return ensureHtml(correctText);
+  }
+
+  const correctOptions = getOptions(question).filter((option) =>
+    isCorrectChoice(question, option.label)
+  );
+  if (!correctOptions.length) {
+    return ensureHtml(correctText);
+  }
+
+  return correctOptions
+    .map((option) => {
+      const label = escapeHtml(String(option.label || "").trim());
+      const content = ensureHtml(option.content || option.display || option.label);
+      return [
+        '<div class="practice-exam-answer-choice">',
+        `<span class="practice-exam-answer-choice-label">${label}.</span>`,
+        `<div class="practice-exam-answer-choice-content">${content}</div>`,
+        "</div>",
+      ].join("");
+    })
+    .join("");
+}
+
+function getQuestionMaterialUrl(material) {
+  return String(
+    material?.image_url || material?.asset_url || material?.assetUrl || material?.url || ""
+  ).trim();
+}
+
+function splitChoiceTableCells(value) {
+  const text = stripHtml(value);
+  if (!text) {
+    return [];
+  }
+  const separatorCells = text
+    .split(/\s{2,}|\t+|\s*\|\s*/)
+    .map((cell) => cell.trim())
+    .filter(Boolean);
+  if (separatorCells.length >= 2) {
+    return separatorCells;
+  }
+  const wordCells = text.split(/\s+/).map((cell) => cell.trim()).filter(Boolean);
+  if (wordCells.length < 2 || wordCells.length > 6) {
+    return [];
+  }
+  if (wordCells.some((cell) => cell.length > 28 || /[.?!;:]/.test(cell))) {
+    return [];
+  }
+  return wordCells;
+}
+
+function extractChoiceTableHeaders(question, columnCount) {
+  const explicitHeaders = Array.isArray(question?.optionTable?.headers)
+    ? question.optionTable.headers.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  if (explicitHeaders.length === columnCount) {
+    return explicitHeaders;
+  }
+
+  const sourceText = stripHtml(`${question?.stem || ""}\n${question?.content || ""}`);
+  const sourceLines = sourceText.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  for (let index = sourceLines.length - 1; index >= 0; index -= 1) {
+    const cells = sourceLines[index].split(/\s{2,}|\t+|\s*\|\s*/).map((cell) => cell.trim()).filter(Boolean);
+    if (cells.length === columnCount) {
+      return cells;
+    }
+  }
+  if (columnCount === 3 && /average revenue/i.test(sourceText) && /total revenue/i.test(sourceText) && /profit/i.test(sourceText)) {
+    return ["Average revenue", "Total revenue", "Profit"];
+  }
+  return [];
+}
+
+function buildChoiceTable(question) {
+  const options = getOptions(question);
+  if (options.length < 2 || options.length > 8) {
+    return null;
+  }
+  const rows = options.map((option) => ({
+    label: String(option.label || "").trim(),
+    cells: splitChoiceTableCells(option.content || option.display || ""),
+  }));
+  const columnCount = rows[0]?.cells?.length || 0;
+  if (columnCount < 2 || rows.some((row) => row.cells.length !== columnCount)) {
+    return null;
+  }
+  const headers = extractChoiceTableHeaders(question, columnCount);
+  const uniqueCellTexts = new Set(rows.flatMap((row) => row.cells.map((cell) => cell.toLowerCase())));
+  const looksLikeRepeatedMatrix = uniqueCellTexts.size <= Math.max(2, columnCount);
+  if (!headers.length && !looksLikeRepeatedMatrix) {
+    return null;
+  }
+  return {
+    headers,
+    rows,
+  };
 }
 
 function escapeRegExp(value) {
@@ -152,8 +287,10 @@ function getQuestionNoValue(question) {
 }
 
 const SELECTION_CONTEXT_WINDOW = 160;
+const CHOICE_DRAG_THRESHOLD_PX = 5;
 const SELECTION_ANCHOR_SELECTOR =
-  ".practice-exam-material-block, .practice-exam-question-stem, .practice-exam-question-extra, .practice-exam-group-instructions, .practice-exam-option-card, .practice-exam-matching-row, p, li, td, th, h1, h2, h3, h4, h5, h6";
+  ".practice-exam-material-block, .practice-exam-question-stem, .practice-exam-question-extra, .practice-exam-group-instructions, .practice-exam-option-card, .practice-exam-matching-row, .practice-exam-textarea, .practice-exam-inline-blank, p, li, td, th, h1, h2, h3, h4, h5, h6";
+const TRANSLATABLE_INPUT_TYPES = new Set(["", "text", "search", "email", "url", "tel"]);
 
 function normalizeSelectionPlainText(value) {
   return String(value || "")
@@ -171,11 +308,57 @@ function getSelectionNodeElement(node) {
   return node.parentElement || null;
 }
 
+function isTranslatableInputElement(element) {
+  if (!element || element.nodeType !== 1) {
+    return false;
+  }
+
+  const tagName = String(element.tagName || "").toLowerCase();
+  if (tagName === "textarea") {
+    return true;
+  }
+  if (tagName !== "input") {
+    return false;
+  }
+
+  const type = String(element.getAttribute("type") || "text").toLowerCase();
+  return TRANSLATABLE_INPUT_TYPES.has(type);
+}
+
+function rememberChoicePointerStart(pointerStartRef, event) {
+  pointerStartRef.current = {
+    x: event.clientX,
+    y: event.clientY,
+  };
+}
+
+function shouldSkipChoiceActivation(pointerStartRef, event) {
+  const selectionText =
+    typeof window === "undefined" || typeof window.getSelection !== "function"
+      ? ""
+      : String(window.getSelection()?.toString() || "").trim();
+  if (selectionText) {
+    pointerStartRef.current = null;
+    return true;
+  }
+
+  const start = pointerStartRef.current;
+  pointerStartRef.current = null;
+  if (!start || event.clientX == null || event.clientY == null) {
+    return false;
+  }
+
+  return (
+    Math.abs(event.clientX - start.x) > CHOICE_DRAG_THRESHOLD_PX ||
+    Math.abs(event.clientY - start.y) > CHOICE_DRAG_THRESHOLD_PX
+  );
+}
+
 function isSelectionFromInteractiveElement(element) {
   if (!element || typeof element.closest !== "function") {
     return false;
   }
-  return Boolean(element.closest("input, textarea, select, button, a, [contenteditable='true']"));
+  return Boolean(element.closest("select"));
 }
 
 function buildSelectionCacheKey(snapshot, targetLang = "zh-CN") {
@@ -254,7 +437,7 @@ function getSelectionAnchorRect(range, scopeRoot) {
 function buildGroupDisplayTitle(group) {
   const rawTitle = String(group?.title || "").trim();
   if (rawTitle) {
-    return rawTitle;
+    return /^\d+(?:\.\d+)?$/.test(rawTitle) ? `Question ${rawTitle}` : rawTitle;
   }
   const list = Array.isArray(group?.questions) ? group.questions : [];
   const first = list.length ? getQuestionNoValue(list[0]) : "";
@@ -335,8 +518,28 @@ function renderInlineHtml(content, blanks, answerMap, disabled, revealAnswers, o
 
 function QuestionAnswerReveal({ question, evaluation, hideReferenceAnswer = false }) {
   const correctText = getAnswerDisplayText(question);
+  const correctHtml = getAnswerDisplayHtml(question);
   const modelAnswer = String(question?.modelAnswer || "").trim();
   const analysis = String(question?.analysis || question?.explanation || "").trim();
+  const markSchemeHtml = String(
+    question?.markSchemeHtml || question?.markScheme?.mark_scheme_html || ""
+  ).trim();
+  const markSchemeText = String(
+    question?.markSchemeText || question?.markScheme?.mark_scheme_text || ""
+  ).trim();
+  const markSchemeContentHtml = markSchemeHtml || ensureHtml(markSchemeText);
+  const markSchemePlainText = stripHtml(markSchemeContentHtml);
+  const shouldShowAnalysis =
+    analysis && analysis !== markSchemeText && analysis !== markSchemePlainText;
+  const markSchemePoints = Array.isArray(question?.markSchemePoints)
+    ? question.markSchemePoints.filter(
+        (item) =>
+          item &&
+          (String(item.guidance_text || "").trim() ||
+            String(item.comments_text || "").trim() ||
+            item.mark_value != null)
+      )
+    : [];
 
   let stateText = "当前题型暂不支持自动判分";
   let stateClass = "";
@@ -361,7 +564,10 @@ function QuestionAnswerReveal({ question, evaluation, hideReferenceAnswer = fals
       {!hideReferenceAnswer && correctText ? (
         <div>
           <div className="practice-exam-answer-title">参考答案</div>
-          <div className="practice-exam-answer-text">{correctText}</div>
+          <div
+            className="practice-exam-answer-text"
+            dangerouslySetInnerHTML={{ __html: correctHtml }}
+          />
         </div>
       ) : null}
       {!hideReferenceAnswer && modelAnswer && modelAnswer !== correctText ? (
@@ -370,7 +576,50 @@ function QuestionAnswerReveal({ question, evaluation, hideReferenceAnswer = fals
           <div className="practice-exam-answer-text">{modelAnswer}</div>
         </div>
       ) : null}
-      {analysis ? (
+      {markSchemeContentHtml ? (
+        <div>
+          <div className="practice-exam-answer-title">Mark Scheme</div>
+          <div
+            className="practice-exam-answer-text"
+            dangerouslySetInnerHTML={{ __html: markSchemeContentHtml }}
+          />
+        </div>
+      ) : null}
+      {markSchemePoints.length ? (
+        <div>
+          <div className="practice-exam-answer-title">
+            {markSchemeContentHtml ? "Mark Scheme Points" : "Mark Scheme"}
+          </div>
+          <div className="practice-exam-mark-scheme-list">
+            {markSchemePoints.map((item, index) => {
+              const pointCode = String(item.point_code || `P${index + 1}`).trim();
+              const markValue = item.mark_value;
+              const guidanceText = String(item.guidance_text || "").trim();
+              const commentsText = String(item.comments_text || "").trim();
+              return (
+                <div
+                  key={`${question?.id || "question"}-mark-point-${pointCode}-${index}`}
+                  className="practice-exam-mark-scheme-item"
+                >
+                  <div className="practice-exam-mark-scheme-head">
+                    <span className="practice-exam-mark-scheme-code">{pointCode}</span>
+                    {markValue != null && String(markValue).trim() ? (
+                      <span className="practice-exam-mark-scheme-score">{markValue} mark</span>
+                    ) : null}
+                  </div>
+                  {guidanceText ? (
+                    <div className="practice-exam-mark-scheme-guidance">{guidanceText}</div>
+                  ) : null}
+                  {commentsText ? (
+                    <div className="practice-exam-mark-scheme-comments">{commentsText}</div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+      {shouldShowAnalysis ? (
         <div>
           <div className="practice-exam-answer-title">解析</div>
           <div className="practice-exam-answer-text">{analysis}</div>
@@ -385,6 +634,20 @@ function OptionQuestion({ question, answerValue, revealAnswers, disabled, onChan
   const isTfng = questionType === "tfng";
   const options = getOptions(question);
   const selectedValues = questionType === "multiple" ? new Set(answerValue || []) : null;
+  const choiceTable = !isTfng ? buildChoiceTable(question) : null;
+  const pointerStartRef = useRef(null);
+
+  if (choiceTable) {
+    return (
+      <ChoiceTableQuestion
+        question={question}
+        answerValue={answerValue}
+        revealAnswers={revealAnswers}
+        disabled={disabled}
+        onChange={onChange}
+      />
+    );
+  }
 
   return (
     <div className="practice-exam-option-list">
@@ -411,7 +674,11 @@ function OptionQuestion({ question, answerValue, revealAnswers, disabled, onChan
             key={`${question.id}-${label}`}
             className={`practice-exam-option-card${isTfng ? " is-tfng" : ""}${isSelected ? " is-selected" : ""}${isCorrect ? " is-correct" : ""}${isWrong ? " is-wrong" : ""}`}
             disabled={disabled}
-            onClick={() => {
+            onPointerDown={(event) => rememberChoicePointerStart(pointerStartRef, event)}
+            onClick={(event) => {
+              if (shouldSkipChoiceActivation(pointerStartRef, event)) {
+                return;
+              }
               if (questionType === "multiple") {
                 const nextValues = new Set(answerValue || []);
                 if (nextValues.has(normalizedLabel)) {
@@ -541,6 +808,118 @@ function MatchingQuestion({ question, answerValue, revealAnswers, disabled, onCh
   );
 }
 
+function QuestionMaterialAssets({ question, materials }) {
+  if (!materials.length) {
+    return null;
+  }
+  return (
+    <div className="practice-exam-question-materials">
+      {materials.map((material, index) => {
+        const imageUrl = getQuestionMaterialUrl(material);
+        const title = String(material?.title || "").trim();
+        const caption = String(material?.caption_text || material?.captionText || "").trim();
+        const pageNo = material?.source_page_no || material?.sourcePageNo;
+        return (
+          <figure
+            className="practice-exam-question-material"
+            key={`${question?.id || "question"}-material-${material?.material_ref_id || index}`}
+          >
+            {title || pageNo ? (
+              <figcaption className="practice-exam-question-material-title">
+                {title || `Page ${pageNo}`}
+              </figcaption>
+            ) : null}
+            <img
+              src={imageUrl}
+              alt={title || `Question material ${index + 1}`}
+              loading="lazy"
+              draggable={false}
+            />
+            {caption && caption !== title ? (
+              <figcaption className="practice-exam-question-material-caption">{caption}</figcaption>
+            ) : null}
+          </figure>
+        );
+      })}
+    </div>
+  );
+}
+
+function ChoiceTableQuestion({ question, answerValue, revealAnswers, disabled, onChange }) {
+  const questionType = inferQuestionType(question);
+  const selectedValues = questionType === "multiple" ? new Set(answerValue || []) : null;
+  const choiceTable = buildChoiceTable(question);
+  const pointerStartRef = useRef(null);
+  if (!choiceTable) {
+    return null;
+  }
+
+  return (
+    <div className="practice-exam-choice-table-wrap">
+      <table className="practice-exam-choice-table">
+        {choiceTable.headers.length ? (
+          <thead>
+            <tr>
+              <th aria-label="Option" />
+              {choiceTable.headers.map((header, index) => (
+                <th key={`${question.id}-choice-header-${index}`}>{header}</th>
+              ))}
+              <th aria-label="Select" />
+            </tr>
+          </thead>
+        ) : null}
+        <tbody>
+          {choiceTable.rows.map((row) => {
+            const normalizedLabel = row.label.toUpperCase();
+            const isSelected =
+              questionType === "multiple"
+                ? selectedValues.has(normalizedLabel)
+                : String(answerValue || "").trim().toUpperCase() === normalizedLabel;
+            const isCorrect = revealAnswers && isCorrectChoice(question, row.label);
+            const isWrong = revealAnswers && isSelected && !isCorrect;
+            return (
+              <tr
+                key={`${question.id}-choice-row-${row.label}`}
+                className={`${isSelected ? "is-selected" : ""}${isCorrect ? " is-correct" : ""}${isWrong ? " is-wrong" : ""}`}
+                onPointerDown={(event) => rememberChoicePointerStart(pointerStartRef, event)}
+                onClick={(event) => {
+                  if (disabled) {
+                    return;
+                  }
+                  if (shouldSkipChoiceActivation(pointerStartRef, event)) {
+                    return;
+                  }
+                  if (questionType === "multiple") {
+                    const nextValues = new Set(answerValue || []);
+                    if (nextValues.has(normalizedLabel)) {
+                      nextValues.delete(normalizedLabel);
+                    } else {
+                      nextValues.add(normalizedLabel);
+                    }
+                    onChange([...nextValues]);
+                    return;
+                  }
+                  onChange(normalizedLabel);
+                }}
+              >
+                <th scope="row">{row.label}</th>
+                {row.cells.map((cell, index) => (
+                  <td key={`${question.id}-${row.label}-cell-${index}`}>{cell}</td>
+                ))}
+                <td className="practice-exam-choice-table-control">
+                  <span
+                    className={`practice-exam-choice-radio${isSelected ? " is-selected" : ""}${isCorrect ? " is-correct" : ""}${isWrong ? " is-wrong" : ""}`}
+                  />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function GroupInstructionCard({
   title,
   instructions,
@@ -584,11 +963,16 @@ function QuestionBlock({
   onSelectQuestion,
   onSetAnswer,
   grouped = false,
+  hideMaxScore = false,
 }) {
   const questionType = inferQuestionType(question);
   const locked = reviewMode || revealAnswers;
   const questionNo = getQuestionNoValue(question);
   const isCurrent = question.globalIndex === question.currentQuestionIndex;
+  const maxScoreLabel = hideMaxScore ? "" : formatMaxScoreLabel(question.maxScore);
+  const questionMaterials = Array.isArray(question.questionMaterials)
+    ? question.questionMaterials.filter((material) => getQuestionMaterialUrl(material))
+    : [];
   const stemHtml = question.stem
     ? stripLeadingQuestionNoHtml(ensureHtml(question.stem), questionNo)
     : "";
@@ -621,6 +1005,14 @@ function QuestionBlock({
           dangerouslySetInnerHTML={{ __html: extraHtml }}
         />
       ) : null}
+
+      {maxScoreLabel ? (
+        <div className="practice-exam-question-meta">
+          <span>{maxScoreLabel}</span>
+        </div>
+      ) : null}
+
+      <QuestionMaterialAssets question={question} materials={questionMaterials} />
 
       {questionType === "single" || questionType === "multiple" || questionType === "tfng" ? (
         <OptionQuestion
@@ -665,11 +1057,10 @@ function QuestionBlock({
         />
       ) : null}
 
-      {reviewMode ? (
+      {reviewMode || revealAnswers ? (
         <QuestionAnswerReveal
           question={question}
           evaluation={evaluation}
-          hideReferenceAnswer
         />
       ) : null}
     </article>
@@ -683,6 +1074,8 @@ export function PracticeExercisePage(props) {
   const {
     title,
     moduleName,
+    examCategory = "",
+    examContent = "",
     questions = [],
     passages = [],
     answers = {},
@@ -733,6 +1126,16 @@ export function PracticeExercisePage(props) {
   const selectionCacheRef = useRef(new Map());
 
   const currentQuestion = questions[currentQuestionIndex] || questions[0] || null;
+  const isActExam =
+    isActExamCategory(examCategory) ||
+    isActExamCategory(moduleName) ||
+    isActExamCategory(examContent);
+  const isActMathExam =
+    isActExam &&
+    (isActMathContent(examContent) ||
+      isActMathContent(moduleName) ||
+      isActMathContent(currentQuestion?.section));
+  const hideMaterialPane = isActMathExam;
   const evaluationMap = useMemo(() => evaluateQuestionMap(questions, answers), [questions, answers]);
 
   const renderedPassages = useMemo(() => {
@@ -777,11 +1180,14 @@ export function PracticeExercisePage(props) {
 
   const currentDisplayNo = currentQuestion ? getQuestionNoValue(currentQuestion) || 1 : 0;
   const questionCount = questions.length;
+  const currentPassageTitle = String(currentPassage?.title || "").trim();
+  const shouldShowCurrentPassageTitle =
+    Boolean(currentPassageTitle) && !(isActExam && isActStimulusTitle(currentPassageTitle));
   const materialHtml = ensureHtml(currentPassage?.content || "");
   const materialInstructions = ensureHtml(currentPassage?.instructions || "");
   const hasMaterialContent = Boolean(stripHtml(currentPassage?.content || ""));
   const shouldShowMaterialCard = !audioSources.length || hasMaterialContent;
-  const questionPanePercent = 100 - materialPanePercent;
+  const questionPanePercent = hideMaterialPane ? 100 : 100 - materialPanePercent;
   const translateButtonActive = selectionTranslateState.visible;
 
   function clearSelectionHintTimer() {
@@ -852,6 +1258,87 @@ export function PracticeExercisePage(props) {
   function captureSelectionSnapshot(expectedScopeType = "") {
     if (typeof window === "undefined") {
       return { snapshot: null, reason: "当前环境不支持划词翻译" };
+    }
+
+    const activeElement = window.document?.activeElement;
+    if (isTranslatableInputElement(activeElement)) {
+      const selectionStart = Number(activeElement.selectionStart);
+      const selectionEnd = Number(activeElement.selectionEnd);
+      const value = String(activeElement.value || "");
+      if (
+        Number.isFinite(selectionStart) &&
+        Number.isFinite(selectionEnd) &&
+        selectionStart !== selectionEnd
+      ) {
+        const start = Math.max(0, Math.min(selectionStart, selectionEnd, value.length));
+        const end = Math.max(0, Math.min(Math.max(selectionStart, selectionEnd), value.length));
+        const selectedText = normalizeSelectionPlainText(value.slice(start, end));
+        if (!selectedText) {
+          return { snapshot: null, reason: "请选择要翻译的内容" };
+        }
+
+        const materialRoot = materialCardRef.current;
+        const questionRoot = questionListRef.current;
+        const startInMaterial = Boolean(materialRoot && materialRoot.contains(activeElement));
+        const startInQuestion = Boolean(questionRoot && questionRoot.contains(activeElement));
+
+        let scopeType = "";
+        let questionId = "";
+        let questionType = "";
+        let passageId = "";
+
+        if (startInMaterial) {
+          scopeType = "material";
+          passageId =
+            String(materialRoot?.dataset?.passageId || "").trim() || String(currentPassage?.id || "");
+        } else if (startInQuestion) {
+          scopeType = "question";
+          const questionElement = activeElement.closest("[data-selection-scope='question']");
+          questionId = questionElement ? String(questionElement.dataset.questionId || "").trim() : "";
+          questionType = questionElement ? String(questionElement.dataset.questionType || "").trim() : "";
+          passageId = questionElement ? String(questionElement.dataset.passageId || "").trim() : "";
+        } else {
+          return { snapshot: null, reason: "请先在材料区或题目区选择内容" };
+        }
+
+        if (expectedScopeType && scopeType !== expectedScopeType) {
+          return {
+            snapshot: null,
+            reason:
+              expectedScopeType === "material"
+                ? "请在材料区选择要翻译的内容"
+                : "请在题目区选择要翻译的内容",
+          };
+        }
+
+        const rect = getRectSnapshot(activeElement.getBoundingClientRect());
+        if (!rect || (!rect.width && !rect.height)) {
+          return { snapshot: null, reason: "当前选区无效，请重新选择" };
+        }
+
+        return {
+          snapshot: {
+            visible: false,
+            loading: false,
+            error: "",
+            translation: "",
+            selectedText,
+            scopeType,
+            questionId,
+            questionType,
+            passageId,
+            surroundingTextBefore: normalizeSelectionPlainText(value.slice(0, start)).slice(
+              -SELECTION_CONTEXT_WINDOW
+            ),
+            surroundingTextAfter: normalizeSelectionPlainText(value.slice(end)).slice(
+              0,
+              SELECTION_CONTEXT_WINDOW
+            ),
+            anchorRect: rect,
+          },
+          reason: "",
+        };
+      }
     }
 
     const selection = window.getSelection();
@@ -1088,13 +1575,18 @@ export function PracticeExercisePage(props) {
 
   async function handleTranslateButtonClick() {
     const { snapshot, reason } = captureSelectionSnapshot();
-    if (!snapshot) {
+    const cachedSnapshot =
+      selectionTranslateState.selectedText && selectionTranslateState.scopeType
+        ? selectionTranslateState
+        : null;
+    const effectiveSnapshot = snapshot || cachedSnapshot;
+    if (!effectiveSnapshot) {
       showSelectionHint("global", reason || "请先选择要翻译的内容");
       return;
     }
 
     setSelectionHint({ scopeType: "", text: "" });
-    await runSelectionTranslate(snapshot);
+    await runSelectionTranslate(effectiveSnapshot);
   }
 
   const selectionTooltipLayout = useMemo(() => {
@@ -1205,11 +1697,13 @@ export function PracticeExercisePage(props) {
     document.addEventListener("selectionchange", handleSelectionEvent);
     document.addEventListener("mouseup", handleSelectionEvent);
     document.addEventListener("keyup", handleSelectionEvent);
+    document.addEventListener("select", handleSelectionEvent, true);
 
     return () => {
       document.removeEventListener("selectionchange", handleSelectionEvent);
       document.removeEventListener("mouseup", handleSelectionEvent);
       document.removeEventListener("keyup", handleSelectionEvent);
+      document.removeEventListener("select", handleSelectionEvent, true);
     };
   }, [currentPassage?.id, questions]);
 
@@ -1383,6 +1877,10 @@ export function PracticeExercisePage(props) {
 
   function renderQuestionList() {
     return renderedPassages.map((passage, passageIndex) => {
+      const passageTitle = String(passage?.title || "").trim();
+      const shouldShowPassageHeading =
+        (renderedPassages.length > 1 || Boolean(passageTitle)) &&
+        !(isActExam && isActStimulusTitle(passageTitle));
       const sections =
         Array.isArray(passage.groups) && passage.groups.length
           ? passage.groups
@@ -1390,14 +1888,16 @@ export function PracticeExercisePage(props) {
 
       return (
         <section className="practice-exam-passage-group" key={passage.id || passageIndex}>
-          {renderedPassages.length > 1 || passage.title ? (
+          {shouldShowPassageHeading ? (
             <div className="practice-exam-passage-heading">
-              {passage.title || `Passage ${passageIndex + 1}`}
+              {passageTitle || `Passage ${passageIndex + 1}`}
             </div>
           ) : null}
 
           {sections.map((group, groupIndex) => {
             const groupDisplayTitle = buildGroupDisplayTitle(group);
+            const visibleGroupTitle =
+              isActExam && isActStimulusTitle(groupDisplayTitle) ? "" : groupDisplayTitle;
             const groupQuestions = group.questions || [];
             const groupQuestionType = groupQuestions.length ? inferQuestionType(groupQuestions[0]) : "";
             const favoriteGroupQuestions = groupQuestions.filter((question) => question?.exam_question_id);
@@ -1409,7 +1909,7 @@ export function PracticeExercisePage(props) {
             return (
               <div className="practice-exam-group-section" key={group.id || `${passage.id}-${groupIndex}`}>
                 <GroupInstructionCard
-                  title={groupDisplayTitle}
+                  title={visibleGroupTitle}
                   instructions={group.instructions}
                   typeLabel={formatTypeLabel(groupQuestionType)}
                   favorited={groupFavorited}
@@ -1431,6 +1931,7 @@ export function PracticeExercisePage(props) {
                         evaluation={evaluationMap[question.id]}
                         onSelectQuestion={onSelectQuestion}
                         onSetAnswer={onSetAnswer}
+                        hideMaxScore={isActExam}
                       />
                     ))}
                   </div>
@@ -1455,7 +1956,7 @@ export function PracticeExercisePage(props) {
           <div className="practice-exam-title-wrap">
             <div className="practice-exam-title-badge">练</div>
             <div>
-              <h2>{title || currentPassage?.title || "练习答题"}</h2>
+              <h2>{title || (shouldShowCurrentPassageTitle ? currentPassageTitle : "") || "练习答题"}</h2>
               <p>
                 {moduleName || "IELTS"} · 第 {currentDisplayNo} / {questionCount} 题
               </p>
@@ -1498,14 +1999,15 @@ export function PracticeExercisePage(props) {
       </header>
 
       <div className="practice-exam-layout" ref={layoutRef}>
-        <section
-          className="practice-exam-material-pane"
-          style={
-            isStackedLayout
-              ? undefined
-              : { width: `calc((100% - ${sidePanePercent}%) * ${materialPanePercent / 100})` }
-          }
-        >
+        {!hideMaterialPane ? (
+          <section
+            className="practice-exam-material-pane"
+            style={
+              isStackedLayout
+                ? undefined
+                : { width: `calc((100% - ${sidePanePercent}%) * ${materialPanePercent / 100})` }
+            }
+          >
           <div className="practice-exam-pane-inner">
             <div className="practice-exam-pane-head">
               <h3>材料区（文章 / 听力说明）</h3>
@@ -1605,8 +2107,8 @@ export function PracticeExercisePage(props) {
                 data-selection-scope="material"
                 data-passage-id={currentPassage?.id || ""}
               >
-                {currentPassage?.title ? (
-                  <div className="practice-exam-material-label">{currentPassage.title}</div>
+                {shouldShowCurrentPassageTitle ? (
+                  <div className="practice-exam-material-label">{currentPassageTitle}</div>
                 ) : null}
                 {materialInstructions ? (
                   <div
@@ -1625,9 +2127,11 @@ export function PracticeExercisePage(props) {
               </div>
             ) : null}
           </div>
-        </section>
+          </section>
+        ) : null}
 
-        <div
+        {!hideMaterialPane ? (
+          <div
           className={`practice-exam-resizer${isResizing ? " is-active" : ""}`}
           onPointerDown={(event) => {
             if (isStackedLayout) {
@@ -1640,10 +2144,11 @@ export function PracticeExercisePage(props) {
           role="separator"
           aria-orientation="vertical"
           aria-label="调整材料区和答题区宽度"
-        />
+          />
+        ) : null}
 
         <main
-          className="practice-exam-question-pane"
+          className={`practice-exam-question-pane${hideMaterialPane ? " is-full-width" : ""}`}
           style={
             isStackedLayout
               ? undefined

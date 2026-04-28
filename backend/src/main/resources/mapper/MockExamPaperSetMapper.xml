@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.MockExamPaperSetMapper">
+
+    <sql id="BaseColumns">
+        mockexam_paper_set_id, set_name, exam_category, exam_content, paper_count, status, created_by, remark,
+        create_time, update_time, delete_flag
+    </sql>
+
+    <select id="findByCreatedBy" resultType="com.earthseaedu.backend.model.mockexam.MockExamPaperSet">
+        SELECT <include refid="BaseColumns"/>
+        FROM mockexam_paper_set
+        WHERE created_by = #{createdBy}
+          AND delete_flag = '1'
+        ORDER BY create_time DESC, mockexam_paper_set_id DESC
+    </select>
+
+    <select id="findActiveById" resultType="com.earthseaedu.backend.model.mockexam.MockExamPaperSet">
+        SELECT <include refid="BaseColumns"/>
+        FROM mockexam_paper_set
+        WHERE mockexam_paper_set_id = #{paperSetId}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.mockexam.MockExamPaperSet" useGeneratedKeys="true" keyProperty="mockexamPaperSetId">
+        INSERT INTO mockexam_paper_set (
+            set_name, exam_category, exam_content, paper_count, status, created_by, remark,
+            create_time, update_time, delete_flag
+        ) VALUES (
+            #{setName}, #{examCategory}, #{examContent}, #{paperCount}, #{status}, #{createdBy}, #{remark},
+            #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="updateStatus">
+        UPDATE mockexam_paper_set
+        SET status = #{status},
+            update_time = #{updateTime},
+            delete_flag = '1'
+        WHERE mockexam_paper_set_id = #{paperSetId}
+    </update>
+
+</mapper>

@@ -40,6 +40,16 @@ function formatApiError(error, fallback) {
   if (detail?.msg) {
     return String(detail.msg);
   }
+  const responseMessage = error?.response?.data?.message;
+  if (typeof responseMessage === "string" && responseMessage.trim()) {
+    return responseMessage;
+  }
+  if (error?.code === "ECONNABORTED") {
+    return `${fallback}：请求超时，请稍后重试或检查当前试卷数据量`;
+  }
+  if (error?.message) {
+    return `${fallback}：${error.message}`;
+  }
   return fallback;
 }
 
@@ -124,6 +134,28 @@ function filterExamDataByGroup(examData, groupId) {
   };
 }
 
+function filterExamDataByExamContent(examData, examContent) {
+  const normalizedContent = String(examContent || "").trim().toLowerCase();
+  if (!normalizedContent || normalizedContent === "all" || normalizedContent === "act") {
+    return examData;
+  }
+
+  const filteredPassages = (examData?.passages || []).filter((passage) => {
+    const id = String(passage?.id || "").toLowerCase();
+    const title = String(passage?.title || "").toLowerCase();
+    return id === normalizedContent || id.startsWith(`${normalizedContent}-`) || title.includes(normalizedContent);
+  });
+
+  if (!filteredPassages.length) {
+    return examData;
+  }
+
+  return {
+    ...examData,
+    passages: filteredPassages,
+  };
+}
+
 export default function MockExamRunnerPage() {
   const { sourceType = "paper", sourceId } = useParams();
   const navigate = useNavigate();
@@ -151,6 +183,7 @@ export default function MockExamRunnerPage() {
   const requestedQuestionId = searchParams.get("questionId") || null;
   const requestedQuestionNo = searchParams.get("questionNo") || null;
   const requestedGroupId = searchParams.get("groupId") || null;
+  const requestedExamContent = searchParams.get("examContent") || null;
   const fromMistakes = searchParams.get("fromMistakes") === "1";
   const requestedQuestionIndexRaw = searchParams.get("questionIndex");
   const requestedQuestionIndex =
@@ -170,6 +203,8 @@ export default function MockExamRunnerPage() {
         let payload = null;
         let title = "";
         let moduleName = "";
+        let examCategory = "";
+        let examContent = "";
         let examPaperId = null;
         let paperSetId = null;
         let progressId = null;
@@ -182,11 +217,16 @@ export default function MockExamRunnerPage() {
         let initialQuestionNo = requestedQuestionNo || null;
 
         if (sourceType === "paper") {
-          const response = await getMockExamPaper(sourceId);
+          const response = await getMockExamPaper(
+            sourceId,
+            requestedExamContent ? { exam_content: requestedExamContent } : undefined
+          );
           row = response.data || {};
           payload = row.payload;
           title = row.paper_name || row.paper_code || "";
           moduleName = row.module_name || row.exam_content || "IELTS";
+          examCategory = row.exam_category || "";
+          examContent = row.exam_content || requestedExamContent || "";
           examPaperId = row.exam_paper_id;
         } else if (sourceType === "paper-set") {
           const response = await getMockExamPaperSet(sourceId);
@@ -194,6 +234,8 @@ export default function MockExamRunnerPage() {
           payload = row.payload;
           title = row.set_name || "";
           moduleName = row.exam_content || "IELTS";
+          examCategory = row.exam_category || "";
+          examContent = row.exam_content || "";
           paperSetId = row.mockexam_paper_set_id;
         } else if (sourceType === "progress") {
           const response = await getMockExamProgress(sourceId);
@@ -201,6 +243,8 @@ export default function MockExamRunnerPage() {
           payload = row.payload;
           title = row.title || row.paper_code || "";
           moduleName = row.exam_content || "IELTS";
+          examCategory = row.exam_category || "";
+          examContent = row.exam_content || "";
           examPaperId = row.exam_paper_id;
           paperSetId = row.paper_set_id || null;
           progressId = row.progress_id;
@@ -219,6 +263,8 @@ export default function MockExamRunnerPage() {
           payload = row.payload;
           title = row.title || row.paper_code || "";
           moduleName = row.exam_content || "IELTS";
+          examCategory = row.exam_category || "";
+          examContent = row.exam_content || "";
           examPaperId = row.exam_paper_id;
           paperSetId = row.paper_set_id || null;
           reviewMode = true;
@@ -232,7 +278,10 @@ export default function MockExamRunnerPage() {
           throw new Error("不支持的考试来源");
         }
 
-        const normalizedExamData = filterExamDataByGroup(normalizeExamData(payload), requestedGroupId);
+        const normalizedExamData = filterExamDataByGroup(
+          filterExamDataByExamContent(normalizeExamData(payload), requestedExamContent),
+          requestedGroupId
+        );
         const store = buildQuestionStore(normalizedExamData);
         const initialIndex = resolveInitialQuestionIndex(store.questions, {
           questionId: initialQuestionId,
@@ -263,6 +312,8 @@ export default function MockExamRunnerPage() {
         setSession({
           title,
           moduleName: moduleName || normalizedExamData.module || "IELTS",
+          examCategory,
+          examContent,
           examData: normalizedExamData,
           questions: store.questions,
           passages: normalizedExamData.passages || [],
@@ -302,6 +353,7 @@ export default function MockExamRunnerPage() {
     requestedQuestionId,
     requestedQuestionIndex,
     requestedQuestionNo,
+    requestedExamContent,
     sourceId,
     sourceType,
   ]);
@@ -399,6 +451,7 @@ export default function MockExamRunnerPage() {
       const payload = {
         answers,
         marked,
+        payload: session.examData,
         progress_id: session.progressId,
         elapsed_seconds: elapsedSeconds,
       };
@@ -550,6 +603,8 @@ export default function MockExamRunnerPage() {
       <PracticeExercisePage
         title={session.title}
         moduleName={session.moduleName}
+        examCategory={session.examCategory}
+        examContent={session.examContent}
         questions={session.questions}
         passages={session.passages}
         answers={answers}

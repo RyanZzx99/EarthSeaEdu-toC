@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.InviteCodeMapper">
+
+    <sql id="BaseColumns">
+        id, code, invite_scene, status, issued_to_mobile, issued_by_user_id, used_by_user_id,
+        issued_time, used_time, expires_time, note, create_time, update_time, delete_flag
+    </sql>
+
+    <sql id="ListFilters">
+        WHERE delete_flag = '1'
+        <if test="status != null and status != ''">AND status = #{status}</if>
+        <if test="mobile != null and mobile != ''">AND issued_to_mobile = #{mobile}</if>
+        <if test="codeKeyword != null and codeKeyword != ''">AND UPPER(code) LIKE CONCAT('%', UPPER(#{codeKeyword}), '%')</if>
+        <if test="inviteScene != null and inviteScene != ''">AND invite_scene = #{inviteScene}</if>
+    </sql>
+
+    <select id="findActiveByCode" resultType="com.earthseaedu.backend.model.auth.InviteCode">
+        SELECT <include refid="BaseColumns"/>
+        FROM invite_codes
+        WHERE code = #{code}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.auth.InviteCode" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO invite_codes (
+            code, invite_scene, status, issued_to_mobile, issued_by_user_id, used_by_user_id,
+            issued_time, used_time, expires_time, note, create_time, update_time, delete_flag
+        ) VALUES (
+            #{code}, #{inviteScene}, #{status}, #{issuedToMobile}, #{issuedByUserId}, #{usedByUserId},
+            #{issuedTime}, #{usedTime}, #{expiresTime}, #{note}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.earthseaedu.backend.model.auth.InviteCode">
+        UPDATE invite_codes
+        SET invite_scene = #{inviteScene},
+            status = #{status},
+            issued_to_mobile = #{issuedToMobile},
+            issued_by_user_id = #{issuedByUserId},
+            used_by_user_id = #{usedByUserId},
+            issued_time = #{issuedTime},
+            used_time = #{usedTime},
+            expires_time = #{expiresTime},
+            note = #{note},
+            update_time = #{updateTime},
+            delete_flag = #{deleteFlag}
+        WHERE id = #{id}
+    </update>
+
+    <select id="list" resultType="com.earthseaedu.backend.model.auth.InviteCode">
+        SELECT <include refid="BaseColumns"/>
+        FROM invite_codes
+        <include refid="ListFilters"/>
+        ORDER BY create_time DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(1)
+        FROM invite_codes
+        <include refid="ListFilters"/>
+    </select>
+
+</mapper>

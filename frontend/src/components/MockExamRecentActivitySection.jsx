@@ -14,8 +14,8 @@ import {
   getMockExamSubmissions,
   getMockExamWrongQuestions,
 } from "../api/mockexam";
+import { formatExamScopeLabel, getApiError } from "../mockexam/pageHelpers";
 import { InlineLoading } from "./LoadingPage";
-import { getApiError } from "../mockexam/pageHelpers";
 
 function buildContinueCopy(progress) {
   if (!progress) {
@@ -24,7 +24,7 @@ function buildContinueCopy(progress) {
 
   return [
     progress.title || "最近一次练习",
-    `已完成 ${progress.answered_count || 0}/${progress.total_questions || 0}`,
+    `${formatExamScopeLabel(progress.exam_category, progress.exam_content)} · 已完成 ${progress.answered_count || 0}/${progress.total_questions || 0}`,
   ];
 }
 
@@ -35,7 +35,7 @@ function buildWrongCopy(group) {
 
   const title = group.paper_title || group.group_title || "最近错题";
   const wrongCount = Number(group.wrong_question_count || 0);
-  return [title, `共错 ${wrongCount} 题`];
+  return [title, `${formatExamScopeLabel(group.exam_category, group.exam_content)} · 共错 ${wrongCount} 题`];
 }
 
 function buildHistoryCopy(submission) {
@@ -46,8 +46,8 @@ function buildHistoryCopy(submission) {
   return [
     submission.title || "最近一次练习",
     typeof submission.score_percent === "number"
-      ? `正确率 ${submission.score_percent}%`
-      : "已生成练习记录",
+      ? `${formatExamScopeLabel(submission.exam_category, submission.exam_content)} · 正确率 ${submission.score_percent}%`
+      : `${formatExamScopeLabel(submission.exam_category, submission.exam_content)} · 已生成练习记录`,
   ];
 }
 
@@ -58,7 +58,9 @@ function buildFavoriteCopy(entityFavorite) {
 
   return [
     entityFavorite.title || "最近一次收藏",
-    entityFavorite.target_type === "paper_set" ? "最近收藏试卷" : "最近收藏题包",
+    `${formatExamScopeLabel(entityFavorite.exam_category, entityFavorite.exam_content)} · ${
+      entityFavorite.target_type === "paper_set" ? "最近收藏试卷" : "最近收藏题包"
+    }`,
   ];
 }
 

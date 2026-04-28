@@ -31,6 +31,7 @@ import {
   getCurrentAiChatSession,
   regenerateAiChatDraftRadar,
 } from "../api/aiChat";
+import GuidedProfileChat from "../components/GuidedProfileChat";
 import RankingTool from "../components/RankingTool";
 import ScoreConverter from "../components/ScoreConverter";
 import { clearAccessToken, getAccessToken } from "../utils/authStorage";
@@ -38,6 +39,7 @@ import { clearAccessToken, getAccessToken } from "../utils/authStorage";
 const AI_CHAT_BIZ_DOMAIN = "student_profile_build";
 const AI_CHAT_SESSION_CACHE_KEY = "latest_ai_chat_session_id";
 const AI_CHAT_OPEN_PANEL_KEY = "open_ai_chat_panel";
+const GUIDED_PROFILE_OPEN_PANEL_KEY = "open_guided_profile_panel";
 
 const examLinks = [
   { name: "托福报名", url: "https://toefl.neea.cn/", accent: "#2c4a8a", badge: "TOEFL" },
@@ -123,8 +125,8 @@ const RADAR_LABELS = {
   language: "语言能力",
   standardized: "标化考试",
   competition: "学术竞赛",
-  activity: "活动领导力",
-  project: "项目实践",
+  activity: "活动/企业实习",
+  project: "科研经历",
 };
 
 const RADAR_COLORS = {
@@ -158,15 +160,32 @@ function logProfileFlow(step, detail = {}) {
 
 function normalizeProfileResult(resultData) {
   const radarScores = resultData?.radar_scores_json || {};
+  const normalizeDimension = (key) => {
+    const value = radarScores[key];
+    if (typeof value === "number") {
+      return {
+        score: Math.max(0, Math.min(100, value)),
+        reason: "系统已根据当前建档信息生成评分。",
+      };
+    }
+    if (value && typeof value === "object") {
+      const numericScore = Number(value.score ?? value.value ?? 0);
+      return {
+        score: Number.isFinite(numericScore) ? Math.max(0, Math.min(100, numericScore)) : 0,
+        reason: value.reason || "系统已根据当前建档信息生成评分。",
+      };
+    }
+    return { score: 0, reason: "暂无有效评分说明" };
+  };
 
   return {
     radar_scores_json: {
-      academic: radarScores.academic || { score: 0, reason: "暂无有效学术评分说明" },
-      language: radarScores.language || { score: 0, reason: "暂无有效语言评分说明" },
-      standardized: radarScores.standardized || { score: 0, reason: "暂无有效标化评分说明" },
-      competition: radarScores.competition || { score: 0, reason: "暂无有效竞赛评分说明" },
-      activity: radarScores.activity || { score: 0, reason: "暂无有效活动评分说明" },
-      project: radarScores.project || { score: 0, reason: "暂无有效项目评分说明" },
+      academic: normalizeDimension("academic"),
+      language: normalizeDimension("language"),
+      standardized: normalizeDimension("standardized"),
+      competition: normalizeDimension("competition"),
+      activity: normalizeDimension("activity"),
+      project: normalizeDimension("project"),
     },
     summary_text: resultData?.summary_text || "当前档案结果已生成，但暂未返回完整中文总结。",
   };
@@ -398,6 +417,7 @@ export default function HomePage() {
   const [teacherInviteLoading, setTeacherInviteLoading] = useState(false);
   const [activeSection, setActiveSection] = useState("hero");
   const [showChat, setShowChat] = useState(false);
+  const [showGuidedChat, setShowGuidedChat] = useState(false);
   const [showProfileResult, setShowProfileResult] = useState(false);
   const [aiRestoreReady, setAiRestoreReady] = useState(false);
   const [chatEnded, setChatEnded] = useState(false);
@@ -485,19 +505,17 @@ export default function HomePage() {
       return;
     }
 
-    if (localStorage.getItem(AI_CHAT_OPEN_PANEL_KEY) !== "1") {
+    if (localStorage.getItem(GUIDED_PROFILE_OPEN_PANEL_KEY) !== "1") {
       return;
     }
 
-    if (aiSessionId || messages.length > 0 || profileData) {
-      return;
-    }
-
-    localStorage.removeItem(AI_CHAT_OPEN_PANEL_KEY);
+    localStorage.removeItem(GUIDED_PROFILE_OPEN_PANEL_KEY);
     setShowProfileResult(false);
-    setShowChat(true);
-    setUiHint("可以继续补充信息，我会基于当前会话继续整理档案。");
-  }, [profile?.user_id, aiSessionId, messages.length, profileData, aiRestoreReady]);
+    setShowChat(false);
+    setShowGuidedChat(true);
+    setConnectionError("");
+    setUiHint("");
+  }, [profile?.user_id, aiRestoreReady]);
 
   useEffect(() => {
     // 涓枃娉ㄩ噴锛?    // 鑷姩缁彂鎺掗槦娑堟伅鏃讹紝涔熻鎷垮埌鏈€鏂扮殑鈥滄槸鍚︿粛鍦ㄦ祦寮忕敓鎴愨€濈姸鎬併€?    assistantStreamingRef.current = assistantStreaming;
@@ -749,8 +767,8 @@ export default function HomePage() {
 
   async function restoreAiState(studentId) {
     try {
-      const shouldForceOpenChatFromNavigation =
-        localStorage.getItem(AI_CHAT_OPEN_PANEL_KEY) === "1";
+      localStorage.removeItem(AI_CHAT_OPEN_PANEL_KEY);
+      const shouldForceOpenChatFromNavigation = false;
       const currentResponse = await getCurrentAiChatSession(AI_CHAT_BIZ_DOMAIN);
       const currentSessionId = currentResponse.data?.session?.session_id || null;
       const rememberedSessionId = localStorage.getItem(AI_CHAT_SESSION_CACHE_KEY);
@@ -806,10 +824,6 @@ export default function HomePage() {
       currentStageRef.current = normalizedStage;
       setChatEnded(normalizedStage === "build_ready");
       chatEndedRef.current = normalizedStage === "build_ready";
-
-      if (restoredMessages.length > 0 || shouldForceOpenChatFromNavigation) {
-        setShowChat(true);
-      }
 
       if (sessionDetail.final_profile_id) {
         try {
@@ -1224,6 +1238,7 @@ export default function HomePage() {
 
   function handleStartChat() {
     setShowChat(true);
+    setShowGuidedChat(false);
     setShowProfileResult(false);
     setConnectionError("");
 
@@ -1246,11 +1261,39 @@ export default function HomePage() {
     setUiHint("");
   }
 
+  function handleStartGuidedProfile() {
+    setShowGuidedChat(true);
+    setShowChat(false);
+    setShowProfileResult(false);
+    setConnectionError("");
+    setUiHint("");
+  }
+
+  function handleCloseGuidedProfile() {
+    setShowGuidedChat(false);
+  }
+
+  function handleGuidedProfileResult(resultPayload) {
+    const normalized = normalizeProfileResult(resultPayload || {});
+    setProfileData(normalized);
+    setProfileResultStatus(resultPayload?.result_status || "saved");
+    setSaveErrorMessage(resultPayload?.save_error_message || "");
+    setCurrentStage("completed");
+    currentStageRef.current = "completed";
+    setShowGuidedChat(false);
+    setShowChat(false);
+    setShowProfileResult(true);
+    setUiHint("");
+    setActiveSection("hero");
+    document.getElementById("home-hero")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function handleViewMyRadar() {
     if (!profileData) {
       return;
     }
     setShowChat(false);
+    setShowGuidedChat(false);
     setShowProfileResult(true);
     setUiHint("");
     setActiveSection("hero");
@@ -1276,28 +1319,20 @@ export default function HomePage() {
 
   function handleContinueSupplementInfo() {
     setShowProfileResult(false);
-    setShowChat(true);
-        setCurrentStage("build_ready");
-        currentStageRef.current = "build_ready";
-        setConversationPhase(null);
-        conversationPhaseRef.current = null;
-        setAssistantThinking(false);
-        assistantThinkingRef.current = false;
+    setShowChat(false);
+    setShowGuidedChat(true);
+    setCurrentStage("build_ready");
+    currentStageRef.current = "build_ready";
+    setConversationPhase(null);
+    conversationPhaseRef.current = null;
+    setAssistantThinking(false);
+    assistantThinkingRef.current = false;
     setAssistantStreaming(false);
     assistantStreamingRef.current = false;
     setQueuedOutgoingMessages([]);
     queuedOutgoingMessagesRef.current = [];
     setConnectionError("");
-
-    const guidanceMessage = buildSupplementGuidanceMessage();
-    setUiHint(guidanceMessage);
-    setMessages((previous) => {
-      const lastMessage = previous[previous.length - 1];
-      if (lastMessage?.role === "assistant" && lastMessage.content === guidanceMessage) {
-        return previous;
-      }
-      return [...previous, createChatMessage("assistant", guidanceMessage)];
-    });
+    setUiHint("");
   }
 
   function handleViewArchive() {
@@ -1691,20 +1726,33 @@ export default function HomePage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.6 }}
             >
-              {!showChat && !showProfileResult ? (
+              {!showChat && !showGuidedChat && !showProfileResult && profileData ? (
                 <motion.button
                   type="button"
-                  onClick={profileData ? handleViewMyRadar : handleStartChat}
+                  onClick={handleViewMyRadar}
                   className="home-primary-button"
                   whileHover={{ scale: 1.05, boxShadow: "0 20px 40px rgba(59,130,246,0.35)" }}
                   whileTap={{ scale: 0.98 }}
                 >
-                  {profileData ? "查看我的六维图" : "Get Started"}
+                  查看我的六维图
                   <ArrowRightIcon />
                 </motion.button>
               ) : null}
 
-              {!showProfileResult ? (
+              {!showChat && !showGuidedChat && !showProfileResult && !profileData ? (
+                <motion.button
+                  type="button"
+                  onClick={handleStartGuidedProfile}
+                  className="home-primary-button"
+                  whileHover={{ scale: 1.05, boxShadow: "0 20px 40px rgba(59,130,246,0.35)" }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  快速建档
+                  <ArrowRightIcon />
+                </motion.button>
+              ) : null}
+
+              {!showGuidedChat && !showProfileResult ? (
                 <motion.button
                   type="button"
                   onClick={() => scrollToSection("home-ranking", "ranking")}
@@ -1718,7 +1766,15 @@ export default function HomePage() {
             </motion.div>
 
             <AnimatePresence initial={false} mode="popLayout">
-              {aiRestoreReady && showChat && !showProfileResult ? (
+              {aiRestoreReady && showGuidedChat && !showProfileResult ? (
+                <GuidedProfileChat
+                  key="guided-profile-chat"
+                  onClose={handleCloseGuidedProfile}
+                  onResultReady={handleGuidedProfileResult}
+                />
+              ) : null}
+
+              {aiRestoreReady && showChat && !showGuidedChat && !showProfileResult ? (
                 <motion.div
                   key="chat-shell"
                   className="home-ai-shell"

@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.AlevelSourceBundleFileMapper">
+
+    <sql id="BaseColumns">
+        alevel_source_bundle_file_id, alevel_source_bundle_id, alevel_source_file_id, file_role, is_primary,
+        match_status, match_confidence, match_evidence_json, sort_order, status, remark, create_time, update_time,
+        delete_flag
+    </sql>
+
+    <select id="findActiveById" resultType="com.earthseaedu.backend.model.alevel.AlevelSourceBundleFile">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_source_bundle_file
+        WHERE alevel_source_bundle_file_id = #{bundleFileId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveByBundleId" resultType="com.earthseaedu.backend.model.alevel.AlevelSourceBundleFile">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_source_bundle_file
+        WHERE alevel_source_bundle_id = #{bundleId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, alevel_source_bundle_file_id ASC
+    </select>
+
+    <select id="findActiveBySourceFileId" resultType="com.earthseaedu.backend.model.alevel.AlevelSourceBundleFile">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_source_bundle_file
+        WHERE alevel_source_file_id = #{sourceFileId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, alevel_source_bundle_file_id ASC
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.alevel.AlevelSourceBundleFile" useGeneratedKeys="true" keyProperty="alevelSourceBundleFileId">
+        INSERT INTO alevel_source_bundle_file (
+            alevel_source_bundle_id, alevel_source_file_id, file_role, is_primary, match_status, match_confidence,
+            match_evidence_json, sort_order, status, remark, create_time, update_time, delete_flag
+        ) VALUES (
+            #{alevelSourceBundleId}, #{alevelSourceFileId}, #{fileRole}, #{isPrimary}, #{matchStatus},
+            #{matchConfidence}, #{matchEvidenceJson}, #{sortOrder}, #{status}, #{remark}, #{createTime},
+            #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.earthseaedu.backend.model.alevel.AlevelSourceBundleFile">
+        UPDATE alevel_source_bundle_file
+        SET alevel_source_bundle_id = #{alevelSourceBundleId},
+            alevel_source_file_id = #{alevelSourceFileId},
+            file_role = #{fileRole},
+            is_primary = #{isPrimary},
+            match_status = #{matchStatus},
+            match_confidence = #{matchConfidence},
+            match_evidence_json = #{matchEvidenceJson},
+            sort_order = #{sortOrder},
+            status = #{status},
+            remark = #{remark},
+            update_time = #{updateTime},
+            delete_flag = #{deleteFlag}
+        WHERE alevel_source_bundle_file_id = #{alevelSourceBundleFileId}
+    </update>
+
+    <update id="deactivateById">
+        UPDATE alevel_source_bundle_file
+        SET status = 0,
+            update_time = #{updateTime}
+        WHERE alevel_source_bundle_file_id = #{bundleFileId}
+          AND status = 1
+          AND delete_flag = '1'
+    </update>
+
+    <update id="deactivateByBundleId">
+        UPDATE alevel_source_bundle_file
+        SET status = 0,
+            update_time = #{updateTime}
+        WHERE alevel_source_bundle_id = #{bundleId}
+          AND status = 1
+          AND delete_flag = '1'
+    </update>
+
+    <update id="deactivatePrimaryByBundleIdAndRole">
+        UPDATE alevel_source_bundle_file
+        SET status = 0,
+            is_primary = 0,
+            update_time = #{updateTime}
+        WHERE alevel_source_bundle_id = #{bundleId}
+          AND file_role = #{fileRole}
+          AND is_primary = 1
+          AND status = 1
+          AND delete_flag = '1'
+    </update>
+
+</mapper>

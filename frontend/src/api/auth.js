@@ -480,3 +480,39 @@ export function getQuestionBankImportJob(jobId, adminKey) {
     },
   });
 }
+
+export function importAlevelSourceFiles(formData, adminKey, options = {}) {
+  return request.post("/api/v1/auth/alevel/source-files/import", formData, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+    timeout: 0,
+    onUploadProgress: options.onUploadProgress,
+  });
+}
+
+export function getAlevelSourceFileImportJob(jobId, adminKey) {
+  return request.get(`/api/v1/auth/alevel/source-files/import-jobs/${jobId}`, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}
+
+export function importActQuestionBank(formData, adminKey, options = {}) {
+  return request.post("/api/v1/mockexam/act/question-banks/import", formData, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+    timeout: 0,
+    onUploadProgress: options.onUploadProgress,
+  });
+}
+
+export function getActQuestionBankImportJob(jobId, adminKey) {
+  return request.get(`/api/v1/mockexam/act/question-banks/import-jobs/${jobId}`, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}

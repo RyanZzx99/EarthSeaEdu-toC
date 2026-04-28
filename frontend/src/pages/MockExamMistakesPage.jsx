@@ -16,7 +16,16 @@ import {
 import { getMockExamQuestionDetail, getMockExamWrongQuestions } from "../api/mockexam";
 import { LoadingPage } from "../components/LoadingPage";
 import MockExamModeHeader from "../components/MockExamModeHeader";
-import { formatDateTime, getApiError } from "../mockexam/pageHelpers";
+import {
+  MOCK_EXAM_ALL_CATEGORY,
+  MOCK_EXAM_ALL_CONTENT,
+  formatDateTime,
+  formatExamScopeLabel,
+  getApiError,
+  getExamCategoryLabel,
+  getPaperContentLabel,
+  isActCategory,
+} from "../mockexam/pageHelpers";
 import "../mockexam/mistakesPage.css";
 
 const LIBRARY_TABS = [
@@ -24,6 +33,11 @@ const LIBRARY_TABS = [
   { key: "history", label: "练习历史", path: "/mockexam/history" },
   { key: "favorites", label: "收藏夹", path: "/mockexam/favorites" },
 ];
+
+function normalizeExamCategoryFilter(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  return normalized || MOCK_EXAM_ALL_CATEGORY;
+}
 
 function formatQuestionTypeLabel(value) {
   const type = String(value || "").trim().toLowerCase();
@@ -229,6 +243,8 @@ export default function MockExamMistakesPage() {
   });
   const [groups, setGroups] = useState([]);
   const [detailMap, setDetailMap] = useState(new Map());
+  const [filterExamCategory, setFilterExamCategory] = useState(MOCK_EXAM_ALL_CATEGORY);
+  const [filterExamContent, setFilterExamContent] = useState(MOCK_EXAM_ALL_CONTENT);
   const [filterType, setFilterType] = useState("all");
   const [sortBy, setSortBy] = useState("recent");
   const [expandedGroups, setExpandedGroups] = useState({});
@@ -324,7 +340,9 @@ export default function MockExamMistakesPage() {
         examPaperId: group.exam_paper_id,
         paperTitle: group.paper_title || "未命名试卷",
         paperCode: group.paper_code || "",
+        examCategory: group.exam_category || "IELTS",
         examContent: group.exam_content || "",
+        examScopeLabel: formatExamScopeLabel(group.exam_category, group.exam_content),
         groupId: group.exam_group_id,
         groupTitle: group.group_title || "题组",
         sectionTitle: group.section_title || "",
@@ -342,6 +360,8 @@ export default function MockExamMistakesPage() {
             key: `${item.exam_question_id || item.question_id || "row"}-${itemIndex}`,
             examQuestionId: item.exam_question_id,
             examPaperId: item.exam_paper_id,
+            examCategory: item.exam_category || group.exam_category || "IELTS",
+            examContent: item.exam_content || group.exam_content || "",
             examSectionId: item.exam_section_id,
             examGroupId: item.exam_group_id,
             questionId: item.question_id,
@@ -365,6 +385,29 @@ export default function MockExamMistakesPage() {
     return ["all", ...values];
   }, [uiGroups]);
 
+  const examCategoryOptions = useMemo(() => {
+    const values = new Set(
+      uiGroups
+        .map((group) => normalizeExamCategoryFilter(group.examCategory))
+        .filter(Boolean)
+    );
+    return [MOCK_EXAM_ALL_CATEGORY, ...values];
+  }, [uiGroups]);
+
+  const examContentOptions = useMemo(() => {
+    const values = new Set(
+      uiGroups
+        .filter(
+          (group) =>
+            filterExamCategory === MOCK_EXAM_ALL_CATEGORY ||
+            normalizeExamCategoryFilter(group.examCategory) === filterExamCategory
+        )
+        .map((group) => group.examContent)
+        .filter(Boolean)
+    );
+    return [MOCK_EXAM_ALL_CONTENT, ...values];
+  }, [filterExamCategory, uiGroups]);
+
   const filteredGroups = useMemo(() => {
     const nextGroups = uiGroups
       .map((group) => ({
@@ -374,7 +417,21 @@ export default function MockExamMistakesPage() {
             ? group.questions
             : group.questions.filter((item) => item.typeLabel === filterType),
       }))
-      .filter((group) => group.questions.length > 0);
+      .filter((group) => {
+        if (!group.questions.length) {
+          return false;
+        }
+        if (
+          filterExamCategory !== MOCK_EXAM_ALL_CATEGORY &&
+          normalizeExamCategoryFilter(group.examCategory) !== filterExamCategory
+        ) {
+          return false;
+        }
+        if (filterExamContent !== MOCK_EXAM_ALL_CONTENT && group.examContent !== filterExamContent) {
+          return false;
+        }
+        return true;
+      });
 
     if (sortBy === "frequency") {
       return [...nextGroups].sort((left, right) => right.totalWrongCount - left.totalWrongCount);
@@ -383,7 +440,7 @@ export default function MockExamMistakesPage() {
     return [...nextGroups].sort(
       (left, right) => new Date(right.latestTime || 0).getTime() - new Date(left.latestTime || 0).getTime()
     );
-  }, [filterType, sortBy, uiGroups]);
+  }, [filterExamCategory, filterExamContent, filterType, sortBy, uiGroups]);
 
   function toggleGroup(groupKey) {
     setExpandedGroups((previous) => ({
@@ -413,6 +470,9 @@ export default function MockExamMistakesPage() {
     }
     if (item.questionNo != null && item.questionNo !== "") {
       query.set("questionNo", String(item.questionNo));
+    }
+    if (isActCategory(item.examCategory) && item.examContent) {
+      query.set("examContent", item.examContent);
     }
     query.set("fromMistakes", "1");
     navigate(`/mockexam/run/paper/${item.examPaperId}?${query.toString()}`);
@@ -504,6 +564,33 @@ export default function MockExamMistakesPage() {
             </div>
 
             <select
+              value={filterExamCategory}
+              onChange={(event) => {
+                setFilterExamCategory(event.target.value);
+                setFilterExamContent(MOCK_EXAM_ALL_CONTENT);
+              }}
+              className="mistakes-filter-select"
+            >
+              {examCategoryOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option === MOCK_EXAM_ALL_CATEGORY ? "全部考试" : getExamCategoryLabel(option)}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={filterExamContent}
+              onChange={(event) => setFilterExamContent(event.target.value)}
+              className="mistakes-filter-select"
+            >
+              {examContentOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option === MOCK_EXAM_ALL_CONTENT ? "全部学科" : getPaperContentLabel(option)}
+                </option>
+              ))}
+            </select>
+
+            <select
               value={filterType}
               onChange={(event) => setFilterType(event.target.value)}
               className="mistakes-filter-select"
@@ -528,8 +615,18 @@ export default function MockExamMistakesPage() {
               <option value="frequency">错误次数</option>
             </select>
 
-            {filterType !== "all" ? (
-              <button type="button" className="mistakes-filter-clear" onClick={() => setFilterType("all")}>
+            {(filterExamCategory !== MOCK_EXAM_ALL_CATEGORY ||
+              filterExamContent !== MOCK_EXAM_ALL_CONTENT ||
+              filterType !== "all") ? (
+              <button
+                type="button"
+                className="mistakes-filter-clear"
+                onClick={() => {
+                  setFilterExamCategory(MOCK_EXAM_ALL_CATEGORY);
+                  setFilterExamContent(MOCK_EXAM_ALL_CONTENT);
+                  setFilterType("all");
+                }}
+              >
                 清除筛选
               </button>
             ) : null}
@@ -552,7 +649,7 @@ export default function MockExamMistakesPage() {
                     <div className="mistakes-group-header-copy">
                       <div className="mistakes-group-header-top">
                         <strong>{group.paperTitle}</strong>
-                        <span className="mistakes-group-chip">{group.examContent || "IELTS"}</span>
+                        <span className="mistakes-group-chip">{group.examScopeLabel}</span>
                       </div>
                       <p>
                         {group.groupTitle}

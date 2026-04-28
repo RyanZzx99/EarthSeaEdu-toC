@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.BusinessProfilePersistenceMapper">
+
+    <delete id="deleteProjectOutputsByStudent">
+        DELETE spo
+        FROM `student_project_outputs` spo
+        INNER JOIN `student_project_entries` spe
+          ON spo.project_id = spe.project_id
+        WHERE spe.student_id = #{studentId}
+    </delete>
+
+    <delete id="deleteByStudent">
+        DELETE FROM `${tableName}`
+        WHERE student_id = #{studentId}
+    </delete>
+
+    <insert id="insertDynamicRow" parameterType="map" useGeneratedKeys="true" keyProperty="generatedId">
+        INSERT INTO `${tableName}` (${columnList})
+        VALUES
+        <foreach collection="values" item="value" open="(" close=")" separator=",">
+            #{value}
+        </foreach>
+    </insert>
+
+    <select id="listColumns" resultType="map">
+        SHOW COLUMNS FROM `${tableName}`
+    </select>
+
+    <select id="countTable" resultType="int">
+        SELECT COUNT(1)
+        FROM information_schema.tables
+        WHERE table_schema = DATABASE()
+          AND table_name = #{tableName}
+    </select>
+
+</mapper>
