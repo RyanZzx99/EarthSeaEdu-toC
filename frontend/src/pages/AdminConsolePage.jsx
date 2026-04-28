@@ -16,8 +16,10 @@ import {
   createNicknameContactPattern,
   createNicknameRuleGroup,
   createNicknameWordRule,
+  getActQuestionBankImportJob,
   getAlevelSourceFileImportJob,
   generateInviteCodes,
+  importActQuestionBank,
   importAlevelSourceFiles,
   importQuestionBank,
   issueInviteCode,
@@ -235,6 +237,28 @@ function createPdfImportItems(fileList) {
   Array.from(fileList || []).forEach((file) => {
     const relativePath = file.webkitRelativePath || file.name;
     if (String(relativePath || file.name || "").toLowerCase().endsWith(".pdf")) {
+      acceptedItems.push({
+        file,
+        relativePath,
+      });
+      return;
+    }
+    rejectedCount += 1;
+  });
+
+  return {
+    items: acceptedItems,
+    rejectedCount,
+  };
+}
+
+function createJsonImportItems(fileList) {
+  const acceptedItems = [];
+  let rejectedCount = 0;
+
+  Array.from(fileList || []).forEach((file) => {
+    const relativePath = file.webkitRelativePath || file.name;
+    if (String(relativePath || file.name || "").toLowerCase().endsWith(".json")) {
       acceptedItems.push({
         file,
         relativePath,
@@ -513,6 +537,11 @@ export default function AdminConsolePage() {
     batch_name: "",
     items: [],
   });
+  const [actQuestionBankImportForm, setActQuestionBankImportForm] = useState({
+    source_mode: "zip",
+    batch_name: "",
+    items: [],
+  });
   const [groupForm, setGroupForm] = useState({
     group_code: "",
     group_name: "",
@@ -577,6 +606,9 @@ export default function AdminConsolePage() {
   const [alevelSourceImportMessage, setAlevelSourceImportMessage] = useState("");
   const [alevelSourceImportResult, setAlevelSourceImportResult] = useState(null);
   const [alevelSourceImportUploadProgress, setAlevelSourceImportUploadProgress] = useState(null);
+  const [actQuestionBankImportMessage, setActQuestionBankImportMessage] = useState("");
+  const [actQuestionBankImportResult, setActQuestionBankImportResult] = useState(null);
+  const [actQuestionBankImportUploadProgress, setActQuestionBankImportUploadProgress] = useState(null);
   const [generatedItems, setGeneratedItems] = useState([]);
   const [lastIssued, setLastIssued] = useState({});
   const [inviteList, setInviteList] = useState([]);
@@ -601,6 +633,7 @@ export default function AdminConsolePage() {
   const [loadingQuery, setLoadingQuery] = useState(false);
   const [loadingQuestionBankImportBeta, setLoadingQuestionBankImportBeta] = useState(false);
   const [loadingAlevelSourceImport, setLoadingAlevelSourceImport] = useState(false);
+  const [loadingActQuestionBankImport, setLoadingActQuestionBankImport] = useState(false);
   const [loadingUserStatus, setLoadingUserStatus] = useState(false);
   const [loadingGroupCreate, setLoadingGroupCreate] = useState(false);
   const [loadingGroupList, setLoadingGroupList] = useState(false);
@@ -627,7 +660,18 @@ export default function AdminConsolePage() {
         .map((item) => `${item.relativePath}-${item.file.lastModified}-${item.file.size}`)
         .join("|")
     : "alevel-source-import-empty";
+  const actQuestionBankImportInputKey = actQuestionBankImportForm.items.length
+    ? actQuestionBankImportForm.items
+        .map((item) => `${item.relativePath}-${item.file.lastModified}-${item.file.size}`)
+        .join("|")
+    : "act-question-bank-import-empty";
   const adminBusyOverlay = useMemo(() => {
+    if (loadingActQuestionBankImport) {
+      return {
+        message: "正在创建 ACT 导入任务",
+        submessage: "请稍候，JSON 或压缩包正在上传并准备进入后台解析队列",
+      };
+    }
     if (loadingAlevelSourceImport) {
       return {
         message: "正在创建 A-Level 导入任务",
@@ -738,6 +782,7 @@ export default function AdminConsolePage() {
     }
     return null;
   }, [
+    loadingActQuestionBankImport,
     loadingAlevelSourceImport,
     loadingAuditLogs,
     loadingContactCreate,
@@ -865,6 +910,60 @@ export default function AdminConsolePage() {
       window.clearInterval(timer);
     };
   }, [adminKey, alevelSourceImportResult]);
+
+  useEffect(() => {
+    const currentJobId = actQuestionBankImportResult?.job_id;
+    const currentJobStatus = actQuestionBankImportResult?.status;
+    if (!currentJobId || !adminKey.trim() || !["pending", "running"].includes(currentJobStatus)) {
+      return undefined;
+    }
+
+    let active = true;
+
+    async function refreshImportJob() {
+      try {
+        const response = await getActQuestionBankImportJob(currentJobId, adminKey);
+        if (!active) {
+          return;
+        }
+        const nextJob = response.data || null;
+        setActQuestionBankImportResult(nextJob);
+        if (!nextJob) {
+          return;
+        }
+
+        if (nextJob.status === "completed") {
+          setActQuestionBankImportMessage(
+            `导入完成：成功 ${nextJob.success_count || 0} 套，跳过 ${nextJob.skipped_count || 0} 套，失败 ${nextJob.failure_count || 0} 个`
+          );
+          return;
+        }
+
+        if (nextJob.status === "failed") {
+          setActQuestionBankImportMessage("");
+          setErrorMessage(nextJob.error_message || "ACT 题库导入执行失败");
+          return;
+        }
+
+        setActQuestionBankImportMessage(nextJob.progress_message || "ACT 题库导入任务正在执行");
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+        setActQuestionBankImportMessage("导入任务已创建，但状态查询失败");
+      }
+    }
+
+    void refreshImportJob();
+    const timer = window.setInterval(() => {
+      void refreshImportJob();
+    }, 2500);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [adminKey, actQuestionBankImportResult]);
 
   function ensureAdminKey() {
     if (!adminKey.trim()) {
@@ -1170,6 +1269,103 @@ export default function AdminConsolePage() {
       setErrorMessage(formatAdminRequestError(error, "A-Level PDF 导入执行失败"));
     } finally {
       setLoadingAlevelSourceImport(false);
+    }
+  }
+
+  function handleActQuestionBankImportModeChange(nextMode) {
+    setActQuestionBankImportMessage("");
+    setActQuestionBankImportResult(null);
+    setActQuestionBankImportUploadProgress(null);
+    setActQuestionBankImportForm((previous) => ({
+      ...previous,
+      source_mode: nextMode,
+      items: [],
+    }));
+  }
+
+  function handleActQuestionBankImportFileChange(fileList) {
+    setActQuestionBankImportResult(null);
+    setActQuestionBankImportUploadProgress(null);
+
+    if (actQuestionBankImportForm.source_mode === "zip") {
+      setActQuestionBankImportMessage("");
+      setActQuestionBankImportForm((previous) => ({
+        ...previous,
+        items: createImportBetaItems(fileList),
+      }));
+      return;
+    }
+
+    const { items, rejectedCount } = createJsonImportItems(fileList);
+    setActQuestionBankImportMessage(
+      rejectedCount > 0 ? `已过滤 ${rejectedCount} 个非 JSON 文件，仅保留 JSON 导入` : ""
+    );
+    setActQuestionBankImportForm((previous) => ({
+      ...previous,
+      items,
+    }));
+  }
+
+  async function handleImportActQuestionBank() {
+    setErrorMessage("");
+    setActQuestionBankImportMessage("");
+    setActQuestionBankImportUploadProgress(null);
+    if (!ensureAdminKey()) return;
+    if (!actQuestionBankImportForm.items.length) {
+      setErrorMessage("请先选择要导入的 ACT JSON 文件或压缩包");
+      return;
+    }
+
+    try {
+      setLoadingActQuestionBankImport(true);
+      const formData = new FormData();
+      formData.append("source_mode", actQuestionBankImportForm.source_mode);
+      formData.append("batch_name", actQuestionBankImportForm.batch_name.trim());
+      formData.append(
+        "entry_paths_json",
+        JSON.stringify(actQuestionBankImportForm.items.map((item) => item.relativePath))
+      );
+      actQuestionBankImportForm.items.forEach((item) => {
+        formData.append("files", item.file);
+      });
+
+      setActQuestionBankImportMessage(`正在上传并创建导入任务：${actQuestionBankImportForm.items.length} 个文件`);
+      const response = await importActQuestionBank(formData, adminKey, {
+        onUploadProgress: (progressEvent) => {
+          const total = Number(progressEvent?.total || 0);
+          const loaded = Number(progressEvent?.loaded || 0);
+          const percent = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : null;
+
+          setActQuestionBankImportUploadProgress({
+            loaded,
+            total,
+            percent,
+          });
+
+          if (percent !== null && percent >= 100) {
+            setActQuestionBankImportMessage("文件已上传，正在创建导入任务...");
+          } else if (percent !== null) {
+            setActQuestionBankImportMessage(`正在上传文件并创建导入任务：${percent}%`);
+          } else {
+            setActQuestionBankImportMessage(`正在上传并创建导入任务：${actQuestionBankImportForm.items.length} 个文件`);
+          }
+        },
+      });
+
+      setActQuestionBankImportResult(response.data);
+      setActQuestionBankImportUploadProgress(null);
+      setActQuestionBankImportForm((previous) => ({
+        ...previous,
+        items: [],
+      }));
+      setActQuestionBankImportMessage(response.data.progress_message || `导入任务已创建，任务 ID ${response.data.job_id}`);
+    } catch (error) {
+      setActQuestionBankImportResult(null);
+      setActQuestionBankImportMessage("");
+      setActQuestionBankImportUploadProgress(null);
+      setErrorMessage(formatAdminRequestError(error, "ACT 题库导入执行失败"));
+    } finally {
+      setLoadingActQuestionBankImport(false);
     }
   }
 
@@ -1829,7 +2025,7 @@ export default function AdminConsolePage() {
             id="admin-question-bank-center"
             icon={Database}
             title="题库管理"
-            subtitle="支持 IELTS 结构化题库导入，以及 A-Level 原始 PDF 批量接入。"
+            subtitle="支持 IELTS 结构化题库导入、A-Level 原始 PDF 批量接入，以及 ACT JSON 题库导入。"
           >
             <div className="admin-section-stack">
               <AdminPanel
@@ -2215,6 +2411,202 @@ export default function AdminConsolePage() {
                         <h4>失败明细</h4>
                         <div className="admin-import-result-list">
                           {alevelSourceImportResult.failures.map((item, index) => (
+                            <div key={`${item.source_name}-${index}`} className="admin-import-result-item error">
+                              <strong>{item.source_name}</strong>
+                              <span>{item.message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </AdminPanel>
+
+              <AdminPanel
+                title="导入 ACT JSON 题库"
+                description="支持 ACT JSON 单文件/批量文件、文件夹和压缩包导入；后台会抽取 base64 图片到 /exam-assets/，并写入 act_* 与 mockexam_*_ref。"
+                aside={actQuestionBankImportMessage ? <span className="check-success">{actQuestionBankImportMessage}</span> : null}
+              >
+                <div className="admin-segmented">
+                  {importBetaModeOptions.map((item) => (
+                    <button
+                      key={item.value}
+                      type="button"
+                      className={`admin-segmented-btn ${actQuestionBankImportForm.source_mode === item.value ? "active" : ""}`}
+                      onClick={() => handleActQuestionBankImportModeChange(item.value)}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="admin-form-grid">
+                  <Field label="导入模式">
+                    <input
+                      className="input"
+                      value={
+                        importBetaModeOptions.find((item) => item.value === actQuestionBankImportForm.source_mode)?.label || "压缩包"
+                      }
+                      disabled
+                    />
+                  </Field>
+
+                  <Field
+                    label="批次名"
+                    hint="可选。建议填写 ACT 场次来源，例如 ACT 20260411 亚太上午。"
+                  >
+                    <input
+                      className="input"
+                      value={actQuestionBankImportForm.batch_name}
+                      onChange={(event) =>
+                        setActQuestionBankImportForm((previous) => ({
+                          ...previous,
+                          batch_name: event.target.value,
+                        }))
+                      }
+                      placeholder="例如：ACT 20260411 亚太上午"
+                    />
+                  </Field>
+
+                  <Field
+                    label="导入文件"
+                    hint={
+                      actQuestionBankImportForm.source_mode === "zip"
+                        ? "支持一个或多个 zip 包，zip 内部会自动筛出 JSON 文件。"
+                        : actQuestionBankImportForm.source_mode === "directory"
+                          ? "请选择包含 ACT JSON 的文件夹，浏览器会自动携带相对路径。"
+                          : "支持单个 JSON 或批量 JSON 上传。"
+                    }
+                  >
+                    {actQuestionBankImportForm.source_mode === "zip" ? (
+                      <input
+                        key={actQuestionBankImportInputKey}
+                        className="input"
+                        type="file"
+                        multiple
+                        accept=".zip,application/zip"
+                        onChange={(event) => handleActQuestionBankImportFileChange(event.target.files)}
+                      />
+                    ) : null}
+
+                    {actQuestionBankImportForm.source_mode === "directory" ? (
+                      <input
+                        key={actQuestionBankImportInputKey}
+                        className="input"
+                        type="file"
+                        multiple
+                        webkitdirectory=""
+                        directory=""
+                        accept=".json,application/json"
+                        onChange={(event) => handleActQuestionBankImportFileChange(event.target.files)}
+                      />
+                    ) : null}
+
+                    {actQuestionBankImportForm.source_mode === "files" ? (
+                      <input
+                        key={actQuestionBankImportInputKey}
+                        className="input"
+                        type="file"
+                        multiple
+                        accept=".json,application/json"
+                        onChange={(event) => handleActQuestionBankImportFileChange(event.target.files)}
+                      />
+                    ) : null}
+                  </Field>
+                </div>
+
+                {actQuestionBankImportForm.items.length ? (
+                  <div className="result-box">
+                    {buildImportBetaFileSummary(actQuestionBankImportForm.items)}
+                  </div>
+                ) : null}
+
+                {loadingActQuestionBankImport && actQuestionBankImportUploadProgress ? (
+                  <div
+                    className="result-box"
+                    style={{
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "100%",
+                        height: "10px",
+                        borderRadius: "999px",
+                        background: "#e5e7eb",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${actQuestionBankImportUploadProgress.percent || 0}%`,
+                          height: "100%",
+                          background: "linear-gradient(90deg, #2563eb 0%, #0ea5e9 100%)",
+                          transition: "width 0.2s ease",
+                        }}
+                      />
+                    </div>
+                    <div style={{ fontSize: "13px", color: "#4b5563" }}>
+                      <strong>上传进度：</strong>
+                      {actQuestionBankImportUploadProgress.percent !== null
+                        ? `${actQuestionBankImportUploadProgress.percent}%`
+                        : "上传中"}
+                      {`（${formatFileSize(actQuestionBankImportUploadProgress.loaded)} / ${formatFileSize(
+                        actQuestionBankImportUploadProgress.total
+                      )}）`}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="admin-button-row">
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    disabled={loadingActQuestionBankImport}
+                    onClick={handleImportActQuestionBank}
+                  >
+                    开始导入 ACT JSON
+                  </button>
+                </div>
+
+                {actQuestionBankImportResult ? (
+                  <div className="admin-import-result">
+                    <div className="admin-detail-list">
+                      <div><strong>任务 ID：</strong>{actQuestionBankImportResult.job_id || "-"}</div>
+                      <div><strong>任务状态：</strong>{actQuestionBankImportResult.status || "-"}</div>
+                      <div><strong>进度提示：</strong>{actQuestionBankImportResult.progress_message || "-"}</div>
+                      <div><strong>上传文件数：</strong>{actQuestionBankImportResult.uploaded_file_count || 0}</div>
+                      <div><strong>识别 JSON：</strong>{actQuestionBankImportResult.resolved_json_count || 0}</div>
+                      <div><strong>成功 / 跳过 / 失败：</strong>{actQuestionBankImportResult.success_count || 0} / {actQuestionBankImportResult.skipped_count || 0} / {actQuestionBankImportResult.failure_count || 0}</div>
+                      <div><strong>Paper / Section / Passage：</strong>{actQuestionBankImportResult.imported_paper_count || 0} / {actQuestionBankImportResult.imported_section_count || 0} / {actQuestionBankImportResult.imported_passage_count || 0}</div>
+                      <div><strong>Group / Question / Auto：</strong>{actQuestionBankImportResult.imported_group_count || 0} / {actQuestionBankImportResult.imported_question_count || 0} / {actQuestionBankImportResult.auto_gradable_question_count || 0}</div>
+                      <div><strong>Answer / Option / Asset：</strong>{actQuestionBankImportResult.imported_answer_count || 0} / {actQuestionBankImportResult.imported_option_count || 0} / {actQuestionBankImportResult.imported_asset_count || 0}</div>
+                      <div><strong>Mock Ref：</strong>{actQuestionBankImportResult.question_ref_count || 0}</div>
+                    </div>
+
+                    {actQuestionBankImportResult.items?.length ? (
+                      <div className="admin-import-result-block">
+                        <h4>入库明细</h4>
+                        <div className="admin-import-result-list">
+                          {actQuestionBankImportResult.items.map((item) => (
+                            <div key={`${item.paper_code}-${item.source_name}`} className="admin-import-result-item">
+                              <strong>{item.paper_name || item.source_name}</strong>
+                              <span>{item.paper_code || "-"}</span>
+                              <span>{item.import_status}</span>
+                              <span>题目 {item.question_count || 0} / 图片 {item.asset_count || 0}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {actQuestionBankImportResult.failures?.length ? (
+                      <div className="admin-import-result-block">
+                        <h4>失败明细</h4>
+                        <div className="admin-import-result-list">
+                          {actQuestionBankImportResult.failures.map((item, index) => (
                             <div key={`${item.source_name}-${index}`} className="admin-import-result-item error">
                               <strong>{item.source_name}</strong>
                               <span>{item.message}</span>

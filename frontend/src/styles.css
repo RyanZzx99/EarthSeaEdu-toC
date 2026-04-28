@@ -5068,6 +5068,29 @@ button.guided-chat-selected-tag {
   gap: 12px;
 }
 
+.profile-curriculum-exam-group {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid #dfe9f7;
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(44, 123, 229, 0.08), rgba(15, 159, 124, 0.06)),
+    #f8fbff;
+}
+
+.profile-curriculum-exam-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.profile-curriculum-exam-head p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .profile-language-card {
   gap: 16px;
 }

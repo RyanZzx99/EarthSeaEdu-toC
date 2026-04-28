@@ -89,6 +89,10 @@ public class StudentProfileGuidedArchivePersistenceServiceImpl implements Studen
         RESEARCH_EXPERIENCE_TABLE,
         COMPETITION_RECORD_TABLE
     );
+    private static final Map<String, Set<String>> REMOVED_COLUMNS_BY_TABLE = Map.ofEntries(
+        Map.entry("student_academic_a_level_subject", Set.of("exam_series")),
+        Map.entry("student_academic_ossd_subject", Set.of("school_year_label", "term_code", "score_text", "score_scale_code"))
+    );
 
     private static final Map<String, String> CURRICULUM_ROW_SCOPE_FIELDS = Map.of(
         "student_academic_curriculum_gpa", "curriculum_system_code",
@@ -506,9 +510,13 @@ public class StudentProfileGuidedArchivePersistenceServiceImpl implements Studen
         List<Map<String, Object>> rows = studentProfileMapper.showColumns(safeProfileTableName(tableName));
         List<ColumnMeta> columns = new ArrayList<>();
         for (Map<String, Object> row : rows) {
+            String fieldName = String.valueOf(rowValue(row, "Field", "field"));
+            if (isRemovedColumn(tableName, fieldName)) {
+                continue;
+            }
             columns.add(
                 new ColumnMeta(
-                    String.valueOf(rowValue(row, "Field", "field")),
+                    fieldName,
                     String.valueOf(rowValue(row, "Type", "type")),
                     isAutoIncrementColumn(row)
                 )
@@ -520,6 +528,10 @@ public class StudentProfileGuidedArchivePersistenceServiceImpl implements Studen
             tableColumnsCache.put(tableName, columns);
         }
         return columns;
+    }
+
+    private boolean isRemovedColumn(String tableName, String fieldName) {
+        return REMOVED_COLUMNS_BY_TABLE.getOrDefault(tableName, Set.of()).contains(fieldName);
     }
 
     private boolean isAutoIncrementColumn(Map<String, Object> row) {

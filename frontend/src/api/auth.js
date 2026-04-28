@@ -498,3 +498,21 @@ export function getAlevelSourceFileImportJob(jobId, adminKey) {
     },
   });
 }
+
+export function importActQuestionBank(formData, adminKey, options = {}) {
+  return request.post("/api/v1/mockexam/act/question-banks/import", formData, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+    timeout: 0,
+    onUploadProgress: options.onUploadProgress,
+  });
+}
+
+export function getActQuestionBankImportJob(jobId, adminKey) {
+  return request.get(`/api/v1/mockexam/act/question-banks/import-jobs/${jobId}`, {
+    headers: {
+      "X-Admin-Key": adminKey,
+    },
+  });
+}

@@ -106,6 +106,13 @@ public class BusinessProfileFormServiceImpl implements BusinessProfileFormServic
     private static final Map<String, Set<String>> HIDDEN_FIELDS_BY_TABLE = BusinessProfileFormMetadata.HIDDEN_FIELDS_BY_TABLE;
     private static final Map<String, List<String>> ENUM_FIELD_OPTIONS = BusinessProfileFormMetadata.ENUM_FIELD_OPTIONS;
     private static final Map<String, Map<String, String>> ENUM_OPTION_LABELS = BusinessProfileFormMetadata.ENUM_OPTION_LABELS;
+    private static final Map<String, String> TABLE_FIELD_LABEL_OVERRIDES = Map.ofEntries(
+        Map.entry(key("student_academic_ossd_subject", "score_numeric"), "课程分数")
+    );
+    private static final Map<String, Set<String>> REMOVED_COLUMNS_BY_TABLE = Map.ofEntries(
+        Map.entry("student_academic_a_level_subject", Set.of("exam_series")),
+        Map.entry("student_academic_ossd_subject", Set.of("school_year_label", "term_code", "score_text", "score_scale_code"))
+    );
 
     private static final Set<String> TEXTAREA_FIELDS = Set.of(
         "notes",
@@ -270,7 +277,7 @@ public class BusinessProfileFormServiceImpl implements BusinessProfileFormServic
 
                 Map<String, Object> field = new LinkedHashMap<>();
                 field.put("name", column.name());
-                field.put("label", FIELD_LABELS.getOrDefault(column.name(), humanizeFieldName(column.name())));
+                field.put("label", fieldLabel(tableName, column.name()));
                 field.put("input_type", inferInputType(column.name(), column.type(), options));
                 field.put("hidden", isFieldHidden(tableName, column.name()));
                 field.put("options", options);
@@ -373,9 +380,16 @@ public class BusinessProfileFormServiceImpl implements BusinessProfileFormServic
             if (excludedColumns.contains(fieldName)) {
                 continue;
             }
+            if (isRemovedColumn(tableName, fieldName)) {
+                continue;
+            }
             columns.add(new ColumnMeta(fieldName, String.valueOf(rowValue(row, "Type", "type"))));
         }
         return columns;
+    }
+
+    private boolean isRemovedColumn(String tableName, String fieldName) {
+        return REMOVED_COLUMNS_BY_TABLE.getOrDefault(tableName, Set.of()).contains(fieldName);
     }
 
     private boolean tableExists(String tableName) {
@@ -565,6 +579,14 @@ public class BusinessProfileFormServiceImpl implements BusinessProfileFormServic
             return true;
         }
         return HIDDEN_FIELDS_BY_TABLE.getOrDefault(tableName, Set.of()).contains(fieldName);
+    }
+
+    private String fieldLabel(String tableName, String fieldName) {
+        String tableFieldKey = key(tableName, fieldName);
+        if (TABLE_FIELD_LABEL_OVERRIDES.containsKey(tableFieldKey)) {
+            return TABLE_FIELD_LABEL_OVERRIDES.get(tableFieldKey);
+        }
+        return FIELD_LABELS.getOrDefault(fieldName, humanizeFieldName(fieldName));
     }
 
     private String humanizeFieldName(String fieldName) {

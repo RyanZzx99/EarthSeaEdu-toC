@@ -52,10 +52,11 @@ public class MockExamController {
     @GetMapping("/papers/{examPaperId}")
     public Map<String, Object> getPaper(
         @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
-        @PathVariable long examPaperId
+        @PathVariable long examPaperId,
+        @RequestParam(value = "exam_content", required = false) String examContent
     ) {
         jwtService.requireCurrentUserId(authorizationHeader);
-        return mockExamService.getPaper(examPaperId);
+        return mockExamService.getPaper(examPaperId, examContent);
     }
 
     /** 查询模考套卷列表，可按考试类型和内容类型过滤。 */
@@ -111,11 +112,13 @@ public class MockExamController {
     @GetMapping("/submissions")
     public Map<String, Object> listSubmissions(
         @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
+        @RequestParam(value = "exam_category", required = false) String examCategory,
         @RequestParam(value = "exam_content", required = false) String examContent,
         @RequestParam(value = "limit", required = false, defaultValue = "20") Integer limit
     ) {
         return mockExamService.listSubmissions(
             jwtService.requireCurrentUserId(authorizationHeader),
+            examCategory,
             examContent,
             limit
         );
@@ -137,10 +140,14 @@ public class MockExamController {
     @GetMapping("/progress")
     public Map<String, Object> listProgresses(
         @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
+        @RequestParam(value = "exam_category", required = false) String examCategory,
+        @RequestParam(value = "exam_content", required = false) String examContent,
         @RequestParam(value = "limit", required = false, defaultValue = "10") Integer limit
     ) {
         return mockExamService.listProgresses(
             jwtService.requireCurrentUserId(authorizationHeader),
+            examCategory,
+            examContent,
             limit
         );
     }
@@ -201,11 +208,15 @@ public class MockExamController {
     @GetMapping("/favorites")
     public Map<String, Object> listFavorites(
         @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
+        @RequestParam(value = "exam_category", required = false) String examCategory,
+        @RequestParam(value = "exam_content", required = false) String examContent,
         @RequestParam(value = "exam_paper_id", required = false) Long examPaperId,
         @RequestParam(value = "limit", required = false, defaultValue = "50") Integer limit
     ) {
         return mockExamService.listQuestionFavorites(
             jwtService.requireCurrentUserId(authorizationHeader),
+            examCategory,
+            examContent,
             examPaperId,
             limit
         );
@@ -215,10 +226,14 @@ public class MockExamController {
     @GetMapping("/entity-favorites")
     public Map<String, Object> listEntityFavorites(
         @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
+        @RequestParam(value = "exam_category", required = false) String examCategory,
+        @RequestParam(value = "exam_content", required = false) String examContent,
         @RequestParam(value = "limit", required = false, defaultValue = "200") Integer limit
     ) {
         return mockExamService.listEntityFavorites(
             jwtService.requireCurrentUserId(authorizationHeader),
+            examCategory,
+            examContent,
             limit
         );
     }
@@ -281,10 +296,14 @@ public class MockExamController {
     @GetMapping("/wrong-questions")
     public Map<String, Object> listWrongQuestions(
         @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
+        @RequestParam(value = "exam_category", required = false) String examCategory,
+        @RequestParam(value = "exam_content", required = false) String examContent,
         @RequestParam(value = "limit", required = false, defaultValue = "50") Integer limit
     ) {
         return mockExamService.listWrongQuestions(
             jwtService.requireCurrentUserId(authorizationHeader),
+            examCategory,
+            examContent,
             limit
         );
     }

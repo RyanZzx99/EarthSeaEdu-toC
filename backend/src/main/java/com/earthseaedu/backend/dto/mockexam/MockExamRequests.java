@@ -22,6 +22,7 @@ public final class MockExamRequests {
     public record SubmitRequest(
         Map<String, Object> answers,
         Map<String, Object> marked,
+        Object payload,
         @JsonProperty("progress_id") Long progressId,
         @JsonProperty("elapsed_seconds") Integer elapsedSeconds
     ) {

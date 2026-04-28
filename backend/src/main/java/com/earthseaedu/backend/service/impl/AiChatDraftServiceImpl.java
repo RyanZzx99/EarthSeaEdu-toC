@@ -707,6 +707,12 @@ public class AiChatDraftServiceImpl implements AiChatDraftService {
         if (!normalized.containsKey("radar_scores_json")) {
             normalized.put("radar_scores_json", Collections.emptyMap());
         }
+        Map<String, Object> radarScoresJson = normalizeRadarScoresCopy(toMutableMap(normalized.get("radar_scores_json")));
+        normalized.put("radar_scores_json", radarScoresJson);
+        if (normalized.containsKey("radar_scores")) {
+            normalized.put("radar_scores", radarScoresJson);
+        }
+        normalized.put("summary_text", normalizeRadarCopy(stringOrNull(normalized.get("summary_text"))));
         return normalized;
     }
 
@@ -1022,6 +1028,31 @@ public class AiChatDraftServiceImpl implements AiChatDraftService {
             return result;
         }
         return new LinkedHashMap<>();
+    }
+
+    private Map<String, Object> normalizeRadarScoresCopy(Map<String, Object> radarScores) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : radarScores.entrySet()) {
+            Object value = entry.getValue();
+            if (!(value instanceof Map<?, ?>)) {
+                result.put(entry.getKey(), value);
+                continue;
+            }
+            Map<String, Object> dimension = toMutableMap(value);
+            dimension.put("reason", normalizeRadarCopy(stringOrNull(dimension.get("reason"))));
+            result.put(entry.getKey(), dimension);
+        }
+        return result;
+    }
+
+    private String normalizeRadarCopy(String value) {
+        if (value == null) {
+            return null;
+        }
+        return value
+            .replace("活动领导力", "活动/企业实习")
+            .replace("活动 / 企业实习", "活动/企业实习")
+            .replace("项目实践", "科研经历");
     }
 
     private static List<Object> toObjectList(Object value) {

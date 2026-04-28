@@ -32,6 +32,8 @@ public interface MockExamService {
      */
     Map<String, Object> getPaper(long examPaperId);
 
+    Map<String, Object> getPaper(long examPaperId, String examContent);
+
     /**
      * 按考试类别和内容查询模考试卷集。
      *
@@ -77,7 +79,7 @@ public interface MockExamService {
      * @param limit 最大返回条数
      * @return 处理后的响应对象。
      */
-    Map<String, Object> listSubmissions(String userId, String examContent, Integer limit);
+    Map<String, Object> listSubmissions(String userId, String examCategory, String examContent, Integer limit);
 
     /**
      * 读取用户指定模考提交详情。
@@ -95,7 +97,7 @@ public interface MockExamService {
      * @param limit 最大返回条数
      * @return 处理后的响应对象。
      */
-    Map<String, Object> listProgresses(String userId, Integer limit);
+    Map<String, Object> listProgresses(String userId, String examCategory, String examContent, Integer limit);
 
     /**
      * 读取用户指定模考进度详情。
@@ -143,7 +145,13 @@ public interface MockExamService {
      * @param limit 最大返回条数
      * @return 处理后的响应对象。
      */
-    Map<String, Object> listQuestionFavorites(String userId, Long examPaperId, Integer limit);
+    Map<String, Object> listQuestionFavorites(
+        String userId,
+        String examCategory,
+        String examContent,
+        Long examPaperId,
+        Integer limit
+    );
 
     /**
      * 查询用户收藏的试卷或试卷集列表。
@@ -152,7 +160,7 @@ public interface MockExamService {
      * @param limit 最大返回条数
      * @return 处理后的响应对象。
      */
-    Map<String, Object> listEntityFavorites(String userId, Integer limit);
+    Map<String, Object> listEntityFavorites(String userId, String examCategory, String examContent, Integer limit);
 
     /**
      * 翻译用户在模考题目中选中的文本片段。
@@ -200,7 +208,7 @@ public interface MockExamService {
      * @param limit 最大返回条数
      * @return 处理后的响应对象。
      */
-    Map<String, Object> listWrongQuestions(String userId, Integer limit);
+    Map<String, Object> listWrongQuestions(String userId, String examCategory, String examContent, Integer limit);
 
     /**
      * 标记用户错题的复盘处理状态。

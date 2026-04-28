@@ -21,7 +21,14 @@ import {
 } from "../api/mockexam";
 import MockExamModeHeader from "../components/MockExamModeHeader";
 import { LoadingPage } from "../components/LoadingPage";
-import { getApiError } from "../mockexam/pageHelpers";
+import {
+  MOCK_EXAM_ALL_CATEGORY,
+  MOCK_EXAM_ALL_CONTENT,
+  formatExamScopeLabel,
+  getApiError,
+  getExamCategoryLabel,
+  isActCategory,
+} from "../mockexam/pageHelpers";
 import "../mockexam/favoritesPage.css";
 
 const LIBRARY_TABS = [
@@ -30,18 +37,15 @@ const LIBRARY_TABS = [
   { key: "favorites", label: "收藏夹", path: "/mockexam/favorites" },
 ];
 
-function formatSubject(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "reading") {
-    return "阅读";
-  }
-  if (normalized === "listening") {
-    return "听力";
-  }
-  if (normalized === "mixed") {
-    return "混合";
-  }
-  return "未分类";
+function normalizeExamCategoryFilter(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  return normalized || MOCK_EXAM_ALL_CATEGORY;
+}
+
+function isConcreteExamContent(examCategory, examContent) {
+  const category = normalizeExamCategoryFilter(examCategory);
+  const content = String(examContent || "").trim();
+  return Boolean(content) && content.toUpperCase() !== category && content.toLowerCase() !== "all";
 }
 
 function formatDateLabel(value) {
@@ -115,6 +119,9 @@ function buildEntityPath(entity) {
     return `/mockexam/run/paper-set/${entity.paperSetId}?fromFavorites=1`;
   }
   if (entity.kind === "paper" && entity.examPaperId) {
+    if (isActCategory(entity.examCategory)) {
+      return `/mockexam/practice/test?examCategory=ACT&paperId=${entity.examPaperId}`;
+    }
     return `/mockexam/run/paper/${entity.examPaperId}?fromFavorites=1`;
   }
   if (entity.kind === "group") {
@@ -127,6 +134,9 @@ function buildEntityPath(entity) {
     }
     if (entity.firstQuestionNo) {
       query.set("questionNo", entity.firstQuestionNo);
+    }
+    if (isActCategory(entity.examCategory) && entity.examContent) {
+      query.set("examContent", entity.examContent);
     }
     query.set("fromFavorites", "1");
 
@@ -147,7 +157,9 @@ function normalizeQuestionFavorite(item) {
     paperSetId: item?.paper_set_id ? Number(item.paper_set_id) : null,
     paperTitle: item?.paper_title || "未命名内容",
     sourceKind: item?.source_kind === "paper_set" ? "paper_set" : "paper",
-    subject: formatSubject(item?.exam_content),
+    examCategory: item?.exam_category || "IELTS",
+    examContent: item?.exam_content || "",
+    subject: formatExamScopeLabel(item?.exam_category, item?.exam_content),
     examGroupId: item?.exam_group_id ? Number(item.exam_group_id) : null,
     groupTitle: item?.group_title || item?.section_title || "未命名题组",
     questionId: item?.question_id ? String(item.question_id) : "",
@@ -168,7 +180,9 @@ function normalizeEntityFavorite(item) {
     examPaperId: item?.exam_paper_id ? Number(item.exam_paper_id) : null,
     paperSetId: item?.paper_set_id ? Number(item.paper_set_id) : null,
     title: item?.title || "未命名内容",
-    subject: formatSubject(item?.exam_content),
+    examCategory: item?.exam_category || "IELTS",
+    examContent: item?.exam_content || "",
+    subject: formatExamScopeLabel(item?.exam_category, item?.exam_content),
     latestTime: item?.create_time || null,
     latestTimeLabel: formatDateLabel(item?.create_time),
     badgeLabel: targetType === "paper_set" ? "试卷" : "题包",
@@ -183,6 +197,7 @@ export default function MockExamFavoritesPage() {
   const [message, setMessage] = useState("");
   const [busyKey, setBusyKey] = useState("");
   const [filterKind, setFilterKind] = useState("all");
+  const [filterExamCategory, setFilterExamCategory] = useState(MOCK_EXAM_ALL_CATEGORY);
   const [filterSubject, setFilterSubject] = useState("all");
   const [questionItems, setQuestionItems] = useState([]);
   const [entityItems, setEntityItems] = useState([]);
@@ -235,6 +250,8 @@ export default function MockExamFavoritesPage() {
         subtitle: item.paperTitle,
         title: item.groupTitle,
         subject: item.subject,
+        examCategory: item.examCategory,
+        examContent: item.examContent,
         sourceKind: item.sourceKind,
         examPaperId: item.examPaperId,
         paperSetId: item.paperSetId,
@@ -267,8 +284,27 @@ export default function MockExamFavoritesPage() {
   );
 
   const subjectOptions = useMemo(() => {
-    const values = new Set(allCards.map((item) => item.subject).filter(Boolean));
+    const values = new Set(
+      allCards
+        .filter(
+          (item) =>
+            filterExamCategory === MOCK_EXAM_ALL_CATEGORY ||
+            normalizeExamCategoryFilter(item.examCategory) === filterExamCategory
+        )
+        .filter((item) => isConcreteExamContent(item.examCategory, item.examContent))
+        .map((item) => item.examContent)
+        .filter(Boolean)
+    );
     return ["all", ...values];
+  }, [allCards, filterExamCategory]);
+
+  const examCategoryOptions = useMemo(() => {
+    const values = new Set(
+      allCards
+        .map((item) => normalizeExamCategoryFilter(item.examCategory))
+        .filter(Boolean)
+    );
+    return [MOCK_EXAM_ALL_CATEGORY, ...values];
   }, [allCards]);
 
   const filteredCards = useMemo(
@@ -277,12 +313,18 @@ export default function MockExamFavoritesPage() {
         if (filterKind !== "all" && item.kind !== filterKind) {
           return false;
         }
-        if (filterSubject !== "all" && item.subject !== filterSubject) {
+        if (
+          filterExamCategory !== MOCK_EXAM_ALL_CATEGORY &&
+          normalizeExamCategoryFilter(item.examCategory) !== filterExamCategory
+        ) {
+          return false;
+        }
+        if (filterSubject !== "all" && filterSubject !== MOCK_EXAM_ALL_CONTENT && item.examContent !== filterSubject) {
           return false;
         }
         return true;
       }),
-    [allCards, filterKind, filterSubject]
+    [allCards, filterExamCategory, filterKind, filterSubject]
   );
 
   const summary = useMemo(
@@ -414,6 +456,21 @@ export default function MockExamFavoritesPage() {
               </select>
 
               <select
+                value={filterExamCategory}
+                onChange={(event) => {
+                  setFilterExamCategory(event.target.value);
+                  setFilterSubject("all");
+                }}
+                className="favorites-filter-select"
+              >
+                {examCategoryOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option === MOCK_EXAM_ALL_CATEGORY ? "全部考试" : getExamCategoryLabel(option)}
+                  </option>
+                ))}
+              </select>
+
+              <select
                 value={filterSubject}
                 onChange={(event) => setFilterSubject(event.target.value)}
                 className="favorites-filter-select"
@@ -428,12 +485,15 @@ export default function MockExamFavoritesPage() {
                   ))}
               </select>
 
-              {(filterKind !== "all" || filterSubject !== "all") ? (
+              {(filterKind !== "all" ||
+                filterExamCategory !== MOCK_EXAM_ALL_CATEGORY ||
+                filterSubject !== "all") ? (
                 <button
                   type="button"
                   className="favorites-clear-button"
                   onClick={() => {
                     setFilterKind("all");
+                    setFilterExamCategory(MOCK_EXAM_ALL_CATEGORY);
                     setFilterSubject("all");
                   }}
                 >

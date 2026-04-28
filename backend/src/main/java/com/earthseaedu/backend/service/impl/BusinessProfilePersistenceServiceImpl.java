@@ -71,6 +71,10 @@ public class BusinessProfilePersistenceServiceImpl implements BusinessProfilePer
     );
 
     private static final Set<String> PROFILE_TABLE_NAMES = createProfileTableNames();
+    private static final Map<String, Set<String>> REMOVED_COLUMNS_BY_TABLE = Map.ofEntries(
+        Map.entry("student_academic_a_level_subject", Set.of("exam_series")),
+        Map.entry("student_academic_ossd_subject", Set.of("school_year_label", "term_code", "score_text", "score_scale_code"))
+    );
 
     private static final Map<String, String> CURRICULUM_SINGLE_TABLE_BY_CODE = Map.of(
         "A_LEVEL", "student_academic_a_level_profile",
@@ -623,10 +627,18 @@ public class BusinessProfilePersistenceServiceImpl implements BusinessProfilePer
             List<Map<String, Object>> rows = persistenceMapper.listColumns(requireProfileTableName(current));
             List<ColumnMeta> columns = new ArrayList<>();
             for (Map<String, Object> row : rows) {
-                columns.add(new ColumnMeta(String.valueOf(row.get("Field")), String.valueOf(row.get("Type"))));
+                String fieldName = String.valueOf(row.get("Field"));
+                if (isRemovedColumn(current, fieldName)) {
+                    continue;
+                }
+                columns.add(new ColumnMeta(fieldName, String.valueOf(row.get("Type"))));
             }
             return columns;
         });
+    }
+
+    private static boolean isRemovedColumn(String tableName, String fieldName) {
+        return REMOVED_COLUMNS_BY_TABLE.getOrDefault(tableName, Set.of()).contains(fieldName);
     }
 
     private boolean hasColumn(String tableName, String columnName) {

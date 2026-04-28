@@ -3501,6 +3501,10 @@
   gap: 20px;
 }
 
+.mockexam-test-filter-card {
+  margin-bottom: 20px;
+}
+
 .mockexam-test-list-card {
   display: flex;
   align-items: flex-start;
@@ -3511,6 +3515,11 @@
   border-radius: 24px;
   background: #ffffff;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.mockexam-test-list-card.is-highlighted {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18), 0 14px 30px rgba(15, 23, 42, 0.08);
 }
 
 .mockexam-test-list-card-copy {

@@ -1,35 +1,67 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { CheckCircle2, Circle, Clock, Star } from "lucide-react";
+import { Clock, Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
+  getMockExamActOptions,
+  getMockExamActPapers,
+  getMockExamAlevelOptions,
+  getMockExamAlevelPapers,
   getMockExamEntityFavorites,
+  getMockExamOptions,
   getMockExamPapers,
   toggleMockExamPaperFavorite,
 } from "../api/mockexam";
 import { InlineLoading } from "../components/LoadingPage";
+import MockExamExamFilterSections from "../components/MockExamExamFilterSections";
 import MockExamModeHeader from "../components/MockExamModeHeader";
 import { buildFavoriteSummarySets } from "../mockexam/favoriteUtils";
 import {
+  MOCK_EXAM_ALL_CONTENT,
+  MOCK_EXAM_CATEGORY_ACT,
+  MOCK_EXAM_CATEGORY_ALEVEL,
+  MOCK_EXAM_CATEGORY_IELTS,
   estimatePaperDuration,
   getApiError,
+  getExamContentOptions,
+  getPaperMetricLabel,
   getPaperContentLabel,
+  isAlevelCategory,
+  isActCategory,
+  mergeMockExamOptions,
 } from "../mockexam/pageHelpers";
 import "../mockexam/mockexam.css";
 
-function buildPaperTags(item, selectedSubject) {
+function buildPaperTags(item, selectedContent) {
   const subjectLabel =
-    selectedSubject === "All"
+    selectedContent === MOCK_EXAM_ALL_CONTENT
       ? getPaperContentLabel(item.exam_content)
-      : selectedSubject === "Listening"
-        ? "听力"
-        : "阅读";
+      : getPaperContentLabel(selectedContent);
   return [subjectLabel, item.bank_name].filter(Boolean);
+}
+
+function getDurationMinutes(item) {
+  const durationSeconds = Number(item?.duration_seconds || 0);
+  if (durationSeconds > 0) {
+    return Math.ceil(durationSeconds / 60);
+  }
+  return estimatePaperDuration(item.exam_content);
+}
+
+function buildRunPath(examPaperId, examCategory, examContent) {
+  const params = new URLSearchParams();
+  if (isActCategory(examCategory) && examContent && examContent !== MOCK_EXAM_ALL_CONTENT) {
+    params.set("examContent", examContent);
+  }
+  const query = params.toString();
+  return `/mockexam/run/paper/${examPaperId}${query ? `?${query}` : ""}`;
 }
 
 export default function MockExamTopicPracticePage() {
   const navigate = useNavigate();
-  const [subject, setSubject] = useState("All");
+  const [examCategory, setExamCategory] = useState(MOCK_EXAM_CATEGORY_IELTS);
+  const [examContent, setExamContent] = useState(MOCK_EXAM_ALL_CONTENT);
+  const [options, setOptions] = useState({});
   const [papers, setPapers] = useState([]);
   const [favoritePaperIds, setFavoritePaperIds] = useState(new Set());
   const [busyPaperIds, setBusyPaperIds] = useState(new Set());
@@ -39,14 +71,46 @@ export default function MockExamTopicPracticePage() {
   useEffect(() => {
     let active = true;
 
+    async function loadOptions() {
+      try {
+        const [baseResponse, alevelResponse, actResponse] = await Promise.all([
+          getMockExamOptions(),
+          getMockExamAlevelOptions(),
+          getMockExamActOptions(),
+        ]);
+        if (active) {
+          setOptions(mergeMockExamOptions(baseResponse.data || {}, alevelResponse.data || {}, actResponse.data || {}));
+        }
+      } catch {
+        if (active) {
+          setOptions(mergeMockExamOptions({}, {}, {}));
+        }
+      }
+    }
+
+    void loadOptions();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
     async function loadPapers() {
       try {
         setLoading(true);
+        const paperParams = examContent === MOCK_EXAM_ALL_CONTENT ? {} : { exam_content: examContent };
+        const paperRequest = isActCategory(examCategory)
+          ? getMockExamActPapers(paperParams)
+          : isAlevelCategory(examCategory)
+            ? getMockExamAlevelPapers(paperParams)
+            : getMockExamPapers({
+              exam_category: MOCK_EXAM_CATEGORY_IELTS,
+              ...paperParams,
+            });
         const [paperResponse, favoriteResponse] = await Promise.all([
-          getMockExamPapers({
-            exam_category: "IELTS",
-            ...(subject === "All" ? {} : { exam_content: subject }),
-          }),
+          paperRequest,
           getMockExamEntityFavorites({ limit: 200 }),
         ]);
 
@@ -77,7 +141,27 @@ export default function MockExamTopicPracticePage() {
     return () => {
       active = false;
     };
-  }, [subject]);
+  }, [examCategory, examContent]);
+
+  const examCategoryOptions = options.exam_category_options || [
+    MOCK_EXAM_CATEGORY_IELTS,
+    MOCK_EXAM_CATEGORY_ALEVEL,
+    MOCK_EXAM_CATEGORY_ACT,
+  ];
+  const contentOptions = getExamContentOptions(options, examCategory);
+  const contentOptionKey = contentOptions.join("|");
+
+  useEffect(() => {
+    if (isActCategory(examCategory) && examContent === MOCK_EXAM_ALL_CONTENT && contentOptions.length) {
+      setExamContent(contentOptions[0]);
+    }
+  }, [contentOptionKey, examCategory, examContent]);
+
+  function handleExamCategoryChange(nextCategory) {
+    setExamCategory(nextCategory);
+    const nextContentOptions = getExamContentOptions(options, nextCategory);
+    setExamContent(isActCategory(nextCategory) && nextContentOptions.length ? nextContentOptions[0] : MOCK_EXAM_ALL_CONTENT);
+  }
 
   async function handleTogglePaperFavorite(examPaperId) {
     const nextState = !favoritePaperIds.has(examPaperId);
@@ -130,39 +214,15 @@ export default function MockExamTopicPracticePage() {
             >
               <h2>筛选条件</h2>
 
-              <section className="mockexam-filter-section">
-                <h3>科目</h3>
-                <button
-                  type="button"
-                  className={`mockexam-radio-row${subject === "All" ? " active" : ""}`}
-                  onClick={() => setSubject("All")}
-                >
-                  <span className="mockexam-check-icon">
-                    {subject === "All" ? <CheckCircle2 size={16} /> : <Circle size={16} />}
-                  </span>
-                  <span>全部</span>
-                </button>
-                <button
-                  type="button"
-                  className={`mockexam-radio-row${subject === "Reading" ? " active" : ""}`}
-                  onClick={() => setSubject("Reading")}
-                >
-                  <span className="mockexam-check-icon">
-                    {subject === "Reading" ? <CheckCircle2 size={16} /> : <Circle size={16} />}
-                  </span>
-                  <span>阅读</span>
-                </button>
-                <button
-                  type="button"
-                  className={`mockexam-radio-row${subject === "Listening" ? " active" : ""}`}
-                  onClick={() => setSubject("Listening")}
-                >
-                  <span className="mockexam-check-icon">
-                    {subject === "Listening" ? <CheckCircle2 size={16} /> : <Circle size={16} />}
-                  </span>
-                  <span>听力</span>
-                </button>
-              </section>
+              <MockExamExamFilterSections
+                examCategory={examCategory}
+                examCategoryOptions={examCategoryOptions}
+                examContent={examContent}
+                contentOptions={contentOptions}
+                onExamCategoryChange={handleExamCategoryChange}
+                onExamContentChange={setExamContent}
+                allowAllContent={!isActCategory(examCategory)}
+              />
             </motion.aside>
 
             <motion.section
@@ -199,17 +259,17 @@ export default function MockExamTopicPracticePage() {
                         <div className="mockexam-paper-item-copy">
                           <h3>{item.paper_name}</h3>
                           <div className="mockexam-paper-item-meta">
-                            <span>40题</span>
+                            <span>{getPaperMetricLabel(item)}</span>
                             <span>|</span>
                             <span className="mockexam-topic-meta-clock">
                               <Clock size={14} />
-                              预计{estimatePaperDuration(item.exam_content)}分钟
+                              预计{getDurationMinutes(item)}分钟
                             </span>
                             <span>|</span>
                             <span>{getPaperContentLabel(item.exam_content)}</span>
                           </div>
                           <div className="mockexam-paper-item-tags">
-                            {buildPaperTags(item, subject).map((tag) => (
+                            {buildPaperTags(item, examContent).map((tag) => (
                               <span key={`${item.exam_paper_id}-${tag}`}>{tag}</span>
                             ))}
                           </div>
@@ -230,7 +290,7 @@ export default function MockExamTopicPracticePage() {
                           <button
                             type="button"
                             className={`mockexam-topic-start-button${index === 0 ? " primary" : ""}`}
-                            onClick={() => navigate(`/mockexam/run/paper/${item.exam_paper_id}`)}
+                            onClick={() => navigate(buildRunPath(item.exam_paper_id, examCategory, examContent))}
                           >
                             开始练习
                           </button>

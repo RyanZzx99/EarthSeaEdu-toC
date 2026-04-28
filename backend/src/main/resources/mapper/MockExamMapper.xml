@@ -89,6 +89,9 @@
         WHERE user_id = #{userId}
           AND delete_flag = '1'
           AND status = 1
+        <if test="examCategory != null and examCategory != ''">
+          AND exam_category = #{examCategory}
+        </if>
         <if test="examContent != null and examContent != ''">
           AND exam_content = #{examContent}
         </if>
@@ -116,6 +119,12 @@
         WHERE user_id = #{userId}
           AND delete_flag = '1'
           AND status = 1
+        <if test="examCategory != null and examCategory != ''">
+          AND exam_category = #{examCategory}
+        </if>
+        <if test="examContent != null and examContent != ''">
+          AND exam_content = #{examContent}
+        </if>
         ORDER BY last_active_time DESC, mockexam_progress_id DESC
         LIMIT #{limit}
     </select>
@@ -140,6 +149,9 @@
           AND exam_paper_id = #{examPaperId}
           AND delete_flag = '1'
           AND status = 1
+        <if test="examContent != null and examContent != ''">
+          AND exam_content = #{examContent}
+        </if>
         ORDER BY last_active_time DESC, mockexam_progress_id DESC
         LIMIT 1
     </select>
@@ -151,13 +163,16 @@
           AND paper_code = #{paperCode}
           AND delete_flag = '1'
           AND status = 1
+        <if test="examContent != null and examContent != ''">
+          AND exam_content = #{examContent}
+        </if>
         ORDER BY last_active_time DESC, mockexam_progress_id DESC
         LIMIT 1
     </select>
 
     <select id="listQuestionFavorites" resultType="map">
         SELECT f.mockexam_question_favorite_id, f.exam_question_id, f.exam_paper_id, f.paper_code,
-               f.paper_title, f.exam_content, f.exam_section_id, f.exam_group_id, f.question_id,
+               f.paper_title, f.exam_category, f.exam_content, f.exam_section_id, f.exam_group_id, f.question_id,
                f.question_no, f.question_type, f.stat_type, f.create_time,
                s.section_title, g.group_title,
                COALESCE(NULLIF(q.stem_text, ''), NULLIF(q.content_text, ''), q.stem_html, q.content_html, '') AS preview_source
@@ -167,6 +182,82 @@
         LEFT JOIN exam_question q ON q.exam_question_id = f.exam_question_id
         WHERE f.user_id = #{userId}
           AND f.delete_flag = '1'
+        <if test="examCategory != null and examCategory != ''">
+          AND f.exam_category = #{examCategory}
+        </if>
+        <if test="examContent != null and examContent != ''">
+          AND f.exam_content = #{examContent}
+        </if>
+        <if test="examPaperId != null">
+          AND f.exam_paper_id = #{examPaperId}
+        </if>
+        ORDER BY f.create_time DESC, f.mockexam_question_favorite_id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listActQuestionFavorites" resultType="map">
+        SELECT f.mockexam_question_favorite_id,
+               f.exam_question_id,
+               f.exam_paper_id,
+               COALESCE(NULLIF(f.paper_code, ''), p.paper_code, pr.paper_code) AS paper_code,
+               COALESCE(NULLIF(f.paper_title, ''), p.paper_name, pr.paper_name) AS paper_title,
+               'ACT' AS exam_category,
+               COALESCE(NULLIF(s.section_name, ''), NULLIF(f.exam_content, ''), NULLIF(pr.exam_content, ''), 'ACT') AS exam_content,
+               q.act_section_id AS exam_section_id,
+               q.act_group_id AS exam_group_id,
+               COALESCE(NULLIF(q.question_code, ''), qr.source_question_code, f.question_id) AS question_id,
+               COALESCE(NULLIF(q.question_no_display, ''), qr.question_no_display, f.question_no) AS question_no,
+               COALESCE(NULLIF(q.question_type, ''), qr.question_type, f.question_type) AS question_type,
+               COALESCE(NULLIF(q.question_type, ''), qr.stat_type, f.stat_type) AS stat_type,
+               f.create_time,
+               s.section_name AS section_title,
+               g.group_title AS group_title,
+               COALESCE(
+                   NULLIF(q.stem_text, ''),
+                   NULLIF(q.content_text, ''),
+                   q.stem_html,
+                   q.content_html,
+                   qr.preview_text,
+                   ''
+               ) AS preview_source,
+               1 AS external_enriched
+        FROM mockexam_question_favorite f
+        JOIN mockexam_question_ref qr
+          ON qr.mockexam_question_ref_id = -f.exam_question_id
+         AND qr.source_type = 'ACT'
+         AND qr.status = 1
+         AND qr.delete_flag = '1'
+        JOIN mockexam_paper_ref pr
+          ON pr.mockexam_paper_ref_id = qr.mockexam_paper_ref_id
+         AND pr.source_type = 'ACT'
+         AND pr.status = 1
+         AND pr.delete_flag = '1'
+        LEFT JOIN act_question q
+          ON q.act_question_id = qr.source_question_id
+         AND q.status = 1
+         AND q.delete_flag = '1'
+        LEFT JOIN act_group g
+          ON g.act_group_id = q.act_group_id
+         AND g.status = 1
+         AND g.delete_flag = '1'
+        LEFT JOIN act_section s
+          ON s.act_section_id = q.act_section_id
+         AND s.status = 1
+         AND s.delete_flag = '1'
+        LEFT JOIN act_paper p
+          ON p.act_paper_id = q.act_paper_id
+         AND p.status = 1
+         AND p.delete_flag = '1'
+        WHERE f.user_id = #{userId}
+          AND f.delete_flag = '1'
+          AND f.exam_question_id &lt; 0
+        <if test="examContent != null and examContent != ''">
+          AND (
+              f.exam_content = #{examContent}
+              OR s.section_name = #{examContent}
+              OR s.section_code = #{examContent}
+          )
+        </if>
         <if test="examPaperId != null">
           AND f.exam_paper_id = #{examPaperId}
         </if>
@@ -181,6 +272,12 @@
         WHERE user_id = #{userId}
           AND delete_flag = '1'
           AND status = 1
+        <if test="examCategory != null and examCategory != ''">
+          AND exam_category = #{examCategory}
+        </if>
+        <if test="examContent != null and examContent != ''">
+          AND exam_content = #{examContent}
+        </if>
         ORDER BY create_time DESC, mockexam_entity_favorite_id DESC
         LIMIT #{limit}
     </select>
@@ -215,13 +312,19 @@
 
     <select id="listWrongQuestions" resultType="map">
         SELECT mockexam_wrong_question_stat_id, exam_question_id, exam_paper_id, paper_code, paper_title,
-               exam_section_id, section_title, exam_group_id, group_title, exam_content,
+               exam_section_id, section_title, exam_group_id, group_title, exam_category, exam_content,
                question_id, question_no, question_type, stat_type, preview_text, wrong_count,
                latest_wrong_time, update_time
         FROM mockexam_wrong_question_stat
         WHERE user_id = #{userId}
           AND delete_flag = '1'
           AND status = 1
+        <if test="examCategory != null and examCategory != ''">
+          AND exam_category = #{examCategory}
+        </if>
+        <if test="examContent != null and examContent != ''">
+          AND exam_content = #{examContent}
+        </if>
         ORDER BY latest_wrong_time DESC, update_time DESC, mockexam_wrong_question_stat_id DESC
     </select>
 
@@ -658,6 +761,16 @@
             #{questionType}, #{statType}, #{marked}, #{answered},
             #{now}, #{now}, '1'
         )
+        ON DUPLICATE KEY UPDATE
+            exam_question_id = VALUES(exam_question_id),
+            question_no = VALUES(question_no),
+            question_index = VALUES(question_index),
+            question_type = VALUES(question_type),
+            stat_type = VALUES(stat_type),
+            is_marked = VALUES(is_marked),
+            is_answered = VALUES(is_answered),
+            update_time = VALUES(update_time),
+            delete_flag = '1'
     </insert>
 
     <select id="listSubmissionAnswers" resultType="map">

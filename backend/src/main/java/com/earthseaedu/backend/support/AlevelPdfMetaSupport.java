@@ -321,6 +321,22 @@ public class AlevelPdfMetaSupport {
         Set<String> matchedTokens,
         List<String> warnings
     ) {
+        Matcher explicitCodeMatcher = EXPLICIT_UNIT_CODE_PATTERN.matcher(filenameText);
+        if (explicitCodeMatcher.find()) {
+            SubjectSpec spec = subjectSpecByPrefix(explicitCodeMatcher.group(1));
+            if (spec != null) {
+                matchedTokens.add("filename:unit code subject=" + spec.subjectName());
+                return new DetectionField<>(spec, CONFIDENCE_HIGH);
+            }
+        }
+        explicitCodeMatcher = EXPLICIT_UNIT_CODE_PATTERN.matcher(headerText);
+        if (explicitCodeMatcher.find()) {
+            SubjectSpec spec = subjectSpecByPrefix(explicitCodeMatcher.group(1));
+            if (spec != null) {
+                matchedTokens.add("header:unit code subject=" + spec.subjectName());
+                return new DetectionField<>(spec, CONFIDENCE_HIGH);
+            }
+        }
         for (SubjectSpec spec : orderedSubjectSpecs()) {
             for (String keyword : spec.keywords()) {
                 if (headerText.contains(keyword)) {
@@ -329,11 +345,11 @@ public class AlevelPdfMetaSupport {
                 }
             }
         }
-        Matcher explicitCodeMatcher = EXPLICIT_UNIT_CODE_PATTERN.matcher(headerText + " " + contentText);
+        explicitCodeMatcher = EXPLICIT_UNIT_CODE_PATTERN.matcher(contentText);
         if (explicitCodeMatcher.find()) {
             SubjectSpec spec = subjectSpecByPrefix(explicitCodeMatcher.group(1));
             if (spec != null) {
-                matchedTokens.add("content:unit code=" + explicitCodeMatcher.group());
+                matchedTokens.add("content:unit code subject=" + spec.subjectName());
                 return new DetectionField<>(spec, CONFIDENCE_HIGH);
             }
         }

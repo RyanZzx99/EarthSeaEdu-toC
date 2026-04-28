@@ -23,7 +23,15 @@ import {
 import { InlineLoading } from "../components/LoadingPage";
 import MockExamModeHeader from "../components/MockExamModeHeader";
 import { buildFavoriteSummarySets } from "../mockexam/favoriteUtils";
-import { getApiError } from "../mockexam/pageHelpers";
+import {
+  MOCK_EXAM_ALL_CATEGORY,
+  MOCK_EXAM_ALL_CONTENT,
+  formatExamScopeLabel,
+  getApiError,
+  getExamCategoryLabel,
+  getPaperContentLabel,
+  isActCategory,
+} from "../mockexam/pageHelpers";
 import "../mockexam/mockexam.css";
 import "../mockexam/historyPage.css";
 
@@ -92,15 +100,26 @@ function buildRetryPath(record) {
     return `/mockexam/run/paper-set/${record.paperSetId}`;
   }
   if (record.examPaperId) {
-    return `/mockexam/run/paper/${record.examPaperId}`;
+    const params = new URLSearchParams();
+    if (isActCategory(record.examCategory) && record.examContent) {
+      params.set("examContent", record.examContent);
+    }
+    const query = params.toString();
+    return `/mockexam/run/paper/${record.examPaperId}${query ? `?${query}` : ""}`;
   }
   return "";
+}
+
+function normalizeExamCategoryFilter(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  return normalized || MOCK_EXAM_ALL_CATEGORY;
 }
 
 export default function MockExamHistoryPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [filterExamCategory, setFilterExamCategory] = useState(MOCK_EXAM_ALL_CATEGORY);
   const [filterSubject, setFilterSubject] = useState("all");
   const [filterMode, setFilterMode] = useState("all");
   const [sortBy, setSortBy] = useState("recent");
@@ -155,7 +174,10 @@ export default function MockExamHistoryPage() {
       items.map((item) => ({
         id: item.submission_id,
         title: item.title || "未命名练习",
-        subject: formatExamContentLabel(item.exam_content),
+        examCategory: item.exam_category || "IELTS",
+        examContent: item.exam_content || "",
+        examScopeLabel: formatExamScopeLabel(item.exam_category, item.exam_content),
+        subject: getPaperContentLabel(item.exam_content) || formatExamContentLabel(item.exam_content),
         mode: "practice",
         modeLabel: formatModeLabel("practice"),
         completedDate: item.create_time,
@@ -197,13 +219,37 @@ export default function MockExamHistoryPage() {
   }, [historyRecords]);
 
   const subjectOptions = useMemo(() => {
-    const values = new Set(historyRecords.map((item) => item.subject).filter(Boolean));
+    const values = new Set(
+      historyRecords
+        .filter(
+          (item) =>
+            filterExamCategory === MOCK_EXAM_ALL_CATEGORY ||
+            normalizeExamCategoryFilter(item.examCategory) === filterExamCategory
+        )
+        .map((item) => item.examContent)
+        .filter(Boolean)
+    );
     return ["all", ...values];
+  }, [filterExamCategory, historyRecords]);
+
+  const examCategoryOptions = useMemo(() => {
+    const values = new Set(
+      historyRecords
+        .map((item) => normalizeExamCategoryFilter(item.examCategory))
+        .filter(Boolean)
+    );
+    return [MOCK_EXAM_ALL_CATEGORY, ...values];
   }, [historyRecords]);
 
   const filteredHistory = useMemo(() => {
     const filtered = historyRecords.filter((item) => {
-      if (filterSubject !== "all" && item.subject !== filterSubject) {
+      if (
+        filterExamCategory !== MOCK_EXAM_ALL_CATEGORY &&
+        normalizeExamCategoryFilter(item.examCategory) !== filterExamCategory
+      ) {
+        return false;
+      }
+      if (filterSubject !== "all" && filterSubject !== MOCK_EXAM_ALL_CONTENT && item.examContent !== filterSubject) {
         return false;
       }
       if (filterMode !== "all" && item.mode !== filterMode) {
@@ -229,7 +275,7 @@ export default function MockExamHistoryPage() {
     }
 
     return [...filtered].sort(compareByRecent);
-  }, [filterMode, filterSubject, historyRecords, sortBy]);
+  }, [filterExamCategory, filterMode, filterSubject, historyRecords, sortBy]);
 
   async function handleToggleFavorite(record) {
     const key = `${record.sourceKind}:${record.paperSetId || record.examPaperId || 0}`;
@@ -358,6 +404,21 @@ export default function MockExamHistoryPage() {
             </div>
 
             <select
+              value={filterExamCategory}
+              onChange={(event) => {
+                setFilterExamCategory(event.target.value);
+                setFilterSubject("all");
+              }}
+              className="history-filter-select"
+            >
+              {examCategoryOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option === MOCK_EXAM_ALL_CATEGORY ? "全部考试" : getExamCategoryLabel(option)}
+                </option>
+              ))}
+            </select>
+
+            <select
               value={filterSubject}
               onChange={(event) => setFilterSubject(event.target.value)}
               className="history-filter-select"
@@ -396,11 +457,12 @@ export default function MockExamHistoryPage() {
               <option value="duration">用时</option>
             </select>
 
-            {(filterSubject !== "all" || filterMode !== "all") ? (
+            {(filterExamCategory !== MOCK_EXAM_ALL_CATEGORY || filterSubject !== "all" || filterMode !== "all") ? (
               <button
                 type="button"
                 className="history-filter-clear"
                 onClick={() => {
+                  setFilterExamCategory(MOCK_EXAM_ALL_CATEGORY);
                   setFilterSubject("all");
                   setFilterMode("all");
                 }}
@@ -442,7 +504,7 @@ export default function MockExamHistoryPage() {
                       <div className="history-record-copy">
                         <div className="history-record-badges">
                           <span className="history-badge tone-blue">{record.modeLabel}</span>
-                          <span className="history-badge tone-indigo">{record.subject}</span>
+                          <span className="history-badge tone-indigo">{record.examScopeLabel}</span>
                         </div>
 
                         <h4>{record.title}</h4>

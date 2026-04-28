@@ -26,27 +26,56 @@ public interface MockExamMapper {
 
     List<Map<String, Object>> listSubmissions(
         @Param("userId") String userId,
+        @Param("examCategory") String examCategory,
         @Param("examContent") String examContent,
         @Param("limit") int limit
     );
 
     Map<String, Object> findSubmission(@Param("userId") String userId, @Param("submissionId") long submissionId);
 
-    List<Map<String, Object>> listProgresses(@Param("userId") String userId, @Param("limit") int limit);
+    List<Map<String, Object>> listProgresses(
+        @Param("userId") String userId,
+        @Param("examCategory") String examCategory,
+        @Param("examContent") String examContent,
+        @Param("limit") int limit
+    );
 
     Map<String, Object> findActiveProgress(@Param("userId") String userId, @Param("progressId") long progressId);
 
-    Map<String, Object> findActiveProgressIdByPaper(@Param("userId") String userId, @Param("examPaperId") long examPaperId);
+    Map<String, Object> findActiveProgressIdByPaper(
+        @Param("userId") String userId,
+        @Param("examPaperId") long examPaperId,
+        @Param("examContent") String examContent
+    );
 
-    Map<String, Object> findActiveProgressIdByPaperCode(@Param("userId") String userId, @Param("paperCode") String paperCode);
+    Map<String, Object> findActiveProgressIdByPaperCode(
+        @Param("userId") String userId,
+        @Param("paperCode") String paperCode,
+        @Param("examContent") String examContent
+    );
 
     List<Map<String, Object>> listQuestionFavorites(
         @Param("userId") String userId,
+        @Param("examCategory") String examCategory,
+        @Param("examContent") String examContent,
         @Param("examPaperId") Long examPaperId,
         @Param("limit") int limit
     );
 
-    List<Map<String, Object>> listEntityFavorites(@Param("userId") String userId, @Param("limit") int limit);
+    List<Map<String, Object>> listActQuestionFavorites(
+        @Param("userId") String userId,
+        @Param("examCategory") String examCategory,
+        @Param("examContent") String examContent,
+        @Param("examPaperId") Long examPaperId,
+        @Param("limit") int limit
+    );
+
+    List<Map<String, Object>> listEntityFavorites(
+        @Param("userId") String userId,
+        @Param("examCategory") String examCategory,
+        @Param("examContent") String examContent,
+        @Param("limit") int limit
+    );
 
     Map<String, Object> findQuestionFavorite(@Param("userId") String userId, @Param("examQuestionId") long examQuestionId);
 
@@ -54,7 +83,11 @@ public interface MockExamMapper {
 
     Map<String, Object> findQuestionWrongCount(@Param("userId") String userId, @Param("examQuestionId") long examQuestionId);
 
-    List<Map<String, Object>> listWrongQuestions(@Param("userId") String userId);
+    List<Map<String, Object>> listWrongQuestions(
+        @Param("userId") String userId,
+        @Param("examCategory") String examCategory,
+        @Param("examContent") String examContent
+    );
 
     Map<String, Object> findWrongQuestionSnapshot(@Param("examQuestionId") long examQuestionId);
 

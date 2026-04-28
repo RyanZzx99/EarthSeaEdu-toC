@@ -32,7 +32,7 @@
                 ORDER BY school_year_label DESC, term_code ASC, student_academic_us_high_school_subject_id ASC
             </when>
             <when test="tableName == 'student_academic_a_level_subject'">
-                ORDER BY al_subject_id ASC, stage_code ASC, is_predicted ASC, exam_series ASC
+                ORDER BY al_subject_id ASC, stage_code ASC, is_predicted ASC, grade_code ASC
             </when>
             <when test="tableName == 'student_academic_ap_subject'">
                 ORDER BY year_taken DESC, ap_course_id ASC, student_academic_ap_subject_id ASC
@@ -44,7 +44,7 @@
                 ORDER BY chs_subject_id ASC
             </when>
             <when test="tableName == 'student_academic_ossd_subject'">
-                ORDER BY school_year_label DESC, term_code ASC, course_name_text ASC, student_academic_ossd_subject_id ASC
+                ORDER BY course_name_text ASC, student_academic_ossd_subject_id ASC
             </when>
             <when test="tableName == 'student_academic_other_curriculum_subject'">
                 ORDER BY curriculum_system_code ASC, school_year_label DESC, term_code ASC, subject_name_text ASC, student_academic_other_curriculum_subject_id ASC

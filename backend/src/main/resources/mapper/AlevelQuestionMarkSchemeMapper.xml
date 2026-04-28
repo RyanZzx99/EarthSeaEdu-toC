@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.AlevelQuestionMarkSchemeMapper">
+
+    <sql id="BaseColumns">
+        alevel_question_mark_scheme_id, alevel_question_id, alevel_source_file_id, question_key, mark_value,
+        answer_summary_text, mark_scheme_text, mark_scheme_html, mark_scheme_json, source_page_start,
+        source_page_end, source_bbox_json, raw_excerpt_hash, match_status, match_confidence, grading_mode,
+        sort_order, status, remark, create_time, update_time, delete_flag
+    </sql>
+
+    <select id="findActiveById" resultType="com.earthseaedu.backend.model.alevel.AlevelQuestionMarkScheme">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_question_mark_scheme
+        WHERE alevel_question_mark_scheme_id = #{markSchemeId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveByQuestionId" resultType="com.earthseaedu.backend.model.alevel.AlevelQuestionMarkScheme">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_question_mark_scheme
+        WHERE alevel_question_id = #{questionId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY sort_order ASC, alevel_question_mark_scheme_id ASC
+    </select>
+
+    <select id="findActiveByQuestionIds" resultType="com.earthseaedu.backend.model.alevel.AlevelQuestionMarkScheme">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_question_mark_scheme
+        WHERE alevel_question_id IN
+        <foreach collection="questionIds" item="questionId" open="(" separator="," close=")">
+            #{questionId}
+        </foreach>
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY alevel_question_id ASC, sort_order ASC, alevel_question_mark_scheme_id ASC
+    </select>
+
+    <select id="findActiveBySourceFileId" resultType="com.earthseaedu.backend.model.alevel.AlevelQuestionMarkScheme">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_question_mark_scheme
+        WHERE alevel_source_file_id = #{sourceFileId}
+          AND status = 1
+          AND delete_flag = '1'
+        ORDER BY source_page_start ASC, question_key ASC, sort_order ASC, alevel_question_mark_scheme_id ASC
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.alevel.AlevelQuestionMarkScheme" useGeneratedKeys="true" keyProperty="alevelQuestionMarkSchemeId">
+        INSERT INTO alevel_question_mark_scheme (
+            alevel_question_id, alevel_source_file_id, question_key, mark_value, answer_summary_text,
+            mark_scheme_text, mark_scheme_html, mark_scheme_json, source_page_start, source_page_end,
+            source_bbox_json, raw_excerpt_hash, match_status, match_confidence, grading_mode, sort_order,
+            status, remark, create_time, update_time, delete_flag
+        ) VALUES (
+            #{alevelQuestionId}, #{alevelSourceFileId}, #{questionKey}, #{markValue}, #{answerSummaryText},
+            #{markSchemeText}, #{markSchemeHtml}, #{markSchemeJson}, #{sourcePageStart}, #{sourcePageEnd},
+            #{sourceBboxJson}, #{rawExcerptHash}, #{matchStatus}, #{matchConfidence}, #{gradingMode},
+            #{sortOrder}, #{status}, #{remark}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.earthseaedu.backend.model.alevel.AlevelQuestionMarkScheme">
+        UPDATE alevel_question_mark_scheme
+        SET alevel_question_id = #{alevelQuestionId},
+            alevel_source_file_id = #{alevelSourceFileId},
+            question_key = #{questionKey},
+            mark_value = #{markValue},
+            answer_summary_text = #{answerSummaryText},
+            mark_scheme_text = #{markSchemeText},
+            mark_scheme_html = #{markSchemeHtml},
+            mark_scheme_json = #{markSchemeJson},
+            source_page_start = #{sourcePageStart},
+            source_page_end = #{sourcePageEnd},
+            source_bbox_json = #{sourceBboxJson},
+            raw_excerpt_hash = #{rawExcerptHash},
+            match_status = #{matchStatus},
+            match_confidence = #{matchConfidence},
+            grading_mode = #{gradingMode},
+            sort_order = #{sortOrder},
+            status = #{status},
+            remark = #{remark},
+            update_time = #{updateTime},
+            delete_flag = #{deleteFlag}
+        WHERE alevel_question_mark_scheme_id = #{alevelQuestionMarkSchemeId}
+    </update>
+
+    <update id="deactivateById">
+        UPDATE alevel_question_mark_scheme
+        SET status = 0,
+            update_time = #{updateTime}
+        WHERE alevel_question_mark_scheme_id = #{markSchemeId}
+          AND status = 1
+          AND delete_flag = '1'
+    </update>
+
+    <update id="deactivateByQuestionId">
+        UPDATE alevel_question_mark_scheme
+        SET status = 0,
+            update_time = #{updateTime}
+        WHERE alevel_question_id = #{questionId}
+          AND status = 1
+          AND delete_flag = '1'
+    </update>
+
+    <update id="deactivateByPaperId">
+        UPDATE alevel_question_mark_scheme
+        SET status = 0,
+            update_time = #{updateTime}
+        WHERE alevel_question_id IN (
+            SELECT alevel_question_id
+            FROM alevel_question
+            WHERE alevel_paper_id = #{paperId}
+        )
+          AND status = 1
+          AND delete_flag = '1'
+    </update>
+
+</mapper>

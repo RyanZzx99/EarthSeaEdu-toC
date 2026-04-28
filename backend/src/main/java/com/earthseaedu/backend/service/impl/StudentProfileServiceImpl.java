@@ -264,7 +264,19 @@ public class StudentProfileServiceImpl implements StudentProfileService {
         Map.entry("student_standardized_act_id", "ACT成绩ID")
     );
     private static final Map<String, String> PROFILE_FIELD_HELPER_OVERRIDES = Map.of();
+    private static final Map<String, String> PROFILE_TABLE_FIELD_LABEL_OVERRIDES = Map.ofEntries(
+        Map.entry(key("student_academic_ossd_subject", "score_numeric"), "课程分数")
+    );
+    private static final Map<String, Set<String>> PROFILE_REMOVED_FIELDS_BY_TABLE = Map.ofEntries(
+        Map.entry("student_academic_a_level_subject", Set.of("exam_series")),
+        Map.entry("student_academic_ossd_subject", Set.of("school_year_label", "term_code", "score_text", "score_scale_code"))
+    );
     private static final Map<String, Set<String>> PROFILE_HIDDEN_FIELDS_BY_TABLE = Map.ofEntries(
+        Map.entry("student_academic_a_level_subject", Set.of("exam_series")),
+        Map.entry(
+            "student_academic_ossd_subject",
+            Set.of("school_year_label", "term_code", "score_text", "score_scale_code")
+        ),
         Map.entry(ACTIVITY_EXPERIENCE_TABLE, Set.of("student_activity_experience_id")),
         Map.entry(ACTIVITY_ATTACHMENT_TABLE, Set.of("student_activity_attachment_id", "student_activity_experience_id", "file_key", "sort_order")),
         Map.entry(ENTERPRISE_INTERNSHIP_TABLE, Set.of("student_enterprise_internship_id")),
@@ -860,7 +872,7 @@ public class StudentProfileServiceImpl implements StudentProfileService {
 
                 Map<String, Object> field = new LinkedHashMap<>();
                 field.put("name", column.name());
-                field.put("label", FIELD_LABELS.getOrDefault(column.name(), humanizeFieldName(column.name())));
+                field.put("label", fieldLabel(tableName, column.name()));
                 field.put("input_type", inferInputType(column.name(), column.type(), options));
                 field.put("hidden", isFieldHidden(tableName, column.name()));
                 field.put("options", options);
@@ -889,7 +901,7 @@ public class StudentProfileServiceImpl implements StudentProfileService {
             for (ColumnMeta column : columns) {
                 Map<String, Object> field = new LinkedHashMap<>();
                 field.put("name", column.name());
-                field.put("label", FIELD_LABELS.getOrDefault(column.name(), humanizeFieldName(column.name())));
+                field.put("label", fieldLabel(tableName, column.name()));
                 field.put("input_type", inferInputType(column.name(), column.type(), List.of()));
                 field.put("hidden", isFieldHidden(tableName, column.name()));
                 field.put("options", List.of());
@@ -921,7 +933,7 @@ public class StudentProfileServiceImpl implements StudentProfileService {
 
                 Map<String, Object> field = new LinkedHashMap<>();
                 field.put("name", column.name());
-                field.put("label", FIELD_LABELS.getOrDefault(column.name(), humanizeFieldName(column.name())));
+                field.put("label", fieldLabel(tableName, column.name()));
                 field.put("input_type", inferInputType(column.name(), column.type(), options));
                 field.put("hidden", isFieldHidden(tableName, column.name()));
                 field.put("options", options);
@@ -947,6 +959,14 @@ public class StudentProfileServiceImpl implements StudentProfileService {
         tableMeta.put("kind", "multi");
         tableMeta.put("fields", fields);
         return tableMeta;
+    }
+
+    private String fieldLabel(String tableName, String fieldName) {
+        String tableFieldKey = key(tableName, fieldName);
+        if (PROFILE_TABLE_FIELD_LABEL_OVERRIDES.containsKey(tableFieldKey)) {
+            return PROFILE_TABLE_FIELD_LABEL_OVERRIDES.get(tableFieldKey);
+        }
+        return FIELD_LABELS.getOrDefault(fieldName, humanizeFieldName(fieldName));
     }
 
     private Map<String, Object> field(
@@ -1719,6 +1739,9 @@ public class StudentProfileServiceImpl implements StudentProfileService {
             if ("create_time".equals(column.name()) || "update_time".equals(column.name()) || "delete_flag".equals(column.name())) {
                 continue;
             }
+            if (isRemovedProfileField(tableName, column.name())) {
+                continue;
+            }
             columns.add(column);
         }
         return columns;
@@ -1734,6 +1757,9 @@ public class StudentProfileServiceImpl implements StudentProfileService {
             String fieldName = String.valueOf(rowValue(row, "Field", "field"));
             String fieldType = String.valueOf(rowValue(row, "Type", "type"));
             if ("create_time".equals(fieldName) || "update_time".equals(fieldName) || "delete_flag".equals(fieldName)) {
+                continue;
+            }
+            if (isRemovedProfileField(tableName, fieldName)) {
                 continue;
             }
             if (isAutoIncrementColumn(row)) {
@@ -1944,6 +1970,9 @@ public class StudentProfileServiceImpl implements StudentProfileService {
 
     private String inferInputType(String fieldName, String columnType, List<Map<String, String>> options) {
         String normalizedType = columnType == null ? "" : columnType.toLowerCase();
+        if ("participants_text".equals(fieldName)) {
+            return "integer";
+        }
         if (options != null && !options.isEmpty()) {
             return "select";
         }
@@ -2072,9 +2101,13 @@ public class StudentProfileServiceImpl implements StudentProfileService {
         List<Map<String, Object>> rows = studentProfileMapper.showColumns(safeProfileTableName(tableName));
         List<ColumnMeta> columns = new ArrayList<>();
         for (Map<String, Object> row : rows) {
+            String fieldName = String.valueOf(rowValue(row, "Field", "field"));
+            if (isRemovedProfileField(tableName, fieldName)) {
+                continue;
+            }
             columns.add(
                 new ColumnMeta(
-                    String.valueOf(rowValue(row, "Field", "field")),
+                    fieldName,
                     String.valueOf(rowValue(row, "Type", "type"))
                 )
             );
@@ -2085,6 +2118,10 @@ public class StudentProfileServiceImpl implements StudentProfileService {
             tableColumnsCache.put(tableName, columns);
         }
         return columns;
+    }
+
+    private boolean isRemovedProfileField(String tableName, String fieldName) {
+        return PROFILE_REMOVED_FIELDS_BY_TABLE.getOrDefault(tableName, Set.of()).contains(fieldName);
     }
 
     private List<String> safeColumnNames(List<ColumnMeta> columns) {

@@ -8,8 +8,15 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.earthseaedu.backend.exception.ApiException;
 import com.earthseaedu.backend.mapper.AlevelImportJobMapper;
+import com.earthseaedu.backend.mapper.AlevelImportBatchMapper;
+import com.earthseaedu.backend.mapper.AlevelSourceBundleFileMapper;
+import com.earthseaedu.backend.mapper.AlevelSourceBundleMapper;
 import com.earthseaedu.backend.mapper.AlevelSourceFileMapper;
+import com.earthseaedu.backend.model.alevel.AlevelImportBatch;
+import com.earthseaedu.backend.model.alevel.AlevelSourceBundle;
+import com.earthseaedu.backend.model.alevel.AlevelSourceBundleFile;
 import com.earthseaedu.backend.model.alevel.AlevelSourceFile;
+import com.earthseaedu.backend.service.AlevelPdfPageRenderService;
 import com.earthseaedu.backend.service.AlevelQuestionBankBuildService;
 import com.earthseaedu.backend.service.AlevelSourceFileImportService;
 import com.earthseaedu.backend.support.AlevelPdfMetaSupport;
@@ -51,7 +58,11 @@ public class AlevelSourceFileImportServiceImpl implements AlevelSourceFileImport
     private static final Set<String> SOURCE_MODES = Set.of("zip", "directory", "files");
 
     private final AlevelImportJobMapper alevelImportJobMapper;
+    private final AlevelImportBatchMapper alevelImportBatchMapper;
+    private final AlevelSourceBundleMapper alevelSourceBundleMapper;
+    private final AlevelSourceBundleFileMapper alevelSourceBundleFileMapper;
     private final AlevelSourceFileMapper alevelSourceFileMapper;
+    private final AlevelPdfPageRenderService alevelPdfPageRenderService;
     private final AlevelQuestionBankBuildService alevelQuestionBankBuildService;
     private final AlevelPdfMetaSupport alevelPdfMetaSupport;
     private final StoragePathSupport storagePathSupport;
@@ -64,14 +75,22 @@ public class AlevelSourceFileImportServiceImpl implements AlevelSourceFileImport
 
     public AlevelSourceFileImportServiceImpl(
         AlevelImportJobMapper alevelImportJobMapper,
+        AlevelImportBatchMapper alevelImportBatchMapper,
+        AlevelSourceBundleMapper alevelSourceBundleMapper,
+        AlevelSourceBundleFileMapper alevelSourceBundleFileMapper,
         AlevelSourceFileMapper alevelSourceFileMapper,
+        AlevelPdfPageRenderService alevelPdfPageRenderService,
         AlevelQuestionBankBuildService alevelQuestionBankBuildService,
         AlevelPdfMetaSupport alevelPdfMetaSupport,
         StoragePathSupport storagePathSupport,
         PlatformTransactionManager transactionManager
     ) {
         this.alevelImportJobMapper = alevelImportJobMapper;
+        this.alevelImportBatchMapper = alevelImportBatchMapper;
+        this.alevelSourceBundleMapper = alevelSourceBundleMapper;
+        this.alevelSourceBundleFileMapper = alevelSourceBundleFileMapper;
         this.alevelSourceFileMapper = alevelSourceFileMapper;
+        this.alevelPdfPageRenderService = alevelPdfPageRenderService;
         this.alevelQuestionBankBuildService = alevelQuestionBankBuildService;
         this.alevelPdfMetaSupport = alevelPdfMetaSupport;
         this.storagePathSupport = storagePathSupport;
@@ -157,18 +176,29 @@ public class AlevelSourceFileImportServiceImpl implements AlevelSourceFileImport
     }
 
     private void processImportJob(long jobId) {
+        AlevelImportBatch importBatch = null;
         try {
             alevelImportJobMapper.markImportJobRunning(jobId, "后台识别已开始");
             Map<String, Object> row = requireAlevelImportJobRow(jobId);
-            ImportMetadata metadata = loadMetadata(stringValue(column(row, "storage_path")));
-            ImportResult result = importFromStoredFiles(metadata, progress -> updateJobProgress(jobId, progress));
+            String jobStoragePath = stringValue(column(row, "storage_path"));
+            ImportMetadata metadata = loadMetadata(jobStoragePath);
+            importBatch = insertAlevelImportBatch(jobId, jobStoragePath, metadata);
+            AlevelImportBatch activeBatch = importBatch;
+            ImportResult result = importFromStoredFiles(metadata, activeBatch, progress -> {
+                updateJobProgress(jobId, progress);
+                updateImportBatchProgress(activeBatch, progress);
+            });
             updateJobCompleted(jobId, result);
+            updateImportBatchCompleted(importBatch, result);
         } catch (Exception exception) {
             markJobFailed(jobId, exception);
+            if (importBatch != null) {
+                updateImportBatchFailed(importBatch, exception);
+            }
         }
     }
 
-    private ImportResult importFromStoredFiles(ImportMetadata metadata, ProgressSink progressSink) {
+    private ImportResult importFromStoredFiles(ImportMetadata metadata, AlevelImportBatch importBatch, ProgressSink progressSink) {
         String sourceMode = normalizeSourceMode(metadata.sourceMode());
         List<String> entryPaths = parseEntryPaths(metadata.entryPathsJson(), metadata.files().size());
         List<ResolvedPdfFile> resolvedPdfFiles = resolvePdfFiles(metadata, entryPaths);
@@ -205,7 +235,7 @@ public class AlevelSourceFileImportServiceImpl implements AlevelSourceFileImport
         for (int index = 0; index < resolvedPdfFiles.size(); index++) {
             ResolvedPdfFile resolvedPdfFile = resolvedPdfFiles.get(index);
             try {
-                ImportItem importItem = transactionTemplate.execute(status -> importSinglePdfFile(resolvedPdfFile));
+                ImportItem importItem = transactionTemplate.execute(status -> importSinglePdfFile(resolvedPdfFile, importBatch));
                 if (importItem == null) {
                     throw new IllegalStateException("PDF 导入事务没有返回结果");
                 }
@@ -252,12 +282,14 @@ public class AlevelSourceFileImportServiceImpl implements AlevelSourceFileImport
                 if (buildResult == null) {
                     throw new IllegalStateException("bundle build transaction returned null");
                 }
+                markSourceBundleBuilt(bundleCode, buildResult);
                 builtBundleCount++;
                 questionCount += buildResult.questionCount();
                 answerCount += buildResult.answerCount();
                 questionRefCount += buildResult.questionRefCount();
                 appendBuildResult(items, bundleCode, buildResult);
             } catch (Exception exception) {
+                markSourceBundleBuildFailed(bundleCode, exception);
                 appendBuildFailure(items, bundleCode, exception);
                 failures.add(failure("bundle:" + bundleCode, exception));
             }
@@ -317,7 +349,7 @@ public class AlevelSourceFileImportServiceImpl implements AlevelSourceFileImport
         );
     }
 
-    private ImportItem importSinglePdfFile(ResolvedPdfFile file) {
+    private ImportItem importSinglePdfFile(ResolvedPdfFile file, AlevelImportBatch importBatch) {
         String fileHash = DigestUtil.sha256Hex(file.rawBytes());
         String sourceFileName = fileName(file.logicalPath());
         AlevelPdfMetaSupport.DetectionResult detectionResult =
@@ -355,17 +387,213 @@ public class AlevelSourceFileImportServiceImpl implements AlevelSourceFileImport
             row.getAlevelSourceFileId(),
             LocalDateTime.now()
         );
+        AlevelPdfPageRenderService.RenderResult renderResult =
+            alevelPdfPageRenderService.renderSourceFilePages(row, file.rawBytes(), file.logicalPath());
+        AlevelSourceBundle sourceBundle = ensureSourceBundle(importBatch, detectionResult, bundleCode, file);
+        AlevelSourceBundleFile bundleFile = insertSourceBundleFile(sourceBundle, row, sourceFileType, detectionResult, file);
+        alevelSourceBundleMapper.refreshSummary(sourceBundle.getAlevelSourceBundleId(), LocalDateTime.now());
 
         return new ImportItem(
             row.getAlevelSourceFileId(),
+            sourceBundle.getAlevelSourceBundleId(),
+            bundleFile.getAlevelSourceBundleFileId(),
             file.logicalPath(),
             row.getSourceFileName(),
             sourceFileType,
             bundleCode,
             row.getStoragePath(),
             row.getAssetUrl(),
-            row.getParseStatus()
+            row.getParseStatus(),
+            renderResult.pageCount(),
+            renderResult.renderedCount(),
+            renderResult.failedCount()
         );
+    }
+
+    private AlevelSourceBundle ensureSourceBundle(
+        AlevelImportBatch importBatch,
+        AlevelPdfMetaSupport.DetectionResult detectionResult,
+        String bundleCode,
+        ResolvedPdfFile file
+    ) {
+        AlevelSourceBundle existing = alevelSourceBundleMapper.findActiveByBundleCode(bundleCode);
+        if (existing == null) {
+            AlevelSourceBundle row = new AlevelSourceBundle();
+            row.setAlevelImportBatchId(importBatch.getAlevelImportBatchId());
+            row.setAlevelPaperId(null);
+            row.setBundleCode(bundleCode);
+            row.setBundleName(buildBundleName(detectionResult, bundleCode));
+            row.setExamBoard(valueOrDefault(detectionResult.examBoard(), "OxfordAQA"));
+            row.setQualification(detectionResult.qualification());
+            row.setSubjectCode(detectionResult.subjectCode());
+            row.setSubjectName(detectionResult.subjectName());
+            row.setUnitCode(detectionResult.unitCode());
+            row.setUnitName(null);
+            row.setExamSession(detectionResult.examSession());
+            row.setSessionCode(detectionResult.sessionCode());
+            row.setSourceName(resolveBundleSourceName(file));
+            row.setFileCount(0);
+            row.setHasQuestionPaper(0);
+            row.setHasMarkScheme(0);
+            row.setHasInsert(0);
+            row.setHasExamReport(0);
+            row.setBundleStatus("PENDING");
+            row.setDetectionJson(buildBundleDetectionJson(detectionResult, file));
+            row.setWarningJson(buildBundleWarningJson(detectionResult));
+            row.setErrorMessage(null);
+            row.setImportVersion(1);
+            row.setStatus(1);
+            row.setRemark(null);
+            row.setCreateTime(LocalDateTime.now());
+            row.setUpdateTime(LocalDateTime.now());
+            row.setDeleteFlag("1");
+            alevelSourceBundleMapper.insert(row);
+            return row;
+        }
+
+        existing.setAlevelImportBatchId(importBatch.getAlevelImportBatchId());
+        existing.setBundleName(firstNonBlank(existing.getBundleName(), buildBundleName(detectionResult, bundleCode)));
+        existing.setExamBoard(firstNonBlank(existing.getExamBoard(), valueOrDefault(detectionResult.examBoard(), "OxfordAQA")));
+        existing.setQualification(firstNonBlank(existing.getQualification(), detectionResult.qualification()));
+        existing.setSubjectCode(firstNonBlank(existing.getSubjectCode(), detectionResult.subjectCode()));
+        existing.setSubjectName(firstNonBlank(existing.getSubjectName(), detectionResult.subjectName()));
+        existing.setUnitCode(firstNonBlank(existing.getUnitCode(), detectionResult.unitCode()));
+        existing.setExamSession(firstNonBlank(existing.getExamSession(), detectionResult.examSession()));
+        existing.setSessionCode(firstNonBlank(existing.getSessionCode(), detectionResult.sessionCode()));
+        existing.setSourceName(firstNonBlank(existing.getSourceName(), resolveBundleSourceName(file)));
+        existing.setDetectionJson(buildBundleDetectionJson(detectionResult, file));
+        existing.setWarningJson(buildBundleWarningJson(detectionResult));
+        existing.setErrorMessage(null);
+        existing.setUpdateTime(LocalDateTime.now());
+        existing.setDeleteFlag("1");
+        alevelSourceBundleMapper.updateById(existing);
+        return existing;
+    }
+
+    private AlevelSourceBundleFile insertSourceBundleFile(
+        AlevelSourceBundle sourceBundle,
+        AlevelSourceFile sourceFile,
+        String sourceFileType,
+        AlevelPdfMetaSupport.DetectionResult detectionResult,
+        ResolvedPdfFile file
+    ) {
+        String fileRole = valueOrDefault(sourceFileType, "OTHER");
+        boolean primary = isPrimaryBundleRole(fileRole);
+        LocalDateTime now = LocalDateTime.now();
+        if (primary) {
+            alevelSourceBundleFileMapper.deactivatePrimaryByBundleIdAndRole(
+                sourceBundle.getAlevelSourceBundleId(),
+                fileRole,
+                now
+            );
+        }
+
+        AlevelSourceBundleFile row = new AlevelSourceBundleFile();
+        row.setAlevelSourceBundleId(sourceBundle.getAlevelSourceBundleId());
+        row.setAlevelSourceFileId(sourceFile.getAlevelSourceFileId());
+        row.setFileRole(fileRole);
+        row.setIsPrimary(primary ? 1 : 0);
+        row.setMatchStatus(resolveBundleFileMatchStatus(fileRole, detectionResult));
+        row.setMatchConfidence(toConfidenceScore(detectionResult.overallConfidence()));
+        row.setMatchEvidenceJson(buildBundleFileEvidenceJson(detectionResult, file));
+        row.setSortOrder(resolveBundleFileSortOrder(fileRole, sourceFile.getAlevelSourceFileId()));
+        row.setStatus(1);
+        row.setRemark(null);
+        row.setCreateTime(now);
+        row.setUpdateTime(now);
+        row.setDeleteFlag("1");
+        alevelSourceBundleFileMapper.insert(row);
+        return row;
+    }
+
+    private String buildBundleName(AlevelPdfMetaSupport.DetectionResult detectionResult, String bundleCode) {
+        List<String> parts = new ArrayList<>();
+        if (CharSequenceUtil.isNotBlank(detectionResult.subjectName())) {
+            parts.add(detectionResult.subjectName());
+        }
+        if (CharSequenceUtil.isNotBlank(detectionResult.unitCode())) {
+            parts.add(detectionResult.unitCode());
+        }
+        if (CharSequenceUtil.isNotBlank(detectionResult.examSession())) {
+            parts.add(detectionResult.examSession());
+        }
+        return parts.isEmpty() ? bundleCode : String.join(" ", parts);
+    }
+
+    private String resolveBundleSourceName(ResolvedPdfFile file) {
+        String logicalPath = normalizeImportPath(file.logicalPath());
+        int index = logicalPath.lastIndexOf('/');
+        return index <= 0 ? file.originName() : logicalPath.substring(0, index);
+    }
+
+    private String buildBundleDetectionJson(AlevelPdfMetaSupport.DetectionResult detectionResult, ResolvedPdfFile file) {
+        JSONObject object = new JSONObject();
+        object.set("logical_path", file.logicalPath());
+        object.set("origin_name", file.originName());
+        object.set("document_type", detectionResult.documentType());
+        object.set("qualification", detectionResult.qualification());
+        object.set("subject_code", detectionResult.subjectCode());
+        object.set("subject_name", detectionResult.subjectName());
+        object.set("unit_code", detectionResult.unitCode());
+        object.set("exam_session", detectionResult.examSession());
+        object.set("session_code", detectionResult.sessionCode());
+        object.set("overall_confidence", detectionResult.overallConfidence());
+        object.set("confidence", detectionResult.confidence());
+        object.set("matched_tokens", detectionResult.matchedTokens());
+        return object.toString();
+    }
+
+    private String buildBundleWarningJson(AlevelPdfMetaSupport.DetectionResult detectionResult) {
+        if (detectionResult.warnings() == null || detectionResult.warnings().isEmpty()) {
+            return null;
+        }
+        JSONArray warnings = new JSONArray();
+        for (String warning : detectionResult.warnings()) {
+            warnings.add(warning);
+        }
+        return warnings.toString();
+    }
+
+    private String buildBundleFileEvidenceJson(AlevelPdfMetaSupport.DetectionResult detectionResult, ResolvedPdfFile file) {
+        JSONObject object = new JSONObject();
+        object.set("logical_path", file.logicalPath());
+        object.set("origin_name", file.originName());
+        object.set("page_1_title", detectionResult.page1Title());
+        object.set("matched_tokens", detectionResult.matchedTokens());
+        object.set("confidence", detectionResult.confidence());
+        return object.toString();
+    }
+
+    private String resolveBundleFileMatchStatus(String fileRole, AlevelPdfMetaSupport.DetectionResult detectionResult) {
+        if ("OTHER".equals(fileRole)) {
+            return "UNMATCHED";
+        }
+        String confidence = valueOrDefault(detectionResult.overallConfidence(), "low").toLowerCase(Locale.ROOT);
+        return "low".equals(confidence) ? "AMBIGUOUS" : "MATCHED";
+    }
+
+    private java.math.BigDecimal toConfidenceScore(String confidence) {
+        String normalized = valueOrDefault(confidence, "low").toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "high" -> java.math.BigDecimal.valueOf(0.95D);
+            case "medium" -> java.math.BigDecimal.valueOf(0.75D);
+            default -> java.math.BigDecimal.valueOf(0.40D);
+        };
+    }
+
+    private boolean isPrimaryBundleRole(String fileRole) {
+        return "QUESTION_PAPER".equals(fileRole) || "MARK_SCHEME".equals(fileRole);
+    }
+
+    private int resolveBundleFileSortOrder(String fileRole, Long sourceFileId) {
+        int base = switch (fileRole) {
+            case "QUESTION_PAPER" -> 1000;
+            case "MARK_SCHEME" -> 2000;
+            case "INSERT" -> 3000;
+            case "EXAM_REPORT" -> 4000;
+            default -> 9000;
+        };
+        return base + (sourceFileId == null ? 0 : (int) Math.min(sourceFileId % 1000, 999));
     }
 
     private List<ResolvedPdfFile> resolvePdfFiles(ImportMetadata metadata, List<String> entryPaths) {
@@ -422,6 +650,112 @@ public class AlevelSourceFileImportServiceImpl implements AlevelSourceFileImport
         return result;
     }
 
+    private AlevelImportBatch insertAlevelImportBatch(long jobId, String jobStoragePath, ImportMetadata metadata) {
+        LocalDateTime now = LocalDateTime.now();
+        AlevelImportBatch row = new AlevelImportBatch();
+        row.setBatchCode("alevel_job_" + jobId);
+        row.setBatchName(metadata.batchName());
+        row.setImportSourceType(toImportSourceType(metadata.sourceMode()));
+        row.setOriginName(resolveOriginName(metadata));
+        row.setSourceRootPath(jobStoragePath);
+        row.setStorageRootPath(importJobRoot().resolve(jobStoragePath).toString());
+        row.setTotalFileCount(metadata.files().size());
+        row.setResolvedPdfCount(0);
+        row.setSuccessCount(0);
+        row.setFailureCount(0);
+        row.setBundleCount(0);
+        row.setImportStatus("RUNNING");
+        row.setProgressPercent(java.math.BigDecimal.ZERO);
+        row.setProgressMessage("后台识别已开始");
+        row.setOperatorId(null);
+        row.setResultJson(null);
+        row.setErrorMessage(null);
+        row.setStartedAt(now);
+        row.setFinishedAt(null);
+        row.setStatus(1);
+        row.setRemark("exam_import_job_id=" + jobId);
+        row.setCreateTime(now);
+        row.setUpdateTime(now);
+        row.setDeleteFlag("1");
+        alevelImportBatchMapper.insert(row);
+        return row;
+    }
+
+    private void updateImportBatchProgress(AlevelImportBatch batch, Progress progress) {
+        batch.setResolvedPdfCount(progress.resolvedFileCount());
+        batch.setSuccessCount(progress.successCount());
+        batch.setFailureCount(progress.failureCount());
+        batch.setBundleCount(progress.bundleCount());
+        batch.setImportStatus("RUNNING");
+        batch.setProgressPercent(resolveProgressPercent(progress));
+        batch.setProgressMessage(progress.message());
+        batch.setResultJson(buildProgressResultJson(progress).toString());
+        batch.setErrorMessage(null);
+        batch.setUpdateTime(LocalDateTime.now());
+        batch.setDeleteFlag("1");
+        alevelImportBatchMapper.updateById(batch);
+    }
+
+    private void updateImportBatchCompleted(AlevelImportBatch batch, ImportResult result) {
+        batch.setResolvedPdfCount(result.resolvedFileCount());
+        batch.setSuccessCount(result.successCount());
+        batch.setFailureCount(result.failureCount());
+        batch.setBundleCount(result.bundleCount());
+        batch.setImportStatus(result.failureCount() > 0 ? "PARTIAL_SUCCESS" : "SUCCESS");
+        batch.setProgressPercent(java.math.BigDecimal.valueOf(100));
+        batch.setProgressMessage(
+            "导入完成：识别 " + result.resolvedFileCount() + " 个 PDF，成功入库 " + result.successCount() + " 个，失败 " + result.failureCount() + " 个"
+        );
+        batch.setResultJson(buildImportResultJson(result).toString());
+        batch.setErrorMessage(null);
+        batch.setFinishedAt(LocalDateTime.now());
+        batch.setUpdateTime(LocalDateTime.now());
+        batch.setDeleteFlag("1");
+        alevelImportBatchMapper.updateById(batch);
+    }
+
+    private void updateImportBatchFailed(AlevelImportBatch batch, Exception exception) {
+        batch.setImportStatus("FAILED");
+        batch.setProgressMessage("导入失败：" + exception.getMessage());
+        batch.setErrorMessage(exception.getMessage());
+        batch.setFinishedAt(LocalDateTime.now());
+        batch.setUpdateTime(LocalDateTime.now());
+        batch.setDeleteFlag("1");
+        alevelImportBatchMapper.updateById(batch);
+    }
+
+    private java.math.BigDecimal resolveProgressPercent(Progress progress) {
+        if (progress.resolvedFileCount() <= 0) {
+            return java.math.BigDecimal.ZERO;
+        }
+        double importPart = Math.min(1.0D, (double) (progress.successCount() + progress.failureCount()) / progress.resolvedFileCount()) * 60.0D;
+        double buildPart = progress.bundleCount() <= 0
+            ? 0.0D
+            : Math.min(1.0D, (double) progress.builtBundleCount() / progress.bundleCount()) * 40.0D;
+        return java.math.BigDecimal.valueOf(Math.min(99.0D, importPart + buildPart)).setScale(2, java.math.RoundingMode.HALF_UP);
+    }
+
+    private String toImportSourceType(String sourceMode) {
+        return switch (normalizeSourceMode(sourceMode)) {
+            case "zip" -> "ZIP";
+            case "directory" -> "FOLDER";
+            default -> "MULTI_FILE";
+        };
+    }
+
+    private String resolveOriginName(ImportMetadata metadata) {
+        if (CharSequenceUtil.isNotBlank(metadata.batchName())) {
+            return metadata.batchName();
+        }
+        if (metadata.files().isEmpty()) {
+            return null;
+        }
+        if (metadata.files().size() == 1) {
+            return metadata.files().get(0).filename();
+        }
+        return metadata.files().get(0).filename() + " 等 " + metadata.files().size() + " 个文件";
+    }
+
     private ImportMetadata loadMetadata(String storagePath) {
         Path jobDir = importJobRoot().resolve(stringValue(storagePath));
         Path metadataFile = jobDir.resolve("metadata.json");
@@ -452,19 +786,7 @@ public class AlevelSourceFileImportServiceImpl implements AlevelSourceFileImport
     }
 
     private void updateJobProgress(long jobId, Progress progress) {
-        JSONObject resultJson = new JSONObject();
-        resultJson.set("bundle_count", progress.bundleCount());
-        resultJson.set("built_bundle_count", progress.builtBundleCount());
-        resultJson.set("question_count", progress.questionCount());
-        resultJson.set("answer_count", progress.answerCount());
-        resultJson.set("question_ref_count", progress.questionRefCount());
-        resultJson.set("question_paper_count", progress.typeCounts().questionPaperCount);
-        resultJson.set("mark_scheme_count", progress.typeCounts().markSchemeCount);
-        resultJson.set("insert_count", progress.typeCounts().insertCount);
-        resultJson.set("exam_report_count", progress.typeCounts().examReportCount);
-        resultJson.set("other_count", progress.typeCounts().otherCount);
-        resultJson.set("items", progress.items());
-        resultJson.set("failures", progress.failures());
+        JSONObject resultJson = buildProgressResultJson(progress);
 
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("jobId", jobId);
@@ -479,19 +801,7 @@ public class AlevelSourceFileImportServiceImpl implements AlevelSourceFileImport
     }
 
     private void updateJobCompleted(long jobId, ImportResult result) {
-        JSONObject resultJson = new JSONObject();
-        resultJson.set("bundle_count", result.bundleCount());
-        resultJson.set("built_bundle_count", result.builtBundleCount());
-        resultJson.set("question_count", result.questionCount());
-        resultJson.set("answer_count", result.answerCount());
-        resultJson.set("question_ref_count", result.questionRefCount());
-        resultJson.set("question_paper_count", result.typeCounts().questionPaperCount);
-        resultJson.set("mark_scheme_count", result.typeCounts().markSchemeCount);
-        resultJson.set("insert_count", result.typeCounts().insertCount);
-        resultJson.set("exam_report_count", result.typeCounts().examReportCount);
-        resultJson.set("other_count", result.typeCounts().otherCount);
-        resultJson.set("items", result.items());
-        resultJson.set("failures", result.failures());
+        JSONObject resultJson = buildImportResultJson(result);
 
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("jobId", jobId);
@@ -506,6 +816,65 @@ public class AlevelSourceFileImportServiceImpl implements AlevelSourceFileImport
         );
         row.put("resultJson", resultJson.toString());
         alevelImportJobMapper.updateJobCompleted(row);
+    }
+
+    private JSONObject buildProgressResultJson(Progress progress) {
+        JSONObject resultJson = new JSONObject();
+        resultJson.set("bundle_count", progress.bundleCount());
+        resultJson.set("built_bundle_count", progress.builtBundleCount());
+        resultJson.set("question_count", progress.questionCount());
+        resultJson.set("answer_count", progress.answerCount());
+        resultJson.set("question_ref_count", progress.questionRefCount());
+        resultJson.set("question_paper_count", progress.typeCounts().questionPaperCount);
+        resultJson.set("mark_scheme_count", progress.typeCounts().markSchemeCount);
+        resultJson.set("insert_count", progress.typeCounts().insertCount);
+        resultJson.set("exam_report_count", progress.typeCounts().examReportCount);
+        resultJson.set("other_count", progress.typeCounts().otherCount);
+        resultJson.set("items", progress.items());
+        resultJson.set("failures", progress.failures());
+        return resultJson;
+    }
+
+    private JSONObject buildImportResultJson(ImportResult result) {
+        JSONObject resultJson = new JSONObject();
+        resultJson.set("bundle_count", result.bundleCount());
+        resultJson.set("built_bundle_count", result.builtBundleCount());
+        resultJson.set("question_count", result.questionCount());
+        resultJson.set("answer_count", result.answerCount());
+        resultJson.set("question_ref_count", result.questionRefCount());
+        resultJson.set("question_paper_count", result.typeCounts().questionPaperCount);
+        resultJson.set("mark_scheme_count", result.typeCounts().markSchemeCount);
+        resultJson.set("insert_count", result.typeCounts().insertCount);
+        resultJson.set("exam_report_count", result.typeCounts().examReportCount);
+        resultJson.set("other_count", result.typeCounts().otherCount);
+        resultJson.set("items", result.items());
+        resultJson.set("failures", result.failures());
+        return resultJson;
+    }
+
+    private void markSourceBundleBuilt(String bundleCode, AlevelQuestionBankBuildService.BuildResult buildResult) {
+        AlevelSourceBundle sourceBundle = alevelSourceBundleMapper.findActiveByBundleCode(bundleCode);
+        if (sourceBundle == null) {
+            return;
+        }
+        sourceBundle.setAlevelPaperId(buildResult.alevelPaperId());
+        sourceBundle.setBundleStatus(buildResult.skipped() ? "SKIPPED" : "BUILT");
+        sourceBundle.setErrorMessage(null);
+        sourceBundle.setUpdateTime(LocalDateTime.now());
+        sourceBundle.setDeleteFlag("1");
+        alevelSourceBundleMapper.updateById(sourceBundle);
+    }
+
+    private void markSourceBundleBuildFailed(String bundleCode, Exception exception) {
+        AlevelSourceBundle sourceBundle = alevelSourceBundleMapper.findActiveByBundleCode(bundleCode);
+        if (sourceBundle == null) {
+            return;
+        }
+        sourceBundle.setBundleStatus("FAILED");
+        sourceBundle.setErrorMessage(exception.getMessage());
+        sourceBundle.setUpdateTime(LocalDateTime.now());
+        sourceBundle.setDeleteFlag("1");
+        alevelSourceBundleMapper.updateById(sourceBundle);
     }
 
     private void markJobFailed(long jobId, Exception exception) {
@@ -842,6 +1211,10 @@ public class AlevelSourceFileImportServiceImpl implements AlevelSourceFileImport
         return CharSequenceUtil.isBlank(value) ? defaultValue : value;
     }
 
+    private String firstNonBlank(String currentValue, String fallbackValue) {
+        return CharSequenceUtil.isNotBlank(currentValue) ? currentValue : trimToNull(fallbackValue);
+    }
+
     private Path importJobRoot() {
         return storagePathSupport.ensureImportJobRoot();
     }
@@ -902,17 +1275,24 @@ public class AlevelSourceFileImportServiceImpl implements AlevelSourceFileImport
 
     private record ImportItem(
         Long sourceFileId,
+        Long sourceBundleId,
+        Long sourceBundleFileId,
         String logicalPath,
         String sourceFileName,
         String sourceFileType,
         String bundleCode,
         String storagePath,
         String assetUrl,
-        String parseStatus
+        String parseStatus,
+        int pageRenderCount,
+        int renderedPageCount,
+        int renderFailedPageCount
     ) {
         Map<String, Object> toPayload() {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("source_file_id", sourceFileId);
+            payload.put("source_bundle_id", sourceBundleId);
+            payload.put("source_bundle_file_id", sourceBundleFileId);
             payload.put("relative_path", logicalPath);
             payload.put("source_file_name", sourceFileName);
             payload.put("source_file_type", sourceFileType);
@@ -920,6 +1300,9 @@ public class AlevelSourceFileImportServiceImpl implements AlevelSourceFileImport
             payload.put("storage_path", storagePath);
             payload.put("asset_url", assetUrl);
             payload.put("parse_status", parseStatus);
+            payload.put("page_render_count", pageRenderCount);
+            payload.put("rendered_page_count", renderedPageCount);
+            payload.put("render_failed_page_count", renderFailedPageCount);
             payload.put("import_status", "imported");
             return payload;
         }

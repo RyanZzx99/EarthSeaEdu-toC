@@ -22,6 +22,60 @@ function buildEmptyRepeatableRow(question) {
   return Object.fromEntries((question?.row_fields || []).map((field) => [field.name, ""]));
 }
 
+function sanitizeNumericInput(value, inputType) {
+  const text = String(value ?? "");
+  if (inputType === "integer") {
+    return text.replace(/\D/g, "");
+  }
+  if (inputType === "number") {
+    const numericText = text.replace(/[^\d.]/g, "");
+    const [integerPart, ...decimalParts] = numericText.split(".");
+    return decimalParts.length > 0 ? `${integerPart}.${decimalParts.join("")}` : integerPart;
+  }
+  return text;
+}
+
+function resolveInputType(inputType) {
+  return inputType === "date" ? "date" : "text";
+}
+
+function resolveInputMode(inputType) {
+  if (inputType === "integer") {
+    return "numeric";
+  }
+  if (inputType === "number") {
+    return "decimal";
+  }
+  return undefined;
+}
+
+function resolveInputPattern(inputType) {
+  return inputType === "integer" ? "[0-9]*" : undefined;
+}
+
+const REPEATABLE_UNIQUE_SELECT_FIELD_NAMES = new Set(["subject", "subject_id", "course_id", "ap_course_id"]);
+
+function isUniqueRepeatableSelectField(field) {
+  return field?.kind === "select" && REPEATABLE_UNIQUE_SELECT_FIELD_NAMES.has(field?.name);
+}
+
+function resolveRepeatableRowField(question, rows, row, rowIndex, field) {
+  if (!isUniqueRepeatableSelectField(field)) {
+    return field;
+  }
+  const currentValue = typeof row?.[field.name] === "string" ? row[field.name].trim() : "";
+  const selectedValues = new Set(
+    rows
+      .filter((_, index) => index !== rowIndex)
+      .map((item) => (typeof item?.[field.name] === "string" ? item[field.name].trim() : ""))
+      .filter((value) => value)
+  );
+  return {
+    ...field,
+    options: (field.options || []).filter((option) => option.value === currentValue || !selectedValues.has(option.value)),
+  };
+}
+
 function buildInitialAnswer(question, bundle) {
   if (!question) {
     return {};
@@ -140,6 +194,18 @@ export default function GuidedProfileChat({ onClose, onResultReady }) {
   const session = bundle?.session || null;
   const currentQuestion = bundle?.current_question || null;
   const messages = useMemo(() => dedupeRenderableMessages(bundle?.messages || []), [bundle]);
+  const displayedMessages = useMemo(() => {
+    if (!editingQuestionCode) {
+      return visibleMessages;
+    }
+    const targetIndex = visibleMessages.findIndex(
+      (message) =>
+        message?.message_role === "assistant" &&
+        message?.message_kind === "question" &&
+        message?.question_code === editingQuestionCode
+    );
+    return targetIndex >= 0 ? visibleMessages.slice(0, targetIndex + 1) : visibleMessages;
+  }, [editingQuestionCode, visibleMessages]);
   const answerByCode = useMemo(() => {
     return Object.fromEntries((bundle?.answers || []).map((item) => [item.question_code, item.answer_json || {}]));
   }, [bundle?.answers]);
@@ -171,12 +237,9 @@ export default function GuidedProfileChat({ onClose, onResultReady }) {
           return;
         }
         setBundle(response.data);
-        if (isResultReady(response.data)) {
-          onResultReady?.(response.data.result, response.data.session);
-        }
       } catch (error) {
         if (active) {
-          setErrorMessage(getErrorMessage(error, "加载标准问卷失败"));
+          setErrorMessage(getErrorMessage(error, "加载快速建档失败"));
         }
       } finally {
         if (active) {
@@ -384,10 +447,17 @@ export default function GuidedProfileChat({ onClose, onResultReady }) {
         {shouldShowCustomInput ? (
           <input
             className="guided-chat-input"
-            type={question.custom_input_type || "text"}
+            type={resolveInputType(question.custom_input_type)}
+            inputMode={resolveInputMode(question.custom_input_type)}
+            pattern={resolveInputPattern(question.custom_input_type)}
             value={targetAnswer.custom_text || ""}
             disabled={disabled}
-            onChange={(event) => setAnswer((previous) => ({ ...previous, custom_text: event.target.value }))}
+            onChange={(event) =>
+              setAnswer((previous) => ({
+                ...previous,
+                custom_text: sanitizeNumericInput(event.target.value, question.custom_input_type),
+              }))
+            }
             placeholder={question.custom_placeholder || "补充说明"}
           />
         ) : null}
@@ -561,10 +631,17 @@ export default function GuidedProfileChat({ onClose, onResultReady }) {
     return (
       <input
         className="guided-chat-input"
-        type={field.input_type === "number" || field.input_type === "date" ? field.input_type : "text"}
+        type={resolveInputType(field.input_type)}
+        inputMode={resolveInputMode(field.input_type)}
+        pattern={resolveInputPattern(field.input_type)}
         value={targetAnswer[field.name] || ""}
         disabled={disabled}
-        onChange={(event) => setAnswer((previous) => ({ ...previous, [field.name]: event.target.value }))}
+        onChange={(event) =>
+          setAnswer((previous) => ({
+            ...previous,
+            [field.name]: sanitizeNumericInput(event.target.value, field.input_type),
+          }))
+        }
         placeholder={`请输入${field.label}`}
       />
     );
@@ -626,10 +703,12 @@ export default function GuidedProfileChat({ onClose, onResultReady }) {
     return (
       <input
         className="guided-chat-input"
-        type={field.input_type === "number" || field.input_type === "date" ? field.input_type : "text"}
+        type={resolveInputType(field.input_type)}
+        inputMode={resolveInputMode(field.input_type)}
+        pattern={resolveInputPattern(field.input_type)}
         value={value}
         disabled={disabled}
-        onChange={(event) => updateRow(event.target.value)}
+        onChange={(event) => updateRow(sanitizeNumericInput(event.target.value, field.input_type))}
         placeholder={`请输入${field.label}`}
       />
     );
@@ -679,12 +758,15 @@ export default function GuidedProfileChat({ onClose, onResultReady }) {
                 ) : null}
               </div>
               <div className="guided-chat-fields">
-                {(question.row_fields || []).map((field) => (
-                  <label key={field.name}>
-                    <span>{field.label}</span>
-                    {renderRepeatableRowField(question, field, rowIndex, row, disabled)}
-                  </label>
-                ))}
+                {(question.row_fields || []).map((field) => {
+                  const resolvedField = resolveRepeatableRowField(question, rows, row, rowIndex, field);
+                  return (
+                    <label key={field.name}>
+                      <span>{resolvedField.label}</span>
+                      {renderRepeatableRowField(question, resolvedField, rowIndex, row, disabled)}
+                    </label>
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -734,8 +816,8 @@ export default function GuidedProfileChat({ onClose, onResultReady }) {
     );
   }
 
-  const hasQuestionMessage = visibleMessages.some((message) => message.question_code === activeQuestion?.code);
-  const isRevealingMessages = visibleMessages.length < messages.length;
+  const hasQuestionMessage = displayedMessages.some((message) => message.question_code === activeQuestion?.code);
+  const isRevealingMessages = !editingQuestionCode && visibleMessages.length < messages.length;
   const canBackQuestion = (bundle?.questions || []).findIndex((question) => question.code === (activeQuestion?.code || currentQuestion?.code)) > 0;
   const activeQuestionTotal = activeQuestion?.total || bundle?.questions?.length || 0;
 
@@ -748,7 +830,7 @@ export default function GuidedProfileChat({ onClose, onResultReady }) {
             <Sparkles size={18} strokeWidth={2.2} />
           </div>
           <div>
-            <h3 className="home-ai-title">学生标准问卷建档助手</h3>
+            <h3 className="home-ai-title">学生快速建档助手</h3>
             <p className="home-ai-subtitle">按固定问题流程采集信息，完成后生成六维图</p>
           </div>
         </div>
@@ -764,7 +846,7 @@ export default function GuidedProfileChat({ onClose, onResultReady }) {
               <Sparkles size={20} />
             </div>
             <div>
-              <p className="home-ai-empty-title">正在准备标准问卷</p>
+              <p className="home-ai-empty-title">正在准备快速建档</p>
               <p className="home-ai-empty-copy">系统正在读取你的问卷进度。</p>
             </div>
           </div>
@@ -788,7 +870,7 @@ export default function GuidedProfileChat({ onClose, onResultReady }) {
         ) : null}
 
         {!loading
-          ? visibleMessages.map((message) => {
+          ? displayedMessages.map((message) => {
               const role = message.message_role;
               const isAssistant = role === "assistant";
               const questionForMessage =
@@ -840,7 +922,7 @@ export default function GuidedProfileChat({ onClose, onResultReady }) {
             })
           : null}
 
-        {!loading && activeQuestion && (!hasQuestionMessage || editingQuestionCode) && !isRevealingMessages ? (
+        {!loading && activeQuestion && !hasQuestionMessage && !isRevealingMessages ? (
           <motion.div
             className="home-ai-message-row home-ai-message-row-assistant"
             initial={{ opacity: 0, y: 10, scale: 0.98 }}

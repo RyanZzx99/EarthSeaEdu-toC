@@ -33,14 +33,14 @@ import { InlineLoading, LoadingOverlay } from "../components/LoadingPage";
 import { clearAccessToken } from "../utils/authStorage";
 import { validatePasswordRule } from "../utils/passwordValidation";
 const AI_CHAT_SESSION_CACHE_KEY = "latest_ai_chat_session_id";
-const AI_CHAT_OPEN_PANEL_KEY = "open_ai_chat_panel";
+const GUIDED_PROFILE_OPEN_PANEL_KEY = "open_guided_profile_panel";
 const RADAR_LABELS = {
   academic: "学术成绩",
   language: "语言能力",
-  standardized: "标化考试",
+  standardized: "考试成绩",
   competition: "学术竞赛",
-  activity: "活动领导力",
-  project: "项目实践",
+  activity: "活动/企业实习",
+  project: "科研经历",
 };
 
 const RADAR_COLORS = {
@@ -61,7 +61,7 @@ const CURRICULUM_MODULES = {
   US_HIGH_SCHOOL: {
     label: "国际学校美高体系",
     curriculumTables: ["student_academic_curriculum_gpa"],
-    standardizedTables: ["student_academic_us_high_school_subject"],
+    standardizedTables: ["student_academic_ap_subject", "student_standardized_sat", "student_standardized_act"],
   },
   A_LEVEL: {
     label: "A-Level",
@@ -83,17 +83,13 @@ const CURRICULUM_MODULES = {
     curriculumTables: ["student_academic_curriculum_gpa"],
     standardizedTables: ["student_academic_ossd_subject"],
   },
-  INTERNATIONAL_OTHER: {
-    label: "国际学校其他体系",
-    curriculumTables: ["student_academic_curriculum_gpa"],
-    standardizedTables: ["student_academic_other_curriculum_subject"],
-  },
   OTHER: {
     label: "其他课程体系",
     curriculumTables: ["student_academic_curriculum_gpa"],
     standardizedTables: ["student_academic_other_curriculum_subject"],
   },
 };
+const REMOVED_CURRICULUM_SYSTEM_CODES = new Set(["INTERNATIONAL_OTHER"]);
 
 const CURRICULUM_TABLE_NAMES = new Set(
   Object.values(CURRICULUM_MODULES).flatMap((item) => [
@@ -141,6 +137,15 @@ const STANDARDIZED_SELECTOR_CONFIG = [
 ];
 const STANDARDIZED_SELECTOR_TABLES = STANDARDIZED_SELECTOR_CONFIG.map((item) => item.tableName);
 const STANDARDIZED_SELECTOR_TABLE_NAME_SET = new Set(STANDARDIZED_SELECTOR_TABLES);
+const PROFILE_REMOVED_FIELD_NAMES_BY_TABLE = {
+  student_academic_ossd_subject: new Set(["school_year_label", "term_code", "score_text", "score_scale_code"]),
+  student_academic_a_level_subject: new Set(["exam_series"]),
+};
+const PROFILE_FIELD_LABEL_OVERRIDES_BY_TABLE = {
+  student_academic_ossd_subject: {
+    score_numeric: "课程分数",
+  },
+};
 const LEGACY_STANDARDIZED_SELECTOR_TABLE_NAME_SET = new Set([
   "student_academic_us_high_school_course",
   "student_academic_ap_course",
@@ -336,13 +341,9 @@ const STANDARDIZED_FALLBACK_FORM_META_TABLES = {
     fields: [
       { name: "student_academic_ossd_subject_id", label: "OSSD科目成绩ID", input_type: "number", hidden: true, options: [], helper_text: null },
       { name: "student_id", label: "学生ID", input_type: "text", hidden: true, options: [], helper_text: null },
-      { name: "school_year_label", label: "学年/年级", input_type: "text", hidden: false, options: [], helper_text: null },
-      { name: "term_code", label: "学期编码", input_type: "text", hidden: false, options: [], helper_text: null },
       { name: "course_name_text", label: "课程名称", input_type: "text", hidden: false, options: [], helper_text: null },
       { name: "course_level_code", label: "课程级别", input_type: "text", hidden: false, options: [], helper_text: null },
-      { name: "score_text", label: "原始成绩", input_type: "text", hidden: false, options: [], helper_text: null },
-      { name: "score_numeric", label: "数值成绩", input_type: "number", hidden: false, options: [], helper_text: null },
-      { name: "score_scale_code", label: "成绩分制", input_type: "text", hidden: false, options: [], helper_text: null },
+      { name: "score_numeric", label: "课程分数", input_type: "number", hidden: false, options: [], helper_text: null },
       { name: "credit_earned", label: "学分", input_type: "number", hidden: false, options: [], helper_text: null },
       { name: "notes", label: "备注", input_type: "textarea", hidden: false, options: [], helper_text: null },
     ],
@@ -411,7 +412,7 @@ const EXPERIENCE_FALLBACK_FORM_META_TABLES = {
       { name: "competition_name", label: "竞赛名称", input_type: "text", hidden: false, options: [], helper_text: null },
       { name: "competition_field", label: "竞赛领域", input_type: "text", hidden: false, options: [], helper_text: null },
       { name: "competition_level", label: "竞赛级别", input_type: "text", hidden: false, options: [], helper_text: null },
-      { name: "participants_text", label: "参赛人数", input_type: "text", hidden: false, options: [], helper_text: null },
+      { name: "participants_text", label: "参赛人数", input_type: "integer", hidden: false, options: [], helper_text: null },
       { name: "result_text", label: "成绩描述", input_type: "text", hidden: false, options: [], helper_text: null },
       { name: "competition_year", label: "参赛年份", input_type: "number", hidden: false, options: [], helper_text: null },
     ],
@@ -683,7 +684,7 @@ function buildFieldOptionLabelMap(formMeta) {
         return;
       }
       labelMap[tableName][field.name] = Object.fromEntries(
-        field.options.map((option) => [String(option.value), option.label])
+        filterFieldOptions(tableName, field.name, field.options).map((option) => [String(option.value), option.label])
       );
     });
   });
@@ -699,7 +700,14 @@ function formatOptionValue(optionMap, value) {
 
 function getFieldOptions(formMeta, tableName, fieldName) {
   const field = formMeta?.tables?.[tableName]?.fields?.find((item) => item.name === fieldName);
-  return Array.isArray(field?.options) ? field.options : [];
+  return filterFieldOptions(tableName, fieldName, Array.isArray(field?.options) ? field.options : []);
+}
+
+function filterFieldOptions(tableName, fieldName, options) {
+  if (fieldName !== "curriculum_system_code") {
+    return options;
+  }
+  return options.filter((option) => !REMOVED_CURRICULUM_SYSTEM_CODES.has(String(option.value)));
 }
 
 function findOptionLabel(options, value) {
@@ -957,7 +965,7 @@ function buildArchiveOverview(archiveForm, optionLabelMap) {
     { label: "学校名称", value: academic.school_name || "未填写" },
     { label: "所在城市", value: academic.school_city || "未填写" },
     { label: "最佳语言考试", value: formatOptionValue(languageTypeLabels, bestLanguageTestType) || "未填写" },
-    { label: "最佳标化考试", value: bestStandardizedTestType || "未填写" },
+    { label: "最佳考试成绩", value: bestStandardizedTestType || "未填写" },
     { label: "竞赛条数", value: String((archiveForm?.[COMPETITION_RECORD_TABLE] || []).length) },
     { label: "活动条数", value: String((archiveForm?.[ACTIVITY_EXPERIENCE_TABLE] || []).length) },
     { label: "实习条数", value: String((archiveForm?.[ENTERPRISE_INTERNSHIP_TABLE] || []).length) },
@@ -997,14 +1005,15 @@ function hasCurriculumTableData(archiveForm, tableName, curriculumCode) {
 }
 
 function getActiveCurriculumCodes(archiveForm) {
-  // 中文注释：
-  // 课程体系模块既要响应用户在“课程体系”里新选的值，
-  // 也要自动兜住数据库里已经存在成绩数据的课程体系，避免用户必须先手动再选一次才能看到旧数据。
   const selectedCodes = new Set(
     (archiveForm?.student_basic_info_curriculum_system || [])
       .map((item) => item?.curriculum_system_code)
+      .filter((item) => !REMOVED_CURRICULUM_SYSTEM_CODES.has(String(item)))
       .filter(Boolean)
   );
+  if (selectedCodes.size > 0) {
+    return Array.from(selectedCodes);
+  }
 
   Object.entries(CURRICULUM_MODULES).forEach(([curriculumCode, module]) => {
     const hasModuleData = [...(module.curriculumTables || []), ...(module.standardizedTables || [])].some((tableName) =>
@@ -1088,8 +1097,6 @@ function buildArchiveSectionKeys(detailTableNames, hasLanguageDetailTables) {
     sectionKeys.push("language_detail_module");
   }
 
-  sectionKeys.push("standardized_module");
-
   return [...sectionKeys, ...detailTableNames];
 }
 
@@ -1125,6 +1132,37 @@ function normalizeChangedValue(rawValue, inputType) {
     return Number.isNaN(numericValue) ? null : numericValue;
   }
   return rawValue;
+}
+
+function sanitizeNumericInput(value, inputType) {
+  const text = String(value ?? "");
+  if (inputType === "integer") {
+    return text.replace(/\D/g, "");
+  }
+  if (inputType === "number") {
+    const numericText = text.replace(/[^\d.]/g, "");
+    const [integerPart, ...decimalParts] = numericText.split(".");
+    return decimalParts.length > 0 ? `${integerPart}.${decimalParts.join("")}` : integerPart;
+  }
+  return text;
+}
+
+function resolveTextInputType(inputType) {
+  return inputType === "date" ? "date" : "text";
+}
+
+function resolveInputMode(inputType) {
+  if (inputType === "integer") {
+    return "numeric";
+  }
+  if (inputType === "number") {
+    return "decimal";
+  }
+  return undefined;
+}
+
+function resolveInputPattern(inputType) {
+  return inputType === "integer" ? "[0-9]*" : undefined;
 }
 
 function normalizeFieldChangedValue(tableName, fieldName, rawValue, inputType) {
@@ -1177,6 +1215,32 @@ function shouldForceVisibleField(tableName, fieldName) {
     return true;
   }
   return PARENT_ROW_CONFIG_BY_CHILD_TABLE?.[tableName]?.parentField === fieldName;
+}
+
+function normalizeProfileFieldMeta(tableName, field) {
+  const removedFieldNames = PROFILE_REMOVED_FIELD_NAMES_BY_TABLE?.[tableName];
+  const labelOverrides = PROFILE_FIELD_LABEL_OVERRIDES_BY_TABLE?.[tableName];
+  const nextLabel = labelOverrides?.[field.name] || field.label;
+  const nextHidden = Boolean(field.hidden) || Boolean(removedFieldNames?.has(field.name));
+  if (nextLabel === field.label && nextHidden === Boolean(field.hidden)) {
+    return field;
+  }
+  return {
+    ...field,
+    label: nextLabel,
+    hidden: nextHidden,
+  };
+}
+
+function getVisibleProfileFields(tableName, fields, options = {}) {
+  const { excludeBasicTargetFields = false } = options;
+  return (fields || [])
+    .map((field) => normalizeProfileFieldMeta(tableName, field))
+    .filter(
+      (field) =>
+        (!field.hidden || shouldForceVisibleField(tableName, field.name)) &&
+        !(excludeBasicTargetFields && BASIC_TARGET_FIELDS.has(field.name))
+    );
 }
 
 function isNumericRelationField(tableName, fieldName) {
@@ -1421,7 +1485,7 @@ function renderFieldControl({ tableName, field, value, onChange, row, onRowPatch
   }
 
   if (field.input_type === "select") {
-    const options = Array.isArray(field.options) ? field.options : [];
+    const options = filterFieldOptions(tableName, field.name, Array.isArray(field.options) ? field.options : []);
     const hasCurrentValue = value !== null && value !== undefined && value !== "";
     const hasMatchedCurrentValue = hasCurrentValue
       ? options.some((option) => String(option.value) === String(value))
@@ -1518,11 +1582,12 @@ function renderFieldControl({ tableName, field, value, onChange, row, onRowPatch
   return (
     <input
       className="profile-form-control"
-      type={field.input_type === "date" ? "date" : field.input_type === "number" ? "number" : "text"}
-      step={field.input_type === "number" ? "any" : undefined}
+      type={resolveTextInputType(field.input_type)}
+      inputMode={resolveInputMode(field.input_type)}
+      pattern={resolveInputPattern(field.input_type)}
       value={toInputValue(value, field.input_type)}
       placeholder={placeholder}
-      onChange={(event) => onChange(event.target.value)}
+      onChange={(event) => onChange(sanitizeNumericInput(event.target.value, field.input_type))}
     />
   );
 }
@@ -1603,7 +1668,6 @@ export default function ProfilePage() {
   const [archiveSaveWarning, setArchiveSaveWarning] = useState("");
   const [archiveErrorMessage, setArchiveErrorMessage] = useState("");
   const [collapsedArchiveSections, setCollapsedArchiveSections] = useState({});
-  const [selectedStandardizedTableName, setSelectedStandardizedTableName] = useState("");
   const [selectedLanguageTestTypeCode, setSelectedLanguageTestTypeCode] = useState("");
   const archiveStudentId =
     archiveFormState?.student_basic_info?.student_id ||
@@ -1658,10 +1722,6 @@ export default function ProfilePage() {
           !LEGACY_EXPERIENCE_DETAIL_TABLE_NAME_SET.has(tableName)
       ),
     [archiveBundle?.form_meta?.table_order]
-  );
-  const standardizedSelectableTableNames = useMemo(
-    () => STANDARDIZED_SELECTOR_TABLES,
-    []
   );
   const standardizedSelectorOptions = useMemo(
     () =>
@@ -1801,23 +1861,6 @@ export default function ProfilePage() {
       return nextState;
     });
   }, [archiveBundle, archiveSessionId, archiveSectionKeys]);
-
-  useEffect(() => {
-    if (standardizedSelectableTableNames.length === 0) {
-      setSelectedStandardizedTableName("");
-      return;
-    }
-
-    setSelectedStandardizedTableName((previous) => {
-      if (previous && standardizedSelectableTableNames.includes(previous)) {
-        return previous;
-      }
-      const firstTableWithData = standardizedSelectableTableNames.find((tableName) =>
-        hasMeaningfulValue(archiveFormState?.[tableName])
-      );
-      return firstTableWithData || standardizedSelectableTableNames[0];
-    });
-  }, [archiveFormState, standardizedSelectableTableNames]);
 
   useEffect(() => {
     if (languageTestTypeOptions.length === 0) {
@@ -2283,7 +2326,7 @@ export default function ProfilePage() {
     } catch (error) {
       if (!suppressError) {
         setArchiveErrorMessage(
-          error?.response?.data?.detail || "档案已保存，但同步智能建档上下文失败，请稍后重试。"
+          error?.response?.data?.detail || "档案已保存，但同步建档上下文失败，请稍后重试。"
         );
       }
     } finally {
@@ -2409,22 +2452,15 @@ export default function ProfilePage() {
       setArchiveMessage("");
       setArchiveErrorMessage("");
 
-      if (!archiveSessionId) {
-        throw new Error("当前缺少会话信息，暂时无法继续对话。");
-      }
-
-      if (isArchiveDirty) {
+      if (archiveSessionId && isArchiveDirty) {
         setArchiveSaving(true);
-        await saveArchiveFormSnapshot({ silent: true });
-      } else {
-        await syncStudentProfileArchiveDraft(archiveSessionId);
+        await saveArchiveFormSnapshot({ silent: true, waitForDraftSync: false });
       }
 
-      localStorage.setItem(AI_CHAT_SESSION_CACHE_KEY, archiveSessionId);
-      localStorage.setItem(AI_CHAT_OPEN_PANEL_KEY, "1");
+      localStorage.setItem(GUIDED_PROFILE_OPEN_PANEL_KEY, "1");
       navigate("/");
     } catch (error) {
-      setArchiveErrorMessage(error?.response?.data?.detail || error?.message || "继续对话前保存档案失败，请稍后重试。");
+      setArchiveErrorMessage(error?.response?.data?.detail || error?.message || "返回快速建档前保存档案失败，请稍后重试。");
     } finally {
       setArchiveSaving(false);
     }
@@ -3487,11 +3523,9 @@ export default function ProfilePage() {
     } = options;
 
     const collapsed = collapsible && isArchiveSectionCollapsed(sectionKey);
-    const visibleFields = (tableMeta.fields || []).filter(
-      (field) =>
-        (!field.hidden || shouldForceVisibleField(tableName, field.name)) &&
-        !(tableName === "student_basic_info" && BASIC_TARGET_FIELDS.has(field.name))
-    );
+    const visibleFields = getVisibleProfileFields(tableName, tableMeta.fields, {
+      excludeBasicTargetFields: tableName === "student_basic_info",
+    });
     if (visibleFields.length === 0) {
       return null;
     }
@@ -3683,7 +3717,7 @@ export default function ProfilePage() {
       showVirtualRowWhenEmpty = false,
     } = options;
 
-    const visibleFields = (tableMeta.fields || []).filter((field) => !field.hidden);
+    const visibleFields = getVisibleProfileFields(tableName, tableMeta.fields);
     if (visibleFields.length === 0) {
       return null;
     }
@@ -3806,10 +3840,57 @@ export default function ProfilePage() {
     );
   }
 
+  function renderCurriculumExamSection(curriculumCode) {
+    const curriculumMeta = CURRICULUM_MODULES[curriculumCode];
+    const examTableNames = (curriculumMeta?.standardizedTables || []).filter(
+      (tableName) => archiveBundle?.form_meta?.tables?.[tableName]
+    );
+    if (examTableNames.length === 0) {
+      return null;
+    }
+
+    return (
+      <div key={`exam-score-${curriculumCode}`} className="profile-curriculum-exam-group">
+        <div className="profile-curriculum-exam-head">
+          <h3 className="card-title">考试成绩</h3>
+          <p>根据当前选择的课程体系展示对应考试成绩表单。</p>
+        </div>
+
+        <div className="profile-curriculum-section-stack">
+          {examTableNames.map((examTableName) => {
+            const examTableLabel =
+              standardizedSelectorOptions.find((option) => option.value === examTableName)?.label ||
+              archiveBundle?.form_meta?.tables?.[examTableName]?.label ||
+              "考试成绩";
+
+            if (CURRICULUM_SCOPED_TABLES.has(examTableName)) {
+              return renderCurriculumScopedSection(examTableName, curriculumCode, {
+                embedded: true,
+                title: examTableLabel,
+                showVirtualRowWhenEmpty: true,
+              });
+            }
+
+            return renderArchiveSection(examTableName, {
+              embedded: true,
+              title: examTableLabel,
+              showDescription: false,
+              showVirtualRowWhenEmpty: true,
+              onAddRow: () =>
+                handleAddRow(examTableName, {
+                  preserveVirtualRowWhenEmpty: true,
+                }),
+            });
+          })}
+        </div>
+      </div>
+    );
+  }
+
   function renderCurriculumModule() {
     const tableName = "student_basic_info_curriculum_system";
     const tableMeta = archiveBundle?.form_meta?.tables?.[tableName];
-    const visibleFields = (tableMeta?.fields || []).filter((field) => !field.hidden);
+    const visibleFields = getVisibleProfileFields(tableName, tableMeta?.fields);
     const actualRows = Array.isArray(archiveFormState?.[tableName]) ? archiveFormState[tableName] : [];
     const displayRows =
       actualRows.length > 0
@@ -3903,6 +3984,7 @@ export default function ProfilePage() {
                             showDescription: false,
                           });
                         })}
+                        {renderCurriculumExamSection(curriculumCode)}
                       </div>
                     ) : null}
                   </div>
@@ -4218,68 +4300,6 @@ export default function ProfilePage() {
     );
   }
 
-  function renderStandardizedModule() {
-    if (standardizedSelectableTableNames.length === 0) {
-      return null;
-    }
-
-    const collapsed = isArchiveSectionCollapsed("standardized_module");
-    const activeTableName =
-      selectedStandardizedTableName && standardizedSelectableTableNames.includes(selectedStandardizedTableName)
-        ? selectedStandardizedTableName
-        : standardizedSelectableTableNames[0];
-    const activeTableLabel =
-      standardizedSelectorOptions.find((option) => option.value === activeTableName)?.label || "对应成绩";
-    const activeTableMeta = archiveBundle?.form_meta?.tables?.[activeTableName];
-
-    return (
-      <div className={`card profile-form-card ${collapsed ? "profile-form-card-collapsed" : ""}`}>
-        {renderSectionHeader({
-          title: "标化考试",
-          description: "统一填写 SAT、ACT 以及各课程体系的具体成绩。",
-          collapsed,
-          onToggleCollapse: () => toggleArchiveSection("standardized_module"),
-          headingLevel: 2,
-        })}
-
-        {!collapsed ? (
-          <div className="profile-curriculum-section-stack">
-            <div className="profile-form-field">
-              <label htmlFor="profile-standardized-table-select">考试 / 成绩类型</label>
-              <select
-                id="profile-standardized-table-select"
-                className="profile-form-control"
-                value={activeTableName}
-                onChange={(event) => setSelectedStandardizedTableName(event.target.value)}
-              >
-                {standardizedSelectorOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {activeTableMeta ? (
-              renderArchiveSection(activeTableName, {
-                embedded: true,
-                title: activeTableLabel,
-                showDescription: false,
-                showVirtualRowWhenEmpty: true,
-                onAddRow: () =>
-                  handleAddRow(activeTableName, {
-                    preserveVirtualRowWhenEmpty: true,
-                  }),
-              })
-            ) : (
-              <div className="profile-form-empty">当前未加载 {activeTableLabel} 表单结构。</div>
-            )}
-          </div>
-        ) : null}
-      </div>
-    );
-  }
-
   function renderArchivePanel() {
     const archiveRegenerateBusy = archiveSaving || archiveRegenerating || archiveDraftSyncing;
     const saveDisabled = !isArchiveDirty || archiveSaving;
@@ -4424,7 +4444,6 @@ export default function ProfilePage() {
             })}
 
             {renderLanguageDetailModule()}
-            {renderStandardizedModule()}
 
             {experienceDetailTableNames.map((tableName) =>
               renderArchiveSection(tableName, {
@@ -4493,7 +4512,7 @@ export default function ProfilePage() {
               返回首页
             </button>
             <button type="button" className="primary-btn" onClick={handleContinueSupplementConversation}>
-              智能建档
+              返回快速建档
             </button>
           </div>
         </div>
@@ -4625,7 +4644,6 @@ export default function ProfilePage() {
             })}
 
             {renderLanguageDetailModule()}
-            {renderStandardizedModule()}
 
             {experienceDetailTableNames.map((tableName) =>
               renderArchiveSection(tableName, {

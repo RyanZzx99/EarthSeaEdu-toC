@@ -9,20 +9,25 @@ import cn.hutool.json.JSONUtil;
 import com.earthseaedu.backend.config.EarthSeaProperties;
 import com.earthseaedu.backend.dto.mockexam.MockExamRequests;
 import com.earthseaedu.backend.exception.ApiException;
-import com.earthseaedu.backend.mapper.AlevelAssetMapper;
+import com.earthseaedu.backend.mapper.ActQuestionBankImportMapper;
 import com.earthseaedu.backend.mapper.AlevelModuleMapper;
 import com.earthseaedu.backend.mapper.AlevelPaperMapper;
+import com.earthseaedu.backend.mapper.AlevelPdfPageMapper;
 import com.earthseaedu.backend.mapper.AlevelQuestionAnswerMapper;
+import com.earthseaedu.backend.mapper.AlevelQuestionMarkSchemeMapper;
+import com.earthseaedu.backend.mapper.AlevelQuestionMaterialRefMapper;
 import com.earthseaedu.backend.mapper.AlevelQuestionMapper;
 import com.earthseaedu.backend.mapper.AlevelQuestionOptionMapper;
 import com.earthseaedu.backend.mapper.MockExamMapper;
 import com.earthseaedu.backend.mapper.MockExamPaperRefMapper;
 import com.earthseaedu.backend.mapper.MockExamQuestionRefMapper;
-import com.earthseaedu.backend.model.alevel.AlevelAsset;
 import com.earthseaedu.backend.model.alevel.AlevelModule;
 import com.earthseaedu.backend.model.alevel.AlevelPaper;
+import com.earthseaedu.backend.model.alevel.AlevelPdfPage;
 import com.earthseaedu.backend.model.alevel.AlevelQuestion;
 import com.earthseaedu.backend.model.alevel.AlevelQuestionAnswer;
+import com.earthseaedu.backend.model.alevel.AlevelQuestionMarkScheme;
+import com.earthseaedu.backend.model.alevel.AlevelQuestionMaterialRef;
 import com.earthseaedu.backend.model.alevel.AlevelQuestionOption;
 import com.earthseaedu.backend.model.mockexam.MockExamPaperRef;
 import com.earthseaedu.backend.model.mockexam.MockExamQuestionRef;
@@ -58,7 +63,9 @@ public class MockExamServiceImpl implements MockExamService {
     private static final String PAPER_SET_SOURCE_KIND = "paper_set";
     private static final String PAPER_SET_CODE_PREFIX = "paper_set_";
     private static final String EXAM_CATEGORY_ALEVEL = "ALEVEL";
+    private static final String EXAM_CATEGORY_ACT = "ACT";
     private static final String SOURCE_TYPE_ALEVEL = "A_LEVEL";
+    private static final String SOURCE_TYPE_ACT = "ACT";
     private static final List<String> IELTS_CONTENTS = List.of("Listening", "Reading");
     private static final Set<String> PAPER_SET_CONTENTS = Set.of("Listening", "Reading", "Mixed");
     private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<[^>]+>");
@@ -72,7 +79,10 @@ public class MockExamServiceImpl implements MockExamService {
     private final AlevelQuestionMapper alevelQuestionMapper;
     private final AlevelQuestionOptionMapper alevelQuestionOptionMapper;
     private final AlevelQuestionAnswerMapper alevelQuestionAnswerMapper;
-    private final AlevelAssetMapper alevelAssetMapper;
+    private final AlevelQuestionMarkSchemeMapper alevelQuestionMarkSchemeMapper;
+    private final AlevelQuestionMaterialRefMapper alevelQuestionMaterialRefMapper;
+    private final AlevelPdfPageMapper alevelPdfPageMapper;
+    private final ActQuestionBankImportMapper actQuestionBankImportMapper;
     private final MockExamPaperRefMapper mockExamPaperRefMapper;
     private final MockExamQuestionRefMapper mockExamQuestionRefMapper;
     private final EarthSeaProperties properties;
@@ -88,7 +98,10 @@ public class MockExamServiceImpl implements MockExamService {
         AlevelQuestionMapper alevelQuestionMapper,
         AlevelQuestionOptionMapper alevelQuestionOptionMapper,
         AlevelQuestionAnswerMapper alevelQuestionAnswerMapper,
-        AlevelAssetMapper alevelAssetMapper,
+        AlevelQuestionMarkSchemeMapper alevelQuestionMarkSchemeMapper,
+        AlevelQuestionMaterialRefMapper alevelQuestionMaterialRefMapper,
+        AlevelPdfPageMapper alevelPdfPageMapper,
+        ActQuestionBankImportMapper actQuestionBankImportMapper,
         MockExamPaperRefMapper mockExamPaperRefMapper,
         MockExamQuestionRefMapper mockExamQuestionRefMapper,
         EarthSeaProperties properties
@@ -99,7 +112,10 @@ public class MockExamServiceImpl implements MockExamService {
         this.alevelQuestionMapper = alevelQuestionMapper;
         this.alevelQuestionOptionMapper = alevelQuestionOptionMapper;
         this.alevelQuestionAnswerMapper = alevelQuestionAnswerMapper;
-        this.alevelAssetMapper = alevelAssetMapper;
+        this.alevelQuestionMarkSchemeMapper = alevelQuestionMarkSchemeMapper;
+        this.alevelQuestionMaterialRefMapper = alevelQuestionMaterialRefMapper;
+        this.alevelPdfPageMapper = alevelPdfPageMapper;
+        this.actQuestionBankImportMapper = actQuestionBankImportMapper;
         this.mockExamPaperRefMapper = mockExamPaperRefMapper;
         this.mockExamQuestionRefMapper = mockExamQuestionRefMapper;
         this.properties = properties;
@@ -112,12 +128,17 @@ public class MockExamServiceImpl implements MockExamService {
     public Map<String, Object> getOptions() {
         Map<String, Object> response = new LinkedHashMap<>();
         List<String> alevelContents = mockExamPaperRefMapper.listActiveContentsByCategory(EXAM_CATEGORY_ALEVEL);
+        List<String> actContents = actQuestionBankImportMapper.listActiveSectionNames();
+        if (actContents.isEmpty()) {
+            actContents = mockExamPaperRefMapper.listActiveContentsByCategory(EXAM_CATEGORY_ACT);
+        }
         Map<String, Object> contentOptionsMap = new LinkedHashMap<>();
         contentOptionsMap.put("IELTS", IELTS_CONTENTS);
         contentOptionsMap.put(EXAM_CATEGORY_ALEVEL, alevelContents);
-        response.put("exam_category_options", List.of("IELTS", EXAM_CATEGORY_ALEVEL));
+        contentOptionsMap.put(EXAM_CATEGORY_ACT, actContents);
+        response.put("exam_category_options", List.of("IELTS", EXAM_CATEGORY_ALEVEL, EXAM_CATEGORY_ACT));
         response.put("content_options_map", contentOptionsMap);
-        response.put("supported_categories", List.of("IELTS", EXAM_CATEGORY_ALEVEL));
+        response.put("supported_categories", List.of("IELTS", EXAM_CATEGORY_ALEVEL, EXAM_CATEGORY_ACT));
         return response;
     }
 
@@ -138,6 +159,24 @@ public class MockExamServiceImpl implements MockExamService {
             for (Map<String, Object> row : mockExamPaperRefMapper.listActiveByCategoryAndContent(EXAM_CATEGORY_ALEVEL, trimToNull(normalizedContent))) {
                 items.add(serializePaperListItem(row));
             }
+        } else if (EXAM_CATEGORY_ACT.equals(normalizedCategory)) {
+            Set<Long> filteredPaperIds = new LinkedHashSet<>();
+            String actSection = trimToNull(normalizedContent);
+            boolean hasActSectionFilter = actSection != null && !EXAM_CATEGORY_ACT.equalsIgnoreCase(actSection);
+            if (hasActSectionFilter) {
+                filteredPaperIds.addAll(actQuestionBankImportMapper.listActivePaperIdsBySection(actSection));
+            }
+            for (Map<String, Object> row : mockExamPaperRefMapper.listActiveByCategoryAndContent(EXAM_CATEGORY_ACT, null)) {
+                Long sourcePaperId = nullableLong(row.get("source_paper_id"));
+                if (hasActSectionFilter && (sourcePaperId == null || !filteredPaperIds.contains(sourcePaperId))) {
+                    continue;
+                }
+                Map<String, Object> itemRow = new LinkedHashMap<>(row);
+                if (hasActSectionFilter) {
+                    itemRow.put("exam_content", actSection);
+                }
+                items.add(serializePaperListItem(itemRow));
+            }
         } else {
             String subjectType = CharSequenceUtil.isBlank(normalizedContent)
                 ? null
@@ -153,7 +192,14 @@ public class MockExamServiceImpl implements MockExamService {
      * {@inheritDoc}
      */
     public Map<String, Object> getPaper(long examPaperId) {
-        PaperBundle bundle = loadPaperBundle(examPaperId);
+        return getPaper(examPaperId, null);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public Map<String, Object> getPaper(long examPaperId, String examContent) {
+        PaperBundle bundle = loadPaperBundle(examPaperId, examContent);
         Map<String, Object> response = serializePaperListItem(bundle.paper());
         response.put("payload", bundle.payload());
         return response;
@@ -200,7 +246,7 @@ public class MockExamServiceImpl implements MockExamService {
     public Map<String, Object> submitPaper(String userId, long examPaperId, MockExamRequests.SubmitRequest request) {
         PaperBundle bundle = loadPaperBundle(examPaperId);
         Map<String, Object> progress = null;
-        Map<String, Object> payload = bundle.payload();
+        Map<String, Object> payload = requestPayloadOrDefault(request.payload(), bundle.payload());
         if (request.progressId() != null) {
             progress = requireActiveProgress(userId, request.progressId());
             if (longValue(progress.get("exam_paper_id")) != examPaperId) {
@@ -208,7 +254,7 @@ public class MockExamServiceImpl implements MockExamService {
             }
             Object progressPayload = parseJson(progress.get("payload_json"));
             if (progressPayload instanceof Map<?, ?>) {
-                payload = safeMap(progressPayload);
+                payload = repairPayload(safeMap(progressPayload));
             }
         }
 
@@ -220,13 +266,18 @@ public class MockExamServiceImpl implements MockExamService {
             elapsedSeconds = Math.max(elapsedSeconds, intValue(progress.get("elapsed_seconds")));
         }
 
+        String examContent = resolvePaperAttemptExamContent(bundle.paper(), payload);
+        if (progress != null) {
+            examContent = blankToDefault(stringValue(progress.get("exam_content")), examContent);
+        }
+
         long submissionId = insertSubmission(
             userId,
             longValue(bundle.paper().get("exam_paper_id")),
             trimToNull(stringValue(bundle.paper().get("paper_code"))),
             paperTitle(bundle.paper()),
             paperExamCategory(bundle.paper()),
-            paperExamContent(bundle.paper()),
+            examContent,
             payload,
             result,
             elapsedSeconds
@@ -247,7 +298,7 @@ public class MockExamServiceImpl implements MockExamService {
     public Map<String, Object> submitPaperSet(String userId, long paperSetId, MockExamRequests.SubmitRequest request) {
         PaperSetBundle bundle = loadPaperSetBundle(paperSetId, true);
         Map<String, Object> progress = null;
-        Map<String, Object> payload = bundle.payload();
+        Map<String, Object> payload = requestPayloadOrDefault(request.payload(), bundle.payload());
         String paperCode = buildPaperSetPaperCode(paperSetId);
         if (request.progressId() != null) {
             progress = requireActiveProgress(userId, request.progressId());
@@ -257,7 +308,7 @@ public class MockExamServiceImpl implements MockExamService {
             }
             Object progressPayload = parseJson(progress.get("payload_json"));
             if (progressPayload instanceof Map<?, ?>) {
-                payload = safeMap(progressPayload);
+                payload = repairPayload(safeMap(progressPayload));
             }
         }
 
@@ -293,12 +344,14 @@ public class MockExamServiceImpl implements MockExamService {
     /**
      * {@inheritDoc}
      */
-    public Map<String, Object> listSubmissions(String userId, String examContent, Integer limit) {
-        String normalizedContent = normalizeExamContent(examContent, true);
+    public Map<String, Object> listSubmissions(String userId, String examCategory, String examContent, Integer limit) {
+        String normalizedCategory = normalizeOptionalExamCategory(examCategory);
+        String normalizedContent = normalizeOptionalExamContent(examContent);
         List<Map<String, Object>> items = new ArrayList<>();
         for (Map<String, Object> row : mockExamMapper.listSubmissions(
             userId,
-            trimToNull(normalizedContent),
+            normalizedCategory,
+            normalizedContent,
             clampInt(limit, 20, 1, 100)
         )) {
             items.add(serializeSubmissionItem(row));
@@ -326,8 +379,13 @@ public class MockExamServiceImpl implements MockExamService {
     /**
      * {@inheritDoc}
      */
-    public Map<String, Object> listProgresses(String userId, Integer limit) {
-        List<Map<String, Object>> rows = mockExamMapper.listProgresses(userId, clampInt(limit, 10, 1, 50));
+    public Map<String, Object> listProgresses(String userId, String examCategory, String examContent, Integer limit) {
+        List<Map<String, Object>> rows = mockExamMapper.listProgresses(
+            userId,
+            normalizeOptionalExamCategory(examCategory),
+            normalizeOptionalExamContent(examContent),
+            clampInt(limit, 10, 1, 50)
+        );
         List<Map<String, Object>> items = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             items.add(serializeProgressItem(row));
@@ -359,7 +417,8 @@ public class MockExamServiceImpl implements MockExamService {
         Map<String, Object> answers = safeMap(request.answers());
         Map<String, Object> marked = safeMap(request.marked());
         Map<String, Object> result = evaluateQuizPayload(payload, answers);
-        Long progressId = resolvePaperProgressId(userId, request.progressId(), examPaperId, null);
+        String examContent = resolvePaperAttemptExamContent(bundle.paper(), payload);
+        Long progressId = resolvePaperProgressId(userId, request.progressId(), examPaperId, null, examContent);
         if (progressId == null) {
             progressId = insertProgress(
                 userId,
@@ -367,7 +426,7 @@ public class MockExamServiceImpl implements MockExamService {
                 trimToNull(stringValue(bundle.paper().get("paper_code"))),
                 paperTitle(bundle.paper()),
                 paperExamCategory(bundle.paper()),
-                paperExamContent(bundle.paper()),
+                examContent,
                 payload,
                 request,
                 result
@@ -380,7 +439,7 @@ public class MockExamServiceImpl implements MockExamService {
                 trimToNull(stringValue(bundle.paper().get("paper_code"))),
                 paperTitle(bundle.paper()),
                 paperExamCategory(bundle.paper()),
-                paperExamContent(bundle.paper()),
+                examContent,
                 payload,
                 request,
                 result
@@ -404,7 +463,7 @@ public class MockExamServiceImpl implements MockExamService {
         Map<String, Object> marked = safeMap(request.marked());
         Map<String, Object> result = evaluateQuizPayload(payload, answers);
         String paperCode = buildPaperSetPaperCode(paperSetId);
-        Long progressId = resolvePaperProgressId(userId, request.progressId(), 0, paperCode);
+        Long progressId = resolvePaperProgressId(userId, request.progressId(), 0, paperCode, null);
         Map<String, Object> paperSet = bundle.paperSet();
         if (progressId == null) {
             progressId = insertProgress(
@@ -453,13 +512,38 @@ public class MockExamServiceImpl implements MockExamService {
     /**
      * {@inheritDoc}
      */
-    public Map<String, Object> listQuestionFavorites(String userId, Long examPaperId, Integer limit) {
+    public Map<String, Object> listQuestionFavorites(
+        String userId,
+        String examCategory,
+        String examContent,
+        Long examPaperId,
+        Integer limit
+    ) {
+        String normalizedCategory = normalizeOptionalExamCategory(examCategory);
+        String normalizedContent = normalizeOptionalExamContent(examContent);
+        int normalizedLimit = clampInt(limit, 50, 1, 200);
+        boolean useActFavoriteQuery = EXAM_CATEGORY_ACT.equals(normalizedCategory)
+            || (examPaperId != null && examPaperId < 0 && normalizedCategory == null);
+        List<Map<String, Object>> rows = useActFavoriteQuery
+            ? mockExamMapper.listActQuestionFavorites(
+                userId,
+                EXAM_CATEGORY_ACT.equals(normalizedCategory) ? EXAM_CATEGORY_ACT : null,
+                normalizedContent,
+                examPaperId,
+                normalizedLimit
+            )
+            : mockExamMapper.listQuestionFavorites(
+                userId,
+                normalizedCategory,
+                normalizedContent,
+                examPaperId,
+                normalizedLimit
+            );
+        if (rows.isEmpty() && useActFavoriteQuery && normalizedCategory == null) {
+            rows = mockExamMapper.listQuestionFavorites(userId, null, normalizedContent, examPaperId, normalizedLimit);
+        }
         List<Map<String, Object>> items = new ArrayList<>();
-        for (Map<String, Object> row : mockExamMapper.listQuestionFavorites(
-            userId,
-            examPaperId,
-            clampInt(limit, 50, 1, 200)
-        )) {
+        for (Map<String, Object> row : rows) {
             SourceMeta sourceMeta = extractSourceMeta(stringValue(row.get("paper_code")), null);
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("exam_question_id", longValue(row.get("exam_question_id")));
@@ -468,6 +552,7 @@ public class MockExamServiceImpl implements MockExamService {
             item.put("paper_title", stringValue(row.get("paper_title")));
             item.put("source_kind", sourceMeta.sourceKind());
             item.put("paper_set_id", sourceMeta.paperSetId());
+            item.put("exam_category", blankToDefault(stringValue(row.get("exam_category")), "IELTS"));
             item.put("exam_content", trimToNull(stringValue(row.get("exam_content"))));
             item.put("exam_section_id", nullableLong(row.get("exam_section_id")));
             item.put("section_title", trimToNull(stringValue(row.get("section_title"))));
@@ -479,6 +564,12 @@ public class MockExamServiceImpl implements MockExamService {
             item.put("stat_type", trimToNull(stringValue(row.get("stat_type"))));
             item.put("preview_text", previewText(stringValue(row.get("preview_source")), 240));
             item.put("create_time", row.get("create_time"));
+            if (!boolValue(row.get("external_enriched"))) {
+                enrichExternalQuestionFavoriteItem(item);
+            }
+            if (normalizedContent != null && !normalizedContent.equals(stringValue(item.get("exam_content")))) {
+                continue;
+            }
             items.add(item);
         }
         return Map.of("items", items);
@@ -487,8 +578,13 @@ public class MockExamServiceImpl implements MockExamService {
     /**
      * {@inheritDoc}
      */
-    public Map<String, Object> listEntityFavorites(String userId, Integer limit) {
-        List<Map<String, Object>> rows = mockExamMapper.listEntityFavorites(userId, clampInt(limit, 200, 1, 200));
+    public Map<String, Object> listEntityFavorites(String userId, String examCategory, String examContent, Integer limit) {
+        List<Map<String, Object>> rows = mockExamMapper.listEntityFavorites(
+            userId,
+            normalizeOptionalExamCategory(examCategory),
+            normalizeOptionalExamContent(examContent),
+            clampInt(limit, 200, 1, 200)
+        );
         List<Map<String, Object>> items = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             Map<String, Object> item = new LinkedHashMap<>();
@@ -631,8 +727,12 @@ public class MockExamServiceImpl implements MockExamService {
     /**
      * {@inheritDoc}
      */
-    public Map<String, Object> listWrongQuestions(String userId, Integer limit) {
-        List<Map<String, Object>> rows = mockExamMapper.listWrongQuestions(userId);
+    public Map<String, Object> listWrongQuestions(String userId, String examCategory, String examContent, Integer limit) {
+        List<Map<String, Object>> rows = mockExamMapper.listWrongQuestions(
+            userId,
+            normalizeOptionalExamCategory(examCategory),
+            normalizeOptionalExamContent(examContent)
+        );
         int totalQuestions = rows.size();
         int totalWrongCount = rows.stream().mapToInt(row -> intValue(row.get("wrong_count"))).sum();
         String mostCommonType = mostCommonType(rows);
@@ -646,6 +746,7 @@ public class MockExamServiceImpl implements MockExamService {
                 created.put("exam_paper_id", longValue(row.get("exam_paper_id")));
                 created.put("paper_code", trimToNull(stringValue(row.get("paper_code"))));
                 created.put("paper_title", stringValue(row.get("paper_title")));
+                created.put("exam_category", blankToDefault(stringValue(row.get("exam_category")), "IELTS"));
                 created.put("exam_section_id", nullableLong(row.get("exam_section_id")));
                 created.put("section_title", trimToNull(stringValue(row.get("section_title"))));
                 created.put("exam_group_id", nullableLong(row.get("exam_group_id")));
@@ -696,7 +797,7 @@ public class MockExamServiceImpl implements MockExamService {
      */
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> resolveWrongQuestions(String userId, MockExamRequests.WrongQuestionResolveRequest request) {
-        List<Long> ids = dedupePositiveLongs(request.examQuestionIds());
+        List<Long> ids = dedupeNonZeroLongs(request.examQuestionIds());
         if (CollUtil.isEmpty(ids)) {
             return Map.of("status", "ok", "removed_count", 0);
         }
@@ -709,7 +810,7 @@ public class MockExamServiceImpl implements MockExamService {
      */
     public Map<String, Object> getQuestionDetail(String userId, long examQuestionId) {
         if (isAlevelQuestionId(examQuestionId)) {
-            return buildAlevelQuestionDetail(userId, examQuestionId);
+            return buildExternalQuestionDetail(userId, examQuestionId);
         }
         Map<String, Object> question = requireQuestionSnapshot(examQuestionId);
         Map<String, Object> section = serializeQuestionDetailSection(question);
@@ -741,13 +842,23 @@ public class MockExamServiceImpl implements MockExamService {
     }
 
     private PaperBundle loadPaperBundle(long examPaperId) {
+        return loadPaperBundle(examPaperId, null);
+    }
+
+    private PaperBundle loadPaperBundle(long examPaperId, String examContent) {
         Map<String, Object> paper = requirePaperRow(examPaperId);
-        return new PaperBundle(paper, buildPaperPayload(paper));
+        String actSection = isActPaperRow(paper) ? normalizeActSectionFilter(examContent) : null;
+        if (actSection != null) {
+            paper = new LinkedHashMap<>(paper);
+            paper.put("exam_content", actSection);
+            paper.put("module_name", actSection);
+        }
+        return new PaperBundle(paper, buildPaperPayload(paper, actSection));
     }
 
     private Map<String, Object> requirePaperRow(long examPaperId) {
         if (isAlevelPaperId(examPaperId)) {
-            return requireAlevelPaperRow(examPaperId);
+            return requireExternalPaperRow(examPaperId);
         }
         Map<String, Object> row = mockExamMapper.findPaperRow(examPaperId);
         if (row == null) {
@@ -757,8 +868,15 @@ public class MockExamServiceImpl implements MockExamService {
     }
 
     private Map<String, Object> buildPaperPayload(Map<String, Object> paper) {
+        return buildPaperPayload(paper, null);
+    }
+
+    private Map<String, Object> buildPaperPayload(Map<String, Object> paper, String examContent) {
         if (isAlevelPaperRow(paper)) {
             return buildAlevelPaperPayload(paper);
+        }
+        if (isActPaperRow(paper)) {
+            return buildActPaperPayload(paper, examContent);
         }
         long examPaperId = longValue(paper.get("exam_paper_id"));
         List<Map<String, Object>> sections = mockExamMapper.listSectionsByPaper(examPaperId);
@@ -815,10 +933,16 @@ public class MockExamServiceImpl implements MockExamService {
         return repairPayload(payload);
     }
 
-    private Map<String, Object> requireAlevelPaperRow(long examPaperId) {
+    private Map<String, Object> requireExternalPaperRow(long examPaperId) {
         long paperRefId = toAlevelPaperRefId(examPaperId);
         MockExamPaperRef paperRef = mockExamPaperRefMapper.findActiveById(paperRefId);
-        if (paperRef == null || !SOURCE_TYPE_ALEVEL.equalsIgnoreCase(trimToEmpty(paperRef.getSourceType()))) {
+        if (paperRef == null) {
+            throw notFound("paper not found or disabled");
+        }
+        if (SOURCE_TYPE_ACT.equalsIgnoreCase(trimToEmpty(paperRef.getSourceType()))) {
+            return requireActPaperRow(paperRef);
+        }
+        if (!SOURCE_TYPE_ALEVEL.equalsIgnoreCase(trimToEmpty(paperRef.getSourceType()))) {
             throw notFound("paper not found or disabled");
         }
         AlevelPaper paper = alevelPaperMapper.findActiveById(paperRef.getSourcePaperId());
@@ -826,6 +950,14 @@ public class MockExamServiceImpl implements MockExamService {
             throw notFound("paper not found or disabled");
         }
         return buildAlevelPaperRow(paperRef, paper);
+    }
+
+    private Map<String, Object> requireActPaperRow(MockExamPaperRef paperRef) {
+        Map<String, Object> paper = actQuestionBankImportMapper.findActivePaperById(paperRef.getSourcePaperId());
+        if (paper == null) {
+            throw notFound("paper not found or disabled");
+        }
+        return buildActPaperRow(paperRef, paper);
     }
 
     private Map<String, Object> buildAlevelPaperRow(MockExamPaperRef paperRef, AlevelPaper paper) {
@@ -849,12 +981,287 @@ public class MockExamServiceImpl implements MockExamService {
         return row;
     }
 
+    private Map<String, Object> buildActPaperRow(MockExamPaperRef paperRef, Map<String, Object> paper) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("exam_paper_id", -paperRef.getMockexamPaperRefId());
+        row.put("mockexam_paper_ref_id", paperRef.getMockexamPaperRefId());
+        row.put("source_paper_id", longValue(paper.get("act_paper_id")));
+        row.put("paper_code", trimToNull(stringValue(paper.get("paper_code"))));
+        row.put("paper_name", paperTitle(paper));
+        row.put("bank_name", blankToDefault(stringValue(paper.get("exam_board")), EXAM_CATEGORY_ACT));
+        row.put("exam_category", EXAM_CATEGORY_ACT);
+        row.put("exam_content", trimToNull(firstNonBlank(paperRef.getExamContent(), stringValue(paper.get("exam_type")), EXAM_CATEGORY_ACT)));
+        row.put("module_name", EXAM_CATEGORY_ACT);
+        row.put("book_code", null);
+        row.put("test_no", null);
+        row.put("duration_seconds", nullableInteger(paper.get("duration_seconds")));
+        row.put("total_score", paper.get("total_score"));
+        row.put("payload_adapter", paperRef.getPayloadAdapter());
+        row.put("create_time", paper.get("create_time"));
+        row.put("update_time", paper.get("update_time"));
+        return row;
+    }
+
+    private Map<String, Object> buildActPaperPayload(Map<String, Object> paperRow) {
+        return buildActPaperPayload(paperRow, null);
+    }
+
+    private Map<String, Object> buildActPaperPayload(Map<String, Object> paperRow, String examContent) {
+        long paperId = longValue(paperRow.get("source_paper_id"));
+        long paperRefId = longValue(paperRow.get("mockexam_paper_ref_id"));
+        List<Map<String, Object>> sections = actQuestionBankImportMapper.listActiveSectionsByPaperId(paperId);
+        String actSection = normalizeActSectionFilter(examContent);
+        if (actSection != null) {
+            sections = sections.stream()
+                .filter(section -> matchesActSection(section, actSection))
+                .toList();
+            if (sections.isEmpty()) {
+                throw notFound("ACT section not found in current paper: " + actSection);
+            }
+        }
+        List<Map<String, Object>> passages = actQuestionBankImportMapper.listActivePassagesByPaperId(paperId);
+        List<Map<String, Object>> groups = actQuestionBankImportMapper.listActiveGroupsByPaperId(paperId);
+        List<Map<String, Object>> questions = actQuestionBankImportMapper.listActiveQuestionsByPaperId(paperId);
+        if (actSection != null) {
+            Set<Long> sectionIds = new LinkedHashSet<>(ids(sections, "act_section_id"));
+            passages = passages.stream()
+                .filter(passage -> sectionIds.contains(longValue(passage.get("act_section_id"))))
+                .toList();
+            groups = groups.stream()
+                .filter(group -> sectionIds.contains(longValue(group.get("act_section_id"))))
+                .toList();
+            questions = questions.stream()
+                .filter(question -> sectionIds.contains(longValue(question.get("act_section_id"))))
+                .toList();
+        }
+        List<Long> groupIds = ids(groups, "act_group_id");
+        List<Long> questionIds = ids(questions, "act_question_id");
+        List<Map<String, Object>> options = groupIds.isEmpty()
+            ? List.of()
+            : actQuestionBankImportMapper.listActiveOptionsByGroupIds(groupIds);
+        List<Map<String, Object>> answers = questionIds.isEmpty()
+            ? List.of()
+            : actQuestionBankImportMapper.listActiveAnswersByQuestionIds(questionIds);
+
+        Map<Long, Map<String, Object>> passageById = mapByLong(passages, "act_passage_id");
+        Map<Long, List<Map<String, Object>>> groupsBySection = groupByLong(groups, "act_section_id");
+        Map<Long, List<Map<String, Object>>> questionsByGroup = groupByLong(questions, "act_group_id");
+        Map<Long, List<Map<String, Object>>> optionsByGroup = groupByLong(options, "act_group_id");
+        Map<Long, List<Map<String, Object>>> answersByQuestion = groupByLong(answers, "act_question_id");
+        Map<Long, MockExamQuestionRef> questionRefBySourceId = new LinkedHashMap<>();
+        for (MockExamQuestionRef questionRef : mockExamQuestionRefMapper.findActiveByPaperRefId(paperRefId)) {
+            questionRefBySourceId.put(questionRef.getSourceQuestionId(), questionRef);
+        }
+
+        List<Map<String, Object>> serializedPassages = new ArrayList<>();
+        for (Map<String, Object> section : sections) {
+            Map<Long, List<Map<String, Object>>> groupsByPassage = new LinkedHashMap<>();
+            List<Map<String, Object>> groupsWithoutPassage = new ArrayList<>();
+            for (Map<String, Object> group : groupsBySection.getOrDefault(longValue(section.get("act_section_id")), List.of())) {
+                Long passageId = nullableLong(group.get("act_passage_id"));
+                if (passageId == null || passageId <= 0) {
+                    groupsWithoutPassage.add(group);
+                } else {
+                    groupsByPassage.computeIfAbsent(passageId, key -> new ArrayList<>()).add(group);
+                }
+            }
+
+            for (Map.Entry<Long, List<Map<String, Object>>> entry : groupsByPassage.entrySet()) {
+                Map<String, Object> passage = buildActPassage(
+                    section,
+                    passageById.get(entry.getKey()),
+                    entry.getValue(),
+                    questionsByGroup,
+                    optionsByGroup,
+                    answersByQuestion,
+                    questionRefBySourceId
+                );
+                if (passage != null) {
+                    serializedPassages.add(passage);
+                }
+            }
+
+            if (!groupsWithoutPassage.isEmpty()) {
+                Map<String, Object> passage = buildActPassage(
+                    section,
+                    null,
+                    groupsWithoutPassage,
+                    questionsByGroup,
+                    optionsByGroup,
+                    answersByQuestion,
+                    questionRefBySourceId
+                );
+                if (passage != null) {
+                    serializedPassages.add(passage);
+                }
+            }
+        }
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("module", actSection == null ? EXAM_CATEGORY_ACT : actSection);
+        payload.put("passages", serializedPassages);
+        return repairPayload(payload);
+    }
+
+    private Map<String, Object> buildActPassage(
+        Map<String, Object> section,
+        Map<String, Object> passageRow,
+        List<Map<String, Object>> groups,
+        Map<Long, List<Map<String, Object>>> questionsByGroup,
+        Map<Long, List<Map<String, Object>>> optionsByGroup,
+        Map<Long, List<Map<String, Object>>> answersByQuestion,
+        Map<Long, MockExamQuestionRef> questionRefBySourceId
+    ) {
+        List<Map<String, Object>> serializedGroups = new ArrayList<>();
+        for (Map<String, Object> group : groups) {
+            Map<String, Object> serialized = buildActGroup(
+                group,
+                passageRow == null,
+                questionsByGroup.getOrDefault(longValue(group.get("act_group_id")), List.of()),
+                optionsByGroup.getOrDefault(longValue(group.get("act_group_id")), List.of()),
+                answersByQuestion,
+                questionRefBySourceId
+            );
+            if (serialized != null) {
+                serializedGroups.add(serialized);
+            }
+        }
+        if (serializedGroups.isEmpty()) {
+            return null;
+        }
+
+        String sectionCode = blankToDefault(stringValue(section.get("section_code")), "S" + stringValue(section.get("section_no")));
+        String passageCode = passageRow == null
+            ? sectionCode
+            : blankToDefault(stringValue(passageRow.get("passage_code")), "P" + stringValue(passageRow.get("act_passage_id")));
+        Map<String, Object> passage = new LinkedHashMap<>();
+        passage.put("id", sectionCode + "-" + passageCode);
+        passage.put("title", passageRow == null
+            ? blankToDefault(stringValue(section.get("section_name")), sectionCode)
+            : blankToDefault(stringValue(passageRow.get("passage_title")), blankToDefault(stringValue(section.get("section_name")), sectionCode)));
+        passage.put("instructions", blankToDefault(stringValue(section.get("instructions_html")), stringValue(section.get("instructions_text"))));
+        passage.put("content", passageRow == null ? "" : blankToDefault(stringValue(passageRow.get("content_html")), stringValue(passageRow.get("content_text"))));
+        passage.put("audio", "");
+        passage.put("groups", serializedGroups);
+        return passage;
+    }
+
+    private Map<String, Object> buildActGroup(
+        Map<String, Object> group,
+        boolean includeGroupContent,
+        List<Map<String, Object>> questions,
+        List<Map<String, Object>> optionRows,
+        Map<Long, List<Map<String, Object>>> answersByQuestion,
+        Map<Long, MockExamQuestionRef> questionRefBySourceId
+    ) {
+        List<Map<String, Object>> serializedQuestions = new ArrayList<>();
+        List<Map<String, Object>> options = serializeActOptions(optionRows);
+        for (Map<String, Object> question : questions) {
+            Map<String, Object> payload = buildActQuestionPayload(
+                question,
+                questionRefBySourceId.get(longValue(question.get("act_question_id"))),
+                options,
+                answersByQuestion.getOrDefault(longValue(question.get("act_question_id")), List.of())
+            );
+            if (payload != null) {
+                serializedQuestions.add(payload);
+            }
+        }
+        if (serializedQuestions.isEmpty()) {
+            return null;
+        }
+
+        Map<String, Object> serialized = new LinkedHashMap<>();
+        serialized.put("id", blankToDefault(stringValue(group.get("group_code")), "ACT-G" + stringValue(group.get("act_group_id"))));
+        serialized.put("title", blankToDefault(stringValue(group.get("group_title")), ""));
+        serialized.put("instructions", includeGroupContent
+            ? blankToDefault(stringValue(group.get("content_html")), blankToDefault(stringValue(group.get("instructions_html")), stringValue(group.get("instructions_text"))))
+            : blankToDefault(stringValue(group.get("instructions_html")), stringValue(group.get("instructions_text"))));
+        serialized.put("type", stringValue(serializedQuestions.get(0).get("type")));
+        serialized.put("options", options.isEmpty() ? null : options);
+        serialized.put("questions", serializedQuestions);
+        return serialized;
+    }
+
+    private Map<String, Object> buildActQuestionPayload(
+        Map<String, Object> question,
+        MockExamQuestionRef questionRef,
+        List<Map<String, Object>> options,
+        List<Map<String, Object>> answers
+    ) {
+        if (questionRef == null) {
+            return null;
+        }
+        Map<String, Object> answerRow = answers.isEmpty() ? null : answers.get(0);
+        String questionType = mapActQuestionType(question, options);
+        String correctAnswer = extractActCorrectAnswer(answerRow);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("id", blankToDefault(stringValue(question.get("question_code")), "ACT-Q" + stringValue(question.get("act_question_id"))));
+        payload.put("exam_question_id", -questionRef.getMockexamQuestionRefId());
+        payload.put("question_no", nullableQuestionNo(question.get("question_no_display")));
+        payload.put("question_code", trimToNull(stringValue(question.get("question_code"))));
+        payload.put("stat_type", trimToNull(stringValue(question.get("question_type"))));
+        payload.put("exam_paper_id", null);
+        payload.put("exam_section_id", nullableLong(question.get("act_section_id")));
+        payload.put("exam_group_id", nullableLong(question.get("act_group_id")));
+        payload.put("type", questionType);
+        payload.put("stem", blankToDefault(stringValue(question.get("stem_html")), stringValue(question.get("stem_text"))));
+        payload.put("content", blankToDefault(stringValue(question.get("content_html")), stringValue(question.get("content_text"))));
+        payload.put("maxScore", question.get("score"));
+        payload.put("analysis", answerRow == null ? "" : blankToDefault(stringValue(answerRow.get("explanation_html")), stringValue(answerRow.get("explanation_text"))));
+
+        if ("single".equals(questionType) || "multiple".equals(questionType)) {
+            payload.put("answer", "multiple".equals(questionType) ? toObjectList(correctAnswer) : correctAnswer);
+            payload.put("options", options);
+        } else {
+            payload.put("answer", "");
+            payload.put("modelAnswer", answerRow == null ? "" : blankToDefault(stringValue(answerRow.get("answer_raw")), stringValue(answerRow.get("explanation_text"))));
+        }
+        return payload;
+    }
+
+    private List<Map<String, Object>> serializeActOptions(List<Map<String, Object>> options) {
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (int index = 0; index < options.size(); index++) {
+            Map<String, Object> option = options.get(index);
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("label", blankToDefault(stringValue(option.get("option_key")), String.valueOf((char) ('A' + index))));
+            item.put("content", blankToDefault(stringValue(option.get("option_html")), stringValue(option.get("option_text"))));
+            items.add(item);
+        }
+        return items;
+    }
+
+    private String extractActCorrectAnswer(Map<String, Object> answerRow) {
+        if (answerRow == null) {
+            return "";
+        }
+        Map<String, Object> answerJson = safeMap(answerRow.get("answer_json"));
+        List<Object> correctOptions = toObjectList(answerJson.get("correct_options"));
+        if (!correctOptions.isEmpty()) {
+            return trimToEmpty(stringValue(correctOptions.get(0)));
+        }
+        return trimToEmpty(stringValue(answerRow.get("answer_raw")));
+    }
+
+    private String mapActQuestionType(Map<String, Object> question, List<Map<String, Object>> options) {
+        String questionType = trimToEmpty(stringValue(question.get("question_type"))).toUpperCase(Locale.ROOT);
+        String responseMode = trimToEmpty(stringValue(question.get("response_mode"))).toUpperCase(Locale.ROOT);
+        if (!options.isEmpty() || "SINGLE_CHOICE".equals(questionType) || "RADIO".equals(responseMode)) {
+            return "single";
+        }
+        return "essay";
+    }
+
     private Map<String, Object> buildAlevelPaperPayload(Map<String, Object> paperRow) {
         long paperId = longValue(paperRow.get("source_paper_id"));
         long paperRefId = longValue(paperRow.get("mockexam_paper_ref_id"));
         List<AlevelModule> modules = alevelModuleMapper.findActiveByPaperId(paperId);
         List<AlevelQuestion> questions = alevelQuestionMapper.findActiveByPaperId(paperId);
-        List<AlevelAsset> paperAssets = alevelAssetMapper.findActiveByOwner("PAPER", paperId);
+        Map<Long, AlevelPdfPage> pdfPageById = mapAlevelPdfPageById(alevelPdfPageMapper.findActiveByPaperId(paperId));
+        Map<Long, List<AlevelQuestionMarkScheme>> markSchemesByQuestionId = loadAlevelMarkSchemesByQuestion(questions);
+        Map<Long, List<AlevelQuestionMaterialRef>> materialRefsByQuestionId = loadAlevelMaterialRefsByQuestion(questions);
         Map<Long, MockExamQuestionRef> questionRefBySourceId = new LinkedHashMap<>();
         for (MockExamQuestionRef questionRef : mockExamQuestionRefMapper.findActiveByPaperRefId(paperRefId)) {
             questionRefBySourceId.put(questionRef.getSourceQuestionId(), questionRef);
@@ -883,7 +1290,7 @@ public class MockExamServiceImpl implements MockExamService {
             for (List<AlevelQuestion> value : rootQuestionsByModule.values()) {
                 roots.addAll(value);
             }
-            passages.add(buildAlevelPassage(null, roots, childQuestions, questionRefBySourceId, paperAssets));
+            passages.add(buildAlevelPassage(null, roots, childQuestions, questionRefBySourceId, markSchemesByQuestionId, materialRefsByQuestionId, pdfPageById));
         } else {
             for (AlevelModule module : modules) {
                 passages.add(buildAlevelPassage(
@@ -891,7 +1298,9 @@ public class MockExamServiceImpl implements MockExamService {
                     rootQuestionsByModule.getOrDefault(module.getAlevelModuleId(), List.of()),
                     childQuestions,
                     questionRefBySourceId,
-                    paperAssets
+                    markSchemesByQuestionId,
+                    materialRefsByQuestionId,
+                    pdfPageById
                 ));
             }
         }
@@ -908,7 +1317,9 @@ public class MockExamServiceImpl implements MockExamService {
         List<AlevelQuestion> rootQuestions,
         Map<Long, List<AlevelQuestion>> childQuestions,
         Map<Long, MockExamQuestionRef> questionRefBySourceId,
-        List<AlevelAsset> paperAssets
+        Map<Long, List<AlevelQuestionMarkScheme>> markSchemesByQuestionId,
+        Map<Long, List<AlevelQuestionMaterialRef>> materialRefsByQuestionId,
+        Map<Long, AlevelPdfPage> pdfPageById
     ) {
         if ((rootQuestions == null || rootQuestions.isEmpty()) && module == null) {
             return null;
@@ -916,7 +1327,7 @@ public class MockExamServiceImpl implements MockExamService {
         List<Map<String, Object>> groups = new ArrayList<>();
         for (AlevelQuestion rootQuestion : rootQuestions) {
             List<AlevelQuestion> children = childQuestions.getOrDefault(rootQuestion.getAlevelQuestionId(), List.of());
-            Map<String, Object> group = buildAlevelGroup(rootQuestion, children, questionRefBySourceId);
+            Map<String, Object> group = buildAlevelGroup(rootQuestion, children, questionRefBySourceId, markSchemesByQuestionId, materialRefsByQuestionId, pdfPageById);
             if (group != null) {
                 groups.add(group);
             }
@@ -929,7 +1340,7 @@ public class MockExamServiceImpl implements MockExamService {
         passage.put("id", module == null ? "MAIN" : blankToDefault(module.getModuleCode(), "M" + module.getAlevelModuleId()));
         passage.put("title", module == null ? "Main" : blankToDefault(module.getModuleName(), "Main"));
         passage.put("instructions", blankToDefault(module == null ? "" : module.getInstructionsHtml(), ""));
-        passage.put("content", buildAlevelPaperAssetHtml(paperAssets));
+        passage.put("content", "");
         passage.put("groups", groups);
         return passage;
     }
@@ -937,7 +1348,10 @@ public class MockExamServiceImpl implements MockExamService {
     private Map<String, Object> buildAlevelGroup(
         AlevelQuestion rootQuestion,
         List<AlevelQuestion> children,
-        Map<Long, MockExamQuestionRef> questionRefBySourceId
+        Map<Long, MockExamQuestionRef> questionRefBySourceId,
+        Map<Long, List<AlevelQuestionMarkScheme>> markSchemesByQuestionId,
+        Map<Long, List<AlevelQuestionMaterialRef>> materialRefsByQuestionId,
+        Map<Long, AlevelPdfPage> pdfPageById
     ) {
         List<AlevelQuestion> interactiveQuestions = children == null || children.isEmpty()
             ? new ArrayList<>(List.of(rootQuestion))
@@ -948,7 +1362,13 @@ public class MockExamServiceImpl implements MockExamService {
 
         List<Map<String, Object>> questionPayloads = new ArrayList<>();
         for (AlevelQuestion question : interactiveQuestions) {
-            Map<String, Object> payload = buildAlevelQuestionPayload(question, questionRefBySourceId.get(question.getAlevelQuestionId()));
+            Map<String, Object> payload = buildAlevelQuestionPayload(
+                question,
+                questionRefBySourceId.get(question.getAlevelQuestionId()),
+                markSchemesByQuestionId.getOrDefault(question.getAlevelQuestionId(), List.of()),
+                materialRefsByQuestionId.getOrDefault(question.getAlevelQuestionId(), List.of()),
+                pdfPageById
+            );
             if (payload != null) {
                 questionPayloads.add(payload);
             }
@@ -966,15 +1386,24 @@ public class MockExamServiceImpl implements MockExamService {
         return group;
     }
 
-    private Map<String, Object> buildAlevelQuestionPayload(AlevelQuestion question, MockExamQuestionRef questionRef) {
+    private Map<String, Object> buildAlevelQuestionPayload(
+        AlevelQuestion question,
+        MockExamQuestionRef questionRef,
+        List<AlevelQuestionMarkScheme> markSchemes,
+        List<AlevelQuestionMaterialRef> materialRefs,
+        Map<Long, AlevelPdfPage> pdfPageById
+    ) {
         if (questionRef == null) {
             return null;
         }
 
         List<AlevelQuestionOption> options = alevelQuestionOptionMapper.findActiveByQuestionId(question.getAlevelQuestionId());
         AlevelQuestionAnswer answer = alevelQuestionAnswerMapper.findActiveByQuestionId(question.getAlevelQuestionId());
+        AlevelQuestionMarkScheme markScheme = firstAlevelMarkScheme(markSchemes);
         String questionType = mapAlevelQuestionType(question);
         String correctAnswer = extractAlevelCorrectAnswer(answer);
+        List<Map<String, Object>> markSchemePoints = extractAlevelMarkSchemePoints(markScheme, answer);
+        Map<String, Object> markSchemePayload = serializeAlevelMarkScheme(markScheme, answer, markSchemePoints);
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("id", blankToDefault(question.getQuestionCode(), "Q-" + question.getAlevelQuestionId()));
@@ -989,8 +1418,16 @@ public class MockExamServiceImpl implements MockExamService {
         payload.put("stem", blankToDefault(question.getStemHtml(), ""));
         payload.put("content", blankToDefault(question.getContentHtml(), ""));
         payload.put("maxScore", question.getMaxScore());
-        payload.put("markSchemePoints", extractAlevelMarkSchemePoints(answer));
-        payload.put("analysis", answer == null ? "" : blankToDefault(answer.getMarkSchemeExcerptText(), ""));
+        payload.put("sourcePageNo", question.getSourcePageNo());
+        payload.put("questionMaterials", serializeAlevelQuestionMaterials(materialRefs, pdfPageById));
+        payload.put("markScheme", markSchemePayload.isEmpty() ? null : markSchemePayload);
+        payload.put("markSchemePoints", markSchemePoints);
+        payload.put("markSchemeText", markScheme == null ? "" : blankToDefault(markScheme.getMarkSchemeText(), ""));
+        payload.put("markSchemeHtml", markScheme == null ? "" : blankToDefault(markScheme.getMarkSchemeHtml(), ""));
+        payload.put("analysis", firstNonBlank(
+            markScheme == null ? "" : markScheme.getAnswerSummaryText(),
+            answer == null ? "" : answer.getMarkSchemeExcerptText()
+        ));
 
         if ("single".equals(questionType)) {
             payload.put("answer", correctAnswer);
@@ -1025,11 +1462,205 @@ public class MockExamServiceImpl implements MockExamService {
         return trimToEmpty(answer.getAnswerRaw());
     }
 
+    private Map<Long, List<AlevelQuestionMarkScheme>> loadAlevelMarkSchemesByQuestion(List<AlevelQuestion> questions) {
+        List<Long> questionIds = new ArrayList<>();
+        Set<Long> seen = new LinkedHashSet<>();
+        for (AlevelQuestion question : questions) {
+            if (question == null || question.getAlevelQuestionId() == null || seen.contains(question.getAlevelQuestionId())) {
+                continue;
+            }
+            seen.add(question.getAlevelQuestionId());
+            questionIds.add(question.getAlevelQuestionId());
+        }
+        if (questionIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, List<AlevelQuestionMarkScheme>> grouped = new LinkedHashMap<>();
+        for (AlevelQuestionMarkScheme row : alevelQuestionMarkSchemeMapper.findActiveByQuestionIds(questionIds)) {
+            if (row.getAlevelQuestionId() == null) {
+                continue;
+            }
+            grouped.computeIfAbsent(row.getAlevelQuestionId(), key -> new ArrayList<>()).add(row);
+        }
+        return grouped;
+    }
+
+    private Map<Long, List<AlevelQuestionMaterialRef>> loadAlevelMaterialRefsByQuestion(List<AlevelQuestion> questions) {
+        List<Long> questionIds = new ArrayList<>();
+        Set<Long> seen = new LinkedHashSet<>();
+        for (AlevelQuestion question : questions) {
+            if (question == null || question.getAlevelQuestionId() == null || seen.contains(question.getAlevelQuestionId())) {
+                continue;
+            }
+            seen.add(question.getAlevelQuestionId());
+            questionIds.add(question.getAlevelQuestionId());
+        }
+        if (questionIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, List<AlevelQuestionMaterialRef>> grouped = new LinkedHashMap<>();
+        for (AlevelQuestionMaterialRef row : alevelQuestionMaterialRefMapper.findActiveByQuestionIds(questionIds)) {
+            if (row.getAlevelQuestionId() == null) {
+                continue;
+            }
+            grouped.computeIfAbsent(row.getAlevelQuestionId(), key -> new ArrayList<>()).add(row);
+        }
+        return grouped;
+    }
+
+    private Map<Long, AlevelPdfPage> mapAlevelPdfPageById(List<AlevelPdfPage> pdfPages) {
+        Map<Long, AlevelPdfPage> result = new LinkedHashMap<>();
+        if (pdfPages == null || pdfPages.isEmpty()) {
+            return result;
+        }
+        for (AlevelPdfPage page : pdfPages) {
+            if (page != null && page.getAlevelPdfPageId() != null) {
+                result.put(page.getAlevelPdfPageId(), page);
+            }
+        }
+        return result;
+    }
+
+    private List<Map<String, Object>> serializeAlevelQuestionMaterials(
+        List<AlevelQuestionMaterialRef> materialRefs,
+        Map<Long, AlevelPdfPage> pdfPageById
+    ) {
+        if (materialRefs == null || materialRefs.isEmpty()) {
+            return List.of();
+        }
+        boolean hasDetectedMaterial = materialRefs.stream()
+            .anyMatch(this::isDetectedAlevelMaterialRef);
+        List<Map<String, Object>> items = new ArrayList<>();
+        Set<String> seenUrls = new LinkedHashSet<>();
+        for (AlevelQuestionMaterialRef materialRef : materialRefs) {
+            if (hasDetectedMaterial && isAlevelQuestionPageFallback(materialRef)) {
+                continue;
+            }
+            AlevelPdfPage page = materialRef.getAlevelPdfPageId() == null
+                ? null
+                : pdfPageById.get(materialRef.getAlevelPdfPageId());
+            String imageUrl = resolveAlevelMaterialImageUrl(materialRef, page);
+            if (imageUrl == null || imageUrl.toLowerCase(Locale.ROOT).endsWith(".pdf") || seenUrls.contains(imageUrl)) {
+                continue;
+            }
+            seenUrls.add(imageUrl);
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("material_ref_id", materialRef.getAlevelQuestionMaterialRefId());
+            item.put("material_type", trimToNull(materialRef.getMaterialType()));
+            item.put("relation_type", trimToNull(materialRef.getRelationType()));
+            item.put("display_mode", "IMAGE");
+            item.put("asset_url", imageUrl);
+            item.put("image_url", imageUrl);
+            item.put("title", blankToDefault(materialRef.getTitle(), ""));
+            item.put("caption_html", blankToDefault(materialRef.getCaptionHtml(), ""));
+            item.put("caption_text", blankToDefault(materialRef.getCaptionText(), ""));
+            item.put("source_page_no", materialRef.getSourcePageNo());
+            item.put("image_width_px", page == null ? null : page.getImageWidthPx());
+            item.put("image_height_px", page == null ? null : page.getImageHeightPx());
+            item.put("match_status", trimToNull(materialRef.getMatchStatus()));
+            items.add(item);
+        }
+        return items;
+    }
+
+    private boolean isDetectedAlevelMaterialRef(AlevelQuestionMaterialRef materialRef) {
+        if (materialRef == null) {
+            return false;
+        }
+        String relationType = trimToEmpty(materialRef.getRelationType());
+        String materialType = trimToEmpty(materialRef.getMaterialType());
+        if (!"DETECTED".equalsIgnoreCase(relationType)) {
+            return false;
+        }
+        return "FIGURE".equalsIgnoreCase(materialType)
+            || "TABLE".equalsIgnoreCase(materialType);
+    }
+
+    private boolean isAlevelQuestionPageFallback(AlevelQuestionMaterialRef materialRef) {
+        if (materialRef == null) {
+            return false;
+        }
+        return "QUESTION_PAGE".equalsIgnoreCase(trimToEmpty(materialRef.getMaterialType()))
+            || "FALLBACK".equalsIgnoreCase(trimToEmpty(materialRef.getRelationType()));
+    }
+
+    private String resolveAlevelMaterialImageUrl(AlevelQuestionMaterialRef materialRef, AlevelPdfPage page) {
+        Map<String, Object> structure = safeMap(materialRef == null ? null : materialRef.getStructureJson());
+        String materialAssetUrl = trimToNull(stringValue(structure.get("asset_url")));
+        if (CharSequenceUtil.isNotBlank(materialAssetUrl)) {
+            return materialAssetUrl;
+        }
+        String url = firstNonBlank(
+            page == null ? "" : page.getRenderAssetUrl(),
+            page == null ? "" : page.getThumbnailAssetUrl()
+        );
+        if (CharSequenceUtil.isNotBlank(url)) {
+            return trimToNull(url);
+        }
+        return trimToNull(stringValue(structure.get("render_asset_url")));
+    }
+
+    private AlevelQuestionMarkScheme firstAlevelMarkScheme(List<AlevelQuestionMarkScheme> markSchemes) {
+        if (markSchemes == null || markSchemes.isEmpty()) {
+            return null;
+        }
+        return markSchemes.get(0);
+    }
+
+    private Map<String, Object> serializeAlevelMarkScheme(
+        AlevelQuestionMarkScheme markScheme,
+        AlevelQuestionAnswer answer,
+        List<Map<String, Object>> points
+    ) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        if (markScheme != null) {
+            payload.put("mark_scheme_id", markScheme.getAlevelQuestionMarkSchemeId());
+            payload.put("question_key", trimToNull(markScheme.getQuestionKey()));
+            payload.put("mark_value", markScheme.getMarkValue());
+            payload.put("answer_summary_text", blankToDefault(markScheme.getAnswerSummaryText(), ""));
+            payload.put("mark_scheme_text", blankToDefault(markScheme.getMarkSchemeText(), ""));
+            payload.put("mark_scheme_html", blankToDefault(markScheme.getMarkSchemeHtml(), ""));
+            payload.put("points", points);
+            payload.put("source_page_start", markScheme.getSourcePageStart());
+            payload.put("source_page_end", markScheme.getSourcePageEnd());
+            payload.put("match_status", trimToNull(markScheme.getMatchStatus()));
+            payload.put("match_confidence", markScheme.getMatchConfidence());
+            payload.put("grading_mode", trimToNull(markScheme.getGradingMode()));
+            return payload;
+        }
+        if (answer == null) {
+            return payload;
+        }
+        payload.put("answer_summary_text", blankToDefault(answer.getMarkSchemeExcerptText(), ""));
+        payload.put("mark_scheme_text", blankToDefault(answer.getMarkSchemeExcerptText(), ""));
+        payload.put("mark_scheme_html", "");
+        payload.put("points", points);
+        payload.put("match_status", "LEGACY_FALLBACK");
+        return payload;
+    }
+
+    private List<Map<String, Object>> extractAlevelMarkSchemePoints(
+        AlevelQuestionMarkScheme markScheme,
+        AlevelQuestionAnswer fallbackAnswer
+    ) {
+        List<Map<String, Object>> points = markScheme == null
+            ? List.of()
+            : extractAlevelMarkSchemePoints(markScheme.getMarkSchemeJson());
+        if (!points.isEmpty() || fallbackAnswer == null) {
+            return points;
+        }
+        return extractAlevelMarkSchemePoints(fallbackAnswer);
+    }
+
     private List<Map<String, Object>> extractAlevelMarkSchemePoints(AlevelQuestionAnswer answer) {
         if (answer == null) {
             return List.of();
         }
-        Map<String, Object> markScheme = safeMap(answer.getMarkSchemeJson());
+        return extractAlevelMarkSchemePoints(answer.getMarkSchemeJson());
+    }
+
+    private List<Map<String, Object>> extractAlevelMarkSchemePoints(String markSchemeJson) {
+        Map<String, Object> markScheme = safeMap(markSchemeJson);
         List<Map<String, Object>> points = listOfMaps(markScheme.get("marking_points"));
         List<Map<String, Object>> items = new ArrayList<>();
         for (Map<String, Object> point : points) {
@@ -1041,22 +1672,6 @@ public class MockExamServiceImpl implements MockExamService {
             items.add(item);
         }
         return items;
-    }
-
-    private String buildAlevelPaperAssetHtml(List<AlevelAsset> assets) {
-        List<String> links = new ArrayList<>();
-        for (AlevelAsset asset : assets) {
-            String assetUrl = trimToNull(asset.getAssetUrl());
-            if (assetUrl == null) {
-                continue;
-            }
-            String assetName = blankToDefault(asset.getAssetName(), "Attachment");
-            links.add("<li><a href=\"" + assetUrl + "\" target=\"_blank\" rel=\"noreferrer\">" + assetName + "</a></li>");
-        }
-        if (links.isEmpty()) {
-            return "";
-        }
-        return "<div class=\"practice-exam-alevel-attachments\"><p>Attachments</p><ul>" + String.join("", links) + "</ul></div>";
     }
 
     private String mapAlevelQuestionType(AlevelQuestion question) {
@@ -1307,6 +1922,10 @@ public class MockExamServiceImpl implements MockExamService {
         item.put("module_name", blankToDefault(stringValue(row.get("module_name")), ""));
         item.put("book_code", trimToNull(stringValue(row.get("book_code"))));
         item.put("test_no", nullableInteger(row.get("test_no")));
+        item.put("duration_seconds", nullableInteger(row.get("duration_seconds")));
+        item.put("total_score", row.get("total_score"));
+        item.put("mockexam_paper_ref_id", nullableLong(row.get("mockexam_paper_ref_id")));
+        item.put("source_paper_id", nullableLong(row.get("source_paper_id")));
         item.put("create_time", row.get("create_time"));
         return item;
     }
@@ -1477,12 +2096,13 @@ public class MockExamServiceImpl implements MockExamService {
         String examContent
     ) {
         Map<String, Object> row = new LinkedHashMap<>();
+        boolean externalQuestion = isAlevelQuestionId(examQuestionId);
         row.put("userId", userId);
         row.put("examPaperId", longValue(question.get("exam_paper_id")));
         row.put("paperCode", paperCode);
         row.put("paperTitle", paperTitle);
-        row.put("examSectionId", longValue(question.get("exam_section_id")));
-        row.put("examGroupId", longValue(question.get("exam_group_id")));
+        row.put("examSectionId", externalQuestion ? null : longValue(question.get("exam_section_id")));
+        row.put("examGroupId", externalQuestion ? null : longValue(question.get("exam_group_id")));
         row.put("examQuestionId", examQuestionId);
         row.put("questionId", questionBusinessId(question));
         row.put("questionNo", trimToNull(stringValue(question.get("question_no"))));
@@ -1492,6 +2112,36 @@ public class MockExamServiceImpl implements MockExamService {
         row.put("examContent", examContent);
         row.put("now", timestampNow());
         return row;
+    }
+
+    private void enrichExternalQuestionFavoriteItem(Map<String, Object> item) {
+        long examQuestionId = longValue(item.get("exam_question_id"));
+        if (!isAlevelQuestionId(examQuestionId)) {
+            return;
+        }
+        Map<String, Object> snapshot = loadExternalQuestionSnapshotOrNull(examQuestionId);
+        if (snapshot == null) {
+            return;
+        }
+        item.put("exam_paper_id", longValue(snapshot.get("exam_paper_id")));
+        item.put("paper_code", trimToNull(stringValue(snapshot.get("paper_code"))));
+        item.put("paper_title", paperTitle(snapshot));
+        item.put("exam_category", blankToDefault(stringValue(snapshot.get("exam_category")), stringValue(item.get("exam_category"))));
+        item.put("exam_content", trimToNull(blankToDefault(stringValue(snapshot.get("exam_content")), stringValue(item.get("exam_content")))));
+        item.put("exam_section_id", nullableLong(snapshot.get("exam_section_id")));
+        item.put("section_title", trimToNull(stringValue(snapshot.get("section_title"))));
+        item.put("exam_group_id", nullableLong(snapshot.get("exam_group_id")));
+        item.put("group_title", trimToNull(stringValue(snapshot.get("group_title"))));
+        item.put("question_id", blankToDefault(questionBusinessId(snapshot), stringValue(item.get("question_id"))));
+        item.put("question_no", trimToNull(blankToDefault(stringValue(snapshot.get("question_no")), stringValue(item.get("question_no")))));
+        item.put("question_type", trimToNull(blankToDefault(stringValue(snapshot.get("raw_type")), stringValue(item.get("question_type")))));
+        item.put("stat_type", trimToNull(blankToDefault(stringValue(snapshot.get("stat_type")), stringValue(item.get("stat_type")))));
+        if (CharSequenceUtil.isBlank(stringValue(item.get("preview_text")))) {
+            item.put("preview_text", previewText(blankToDefault(
+                stringValue(snapshot.get("stem_text")),
+                blankToDefault(stringValue(snapshot.get("content_text")), stringValue(snapshot.get("stem_html")))
+            ), 240));
+        }
     }
 
     private Map<String, Object> submissionMutationRow(
@@ -1618,7 +2268,7 @@ public class MockExamServiceImpl implements MockExamService {
         row.put("latestWrongSubmissionId", longValue(submission.get("mockexam_submission_id")));
         row.put("latestWrongQuestionStateId", stateId);
         row.put("latestWrongTime", submission.get("create_time") == null ? now : submission.get("create_time"));
-        row.put("latestUserAnswerJson", JSONUtil.toJsonStr(latestAnswer));
+        row.put("latestUserAnswerJson", answerValueToJson(latestAnswer));
         row.put("latestMarked", latestMarked ? 1 : 0);
         row.put("now", now);
         return row;
@@ -1649,7 +2299,13 @@ public class MockExamServiceImpl implements MockExamService {
         return row;
     }
 
-    private Long resolvePaperProgressId(String userId, Long requestedProgressId, long examPaperId, String paperCode) {
+    private Long resolvePaperProgressId(
+        String userId,
+        Long requestedProgressId,
+        long examPaperId,
+        String paperCode,
+        String examContent
+    ) {
         if (requestedProgressId != null) {
             Map<String, Object> progress = requireActiveProgress(userId, requestedProgressId);
             if (paperCode != null) {
@@ -1662,8 +2318,8 @@ public class MockExamServiceImpl implements MockExamService {
             return requestedProgressId;
         }
         Map<String, Object> row = paperCode == null
-            ? mockExamMapper.findActiveProgressIdByPaper(userId, examPaperId)
-            : mockExamMapper.findActiveProgressIdByPaperCode(userId, paperCode);
+            ? mockExamMapper.findActiveProgressIdByPaper(userId, examPaperId, trimToNull(examContent))
+            : mockExamMapper.findActiveProgressIdByPaperCode(userId, paperCode, trimToNull(examContent));
         return row == null ? null : longValue(row.get("mockexam_progress_id"));
     }
 
@@ -2026,23 +2682,33 @@ public class MockExamServiceImpl implements MockExamService {
 
     private List<QuestionRecord> flattenQuestions(Map<String, Object> payload) {
         List<QuestionRecord> records = new ArrayList<>();
+        Set<String> seenQuestionKeys = new LinkedHashSet<>();
         int index = 0;
         for (Map<String, Object> passage : listOfMaps(payload.get("passages"))) {
-            appendQuestionRecords(records, listOfMaps(passage.get("questions")), index);
+            appendQuestionRecords(records, listOfMaps(passage.get("questions")), seenQuestionKeys, index);
             index = records.size();
             for (Map<String, Object> group : listOfMaps(passage.get("groups"))) {
-                appendQuestionRecords(records, listOfMaps(group.get("questions")), index);
+                appendQuestionRecords(records, listOfMaps(group.get("questions")), seenQuestionKeys, index);
                 index = records.size();
             }
         }
         return records;
     }
 
-    private void appendQuestionRecords(List<QuestionRecord> records, List<Map<String, Object>> questions, int startIndex) {
+    private void appendQuestionRecords(
+        List<QuestionRecord> records,
+        List<Map<String, Object>> questions,
+        Set<String> seenQuestionKeys,
+        int startIndex
+    ) {
         int index = startIndex;
         for (Map<String, Object> question : questions) {
             String questionId = trimToNull(stringValue(question.get("id")));
             if (questionId == null) {
+                continue;
+            }
+            String uniqueKey = questionUniqueKey(questionId);
+            if (!seenQuestionKeys.add(uniqueKey)) {
                 continue;
             }
             records.add(new QuestionRecord(
@@ -2056,6 +2722,10 @@ public class MockExamServiceImpl implements MockExamService {
             ));
             index++;
         }
+    }
+
+    private String questionUniqueKey(String questionId) {
+        return "business:" + questionId;
     }
 
     private String inferPayloadQuestionType(Map<String, Object> question) {
@@ -2166,7 +2836,9 @@ public class MockExamServiceImpl implements MockExamService {
     }
 
     private Map<String, Object> loadWrongQuestionSnapshot(QuestionRecord record, Map<String, Object> submission) {
-        Map<String, Object> question = mockExamMapper.findWrongQuestionSnapshot(record.examQuestionId());
+        Map<String, Object> question = isAlevelQuestionId(record.examQuestionId())
+            ? loadExternalQuestionSnapshotOrNull(record.examQuestionId())
+            : mockExamMapper.findWrongQuestionSnapshot(record.examQuestionId());
         Map<String, Object> source = question == null ? Map.of() : question;
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("exam_paper_id", valueOrDefault(source.get("exam_paper_id"), submission.get("exam_paper_id")));
@@ -2183,12 +2855,20 @@ public class MockExamServiceImpl implements MockExamService {
         snapshot.put("exam_category", blankToDefault(stringValue(source.get("exam_category")), stringValue(submission.get("exam_category"))));
         snapshot.put("exam_content", CharSequenceUtil.isNotBlank(stringValue(source.get("subject_type")))
             ? examContentFromSubjectType(stringValue(source.get("subject_type")))
-            : trimToNull(stringValue(submission.get("exam_content"))));
+            : trimToNull(blankToDefault(stringValue(source.get("exam_content")), stringValue(submission.get("exam_content")))));
         snapshot.put("preview_text", previewText(blankToDefault(stringValue(source.get("stem_text")), blankToDefault(stringValue(source.get("content_text")), blankToDefault(stringValue(source.get("stem_html")), stringValue(source.get("content_html"))))), 240));
         if (CharSequenceUtil.isBlank(stringValue(snapshot.get("preview_text")))) {
             snapshot.put("preview_text", previewText(blankToDefault(stringValue(record.question().get("stem")), stringValue(record.question().get("content"))), 240));
         }
         return snapshot;
+    }
+
+    private Map<String, Object> loadExternalQuestionSnapshotOrNull(long examQuestionId) {
+        try {
+            return requireExternalQuestionSnapshot(examQuestionId);
+        } catch (ApiException ignored) {
+            return null;
+        }
     }
 
     private Long findSubmissionQuestionStateId(long submissionId, QuestionRecord record) {
@@ -2245,12 +2925,61 @@ public class MockExamServiceImpl implements MockExamService {
 
     private Map<String, Object> requireQuestionSnapshot(long examQuestionId) {
         if (isAlevelQuestionId(examQuestionId)) {
-            return requireAlevelQuestionSnapshot(examQuestionId);
+            return requireExternalQuestionSnapshot(examQuestionId);
         }
         Map<String, Object> row = mockExamMapper.findQuestionSnapshot(examQuestionId);
         if (row == null) {
             throw notFound("question not found");
         }
+        return row;
+    }
+
+    private Map<String, Object> requireExternalQuestionSnapshot(long examQuestionId) {
+        MockExamQuestionRef questionRef = mockExamQuestionRefMapper.findActiveById(toAlevelQuestionRefId(examQuestionId));
+        if (questionRef == null) {
+            throw notFound("question not found");
+        }
+        if (SOURCE_TYPE_ACT.equalsIgnoreCase(trimToEmpty(questionRef.getSourceType()))) {
+            return requireActQuestionSnapshot(examQuestionId, questionRef);
+        }
+        if (SOURCE_TYPE_ALEVEL.equalsIgnoreCase(trimToEmpty(questionRef.getSourceType()))) {
+            return requireAlevelQuestionSnapshot(examQuestionId);
+        }
+        throw notFound("question not found");
+    }
+
+    private Map<String, Object> requireActQuestionSnapshot(long examQuestionId, MockExamQuestionRef questionRef) {
+        MockExamPaperRef paperRef = mockExamPaperRefMapper.findActiveById(questionRef.getMockexamPaperRefId());
+        Map<String, Object> question = actQuestionBankImportMapper.findActiveQuestionById(questionRef.getSourceQuestionId());
+        if (paperRef == null || question == null) {
+            throw notFound("question not found");
+        }
+
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("exam_question_id", examQuestionId);
+        row.put("exam_paper_id", -paperRef.getMockexamPaperRefId());
+        row.put("paper_code", trimToNull(stringValue(question.get("paper_code"))));
+        row.put("paper_name", paperTitle(question));
+        row.put("exam_category", EXAM_CATEGORY_ACT);
+        row.put("exam_content", trimToNull(firstNonBlank(
+            stringValue(question.get("section_name")),
+            paperRef.getExamContent(),
+            stringValue(question.get("exam_type")),
+            EXAM_CATEGORY_ACT
+        )));
+        row.put("exam_section_id", nullableLong(question.get("act_section_id")));
+        row.put("section_title", trimToNull(stringValue(question.get("section_name"))));
+        row.put("exam_group_id", nullableLong(question.get("act_group_id")));
+        row.put("group_title", trimToNull(stringValue(question.get("group_title"))));
+        row.put("question_id", blankToDefault(stringValue(question.get("question_code")), "ACT-Q" + stringValue(question.get("act_question_id"))));
+        row.put("question_code", trimToNull(stringValue(question.get("question_code"))));
+        row.put("question_no", trimToNull(stringValue(question.get("question_no_display"))));
+        row.put("raw_type", trimToNull(stringValue(question.get("question_type"))));
+        row.put("stat_type", trimToNull(stringValue(question.get("question_type"))));
+        row.put("stem_text", trimToNull(stringValue(question.get("stem_text"))));
+        row.put("stem_html", trimToNull(stringValue(question.get("stem_html"))));
+        row.put("content_text", trimToNull(stringValue(question.get("content_text"))));
+        row.put("content_html", trimToNull(stringValue(question.get("content_html"))));
         return row;
     }
 
@@ -2286,6 +3015,77 @@ public class MockExamServiceImpl implements MockExamService {
         return row;
     }
 
+    private Map<String, Object> buildExternalQuestionDetail(String userId, long examQuestionId) {
+        MockExamQuestionRef questionRef = mockExamQuestionRefMapper.findActiveById(toAlevelQuestionRefId(examQuestionId));
+        if (questionRef == null) {
+            throw notFound("question not found");
+        }
+        if (SOURCE_TYPE_ACT.equalsIgnoreCase(trimToEmpty(questionRef.getSourceType()))) {
+            return buildActQuestionDetail(userId, examQuestionId, questionRef);
+        }
+        if (SOURCE_TYPE_ALEVEL.equalsIgnoreCase(trimToEmpty(questionRef.getSourceType()))) {
+            return buildAlevelQuestionDetail(userId, examQuestionId);
+        }
+        throw notFound("question not found");
+    }
+
+    private Map<String, Object> buildActQuestionDetail(String userId, long examQuestionId, MockExamQuestionRef questionRef) {
+        MockExamPaperRef paperRef = mockExamPaperRefMapper.findActiveById(questionRef.getMockexamPaperRefId());
+        Map<String, Object> question = actQuestionBankImportMapper.findActiveQuestionById(questionRef.getSourceQuestionId());
+        if (paperRef == null || question == null) {
+            throw notFound("question not found");
+        }
+
+        List<Map<String, Object>> options = actQuestionBankImportMapper.listActiveOptionsByGroupId(longValue(question.get("act_group_id")));
+        Map<String, Object> answer = actQuestionBankImportMapper.findActiveAnswerByQuestionId(longValue(question.get("act_question_id")));
+        Map<String, Object> questionPayload = buildActQuestionPayload(
+            question,
+            questionRef,
+            serializeActOptions(options),
+            answer == null ? List.of() : List.of(answer)
+        );
+        if (questionPayload == null) {
+            throw notFound("question detail unavailable");
+        }
+
+        Map<String, Object> section = new LinkedHashMap<>();
+        section.put("id", blankToDefault(stringValue(question.get("section_code")), "ACT"));
+        section.put("title", blankToDefault(stringValue(question.get("section_name")), "ACT"));
+        section.put("instructions", blankToDefault(stringValue(question.get("section_instructions_html")), stringValue(question.get("section_instructions_text"))));
+        section.put("content", "");
+        section.put("audio", null);
+
+        Map<String, Object> group = new LinkedHashMap<>();
+        group.put("id", blankToDefault(stringValue(question.get("group_code")), "ACT-G" + stringValue(question.get("act_group_id"))));
+        group.put("title", blankToDefault(stringValue(question.get("group_title")), ""));
+        group.put("instructions", blankToDefault(stringValue(question.get("group_content_html")), blankToDefault(stringValue(question.get("group_instructions_html")), stringValue(question.get("group_instructions_text")))));
+        group.put("type", stringValue(questionPayload.get("type")));
+        group.put("options", questionPayload.get("options"));
+
+        boolean isFavorite = mockExamMapper.findActiveQuestionFavorite(userId, examQuestionId) != null;
+        Map<String, Object> wrongRow = mockExamMapper.findQuestionWrongCount(userId, examQuestionId);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("exam_question_id", examQuestionId);
+        response.put("exam_paper_id", -paperRef.getMockexamPaperRefId());
+        response.put("paper_code", trimToNull(stringValue(question.get("paper_code"))));
+        response.put("paper_name", paperTitle(question));
+        response.put("exam_category", EXAM_CATEGORY_ACT);
+        response.put("exam_content", trimToNull(firstNonBlank(
+            stringValue(question.get("section_name")),
+            paperRef.getExamContent(),
+            stringValue(question.get("exam_type")),
+            EXAM_CATEGORY_ACT
+        )));
+        response.put("is_favorite", isFavorite);
+        response.put("wrong_count", wrongRow == null ? 0 : intValue(wrongRow.get("wrong_count")));
+        response.put("material_html", buildMaterialHtml(section, group));
+        response.put("section", section);
+        response.put("group", group);
+        response.put("question", questionPayload);
+        return response;
+    }
+
     private Map<String, Object> buildAlevelQuestionDetail(String userId, long examQuestionId) {
         MockExamQuestionRef questionRef = mockExamQuestionRefMapper.findActiveById(toAlevelQuestionRefId(examQuestionId));
         if (questionRef == null) {
@@ -2301,7 +3101,13 @@ public class MockExamServiceImpl implements MockExamService {
         AlevelModule module = question.getAlevelModuleId() == null ? null : alevelModuleMapper.findActiveById(question.getAlevelModuleId());
         AlevelQuestion parentQuestion = question.getParentQuestionId() == null ? null : alevelQuestionMapper.findActiveById(question.getParentQuestionId());
         Map<String, Object> paperRow = buildAlevelPaperRow(paperRef, paper);
-        Map<String, Object> questionPayload = buildAlevelQuestionPayload(question, questionRef);
+        Map<String, Object> questionPayload = buildAlevelQuestionPayload(
+            question,
+            questionRef,
+            alevelQuestionMarkSchemeMapper.findActiveByQuestionId(question.getAlevelQuestionId()),
+            alevelQuestionMaterialRefMapper.findActiveByQuestionId(question.getAlevelQuestionId()),
+            mapAlevelPdfPageById(alevelPdfPageMapper.findActiveByPaperId(paper.getAlevelPaperId()))
+        );
         if (questionPayload == null) {
             throw notFound("question detail unavailable");
         }
@@ -2310,7 +3116,7 @@ public class MockExamServiceImpl implements MockExamService {
         section.put("id", module == null ? "MAIN" : blankToDefault(module.getModuleCode(), "M" + module.getAlevelModuleId()));
         section.put("title", module == null ? blankToDefault(paper.getUnitName(), "Main") : blankToDefault(module.getModuleName(), "Main"));
         section.put("instructions", module == null ? "" : blankToDefault(module.getInstructionsHtml(), ""));
-        section.put("content", buildAlevelPaperAssetHtml(alevelAssetMapper.findActiveByOwner("PAPER", paper.getAlevelPaperId())));
+        section.put("content", "");
         section.put("audio", null);
 
         Map<String, Object> group = new LinkedHashMap<>();
@@ -2663,6 +3469,16 @@ public class MockExamServiceImpl implements MockExamService {
         return payload;
     }
 
+    private Map<String, Object> requestPayloadOrDefault(Object requestPayload, Map<String, Object> defaultPayload) {
+        if (requestPayload instanceof Map<?, ?> || requestPayload instanceof JSONObject || requestPayload instanceof String) {
+            Map<String, Object> payload = safeMap(requestPayload);
+            if (!payload.isEmpty()) {
+                return repairPayload(payload);
+            }
+        }
+        return defaultPayload;
+    }
+
     private void normalizeClozeQuestionFragments(List<Map<String, Object>> questions) {
         for (Map<String, Object> question : questions) {
             if (!"cloze_inline".equals(inferPayloadQuestionType(question))) {
@@ -2712,6 +3528,7 @@ public class MockExamServiceImpl implements MockExamService {
         item.put("exam_paper_id", longValue(row.get("exam_paper_id")));
         item.put("paper_code", trimToNull(stringValue(row.get("paper_code"))));
         item.put("paper_title", stringValue(row.get("paper_title")));
+        item.put("exam_category", blankToDefault(stringValue(row.get("exam_category")), "IELTS"));
         item.put("exam_section_id", nullableLong(row.get("exam_section_id")));
         item.put("section_title", trimToNull(stringValue(row.get("section_title"))));
         item.put("exam_group_id", nullableLong(row.get("exam_group_id")));
@@ -2761,17 +3578,29 @@ public class MockExamServiceImpl implements MockExamService {
         if (CharSequenceUtil.isBlank(normalized) && allowEmpty) {
             return "";
         }
-        if (!"IELTS".equals(normalized) && !EXAM_CATEGORY_ALEVEL.equals(normalized)) {
-            throw badRequest("mock exam only supports IELTS / ALEVEL");
+        if (!"IELTS".equals(normalized) && !EXAM_CATEGORY_ALEVEL.equals(normalized) && !EXAM_CATEGORY_ACT.equals(normalized)) {
+            throw badRequest("mock exam only supports IELTS / ALEVEL / ACT");
         }
         return normalized;
     }
 
+    private String normalizeOptionalExamCategory(String value) {
+        String raw = trimToEmpty(value);
+        if (CharSequenceUtil.isBlank(raw) || "all".equalsIgnoreCase(raw)) {
+            return null;
+        }
+        return trimToNull(normalizeExamCategory(raw, true));
+    }
+
     private String normalizeExamContent(String value, boolean allowEmpty) {
-        String normalized = titleCase(trimToEmpty(value));
-        if (CharSequenceUtil.isBlank(normalized) && allowEmpty) {
+        String raw = trimToEmpty(value);
+        if (CharSequenceUtil.isBlank(raw) && allowEmpty) {
             return "";
         }
+        if (EXAM_CATEGORY_ACT.equalsIgnoreCase(raw)) {
+            return EXAM_CATEGORY_ACT;
+        }
+        String normalized = titleCase(raw);
         if (IELTS_CONTENTS.contains(normalized)) {
             return normalized;
         }
@@ -2779,7 +3608,48 @@ public class MockExamServiceImpl implements MockExamService {
         if (alevelContents.contains(normalized)) {
             return normalized;
         }
+        List<String> actContents = mockExamPaperRefMapper.listActiveContentsByCategory(EXAM_CATEGORY_ACT);
+        List<String> actSectionContents = actQuestionBankImportMapper.listActiveSectionNames();
+        if (!actSectionContents.isEmpty()) {
+            actContents = actSectionContents;
+        }
+        for (String content : actContents) {
+            if (content != null && content.equalsIgnoreCase(raw)) {
+                return content;
+            }
+        }
         throw badRequest("mock exam content is not supported");
+    }
+
+    private String normalizeOptionalExamContent(String value) {
+        String raw = trimToEmpty(value);
+        if (CharSequenceUtil.isBlank(raw) || "all".equalsIgnoreCase(raw)) {
+            return null;
+        }
+        return trimToNull(normalizeExamContent(raw, true));
+    }
+
+    private String normalizeActSectionFilter(String value) {
+        String raw = trimToNull(value);
+        if (raw == null || "all".equalsIgnoreCase(raw) || EXAM_CATEGORY_ACT.equalsIgnoreCase(raw)) {
+            return null;
+        }
+        for (String sectionName : actQuestionBankImportMapper.listActiveSectionNames()) {
+            if (sectionName != null && sectionName.equalsIgnoreCase(raw)) {
+                return sectionName;
+            }
+        }
+        return titleCase(raw);
+    }
+
+    private boolean matchesActSection(Map<String, Object> section, String filter) {
+        String normalizedFilter = trimToEmpty(filter).toLowerCase(Locale.ROOT);
+        if (CharSequenceUtil.isBlank(normalizedFilter)) {
+            return true;
+        }
+        String sectionName = trimToEmpty(stringValue(section.get("section_name"))).toLowerCase(Locale.ROOT);
+        String sectionCode = trimToEmpty(stringValue(section.get("section_code"))).toLowerCase(Locale.ROOT);
+        return normalizedFilter.equals(sectionName) || normalizedFilter.equals(sectionCode);
     }
 
     private String normalizePaperSetContent(String value, boolean allowEmpty) {
@@ -2824,8 +3694,12 @@ public class MockExamServiceImpl implements MockExamService {
         return EXAM_CATEGORY_ALEVEL.equalsIgnoreCase(trimToEmpty(stringValue(row.get("exam_category"))));
     }
 
+    private boolean isActPaperRow(Map<String, Object> row) {
+        return EXAM_CATEGORY_ACT.equalsIgnoreCase(trimToEmpty(stringValue(row.get("exam_category"))));
+    }
+
     private long serializePaperId(Map<String, Object> row) {
-        if (isAlevelPaperRow(row)) {
+        if (isAlevelPaperRow(row) || isActPaperRow(row)) {
             Long refId = nullableLong(row.get("mockexam_paper_ref_id"));
             if (refId != null && refId > 0) {
                 return -refId;
@@ -2835,16 +3709,34 @@ public class MockExamServiceImpl implements MockExamService {
     }
 
     private String paperExamCategory(Map<String, Object> row) {
-        return isAlevelPaperRow(row)
-            ? EXAM_CATEGORY_ALEVEL
-            : blankToDefault(stringValue(row.get("exam_category")), "IELTS");
+        if (isAlevelPaperRow(row)) {
+            return EXAM_CATEGORY_ALEVEL;
+        }
+        if (isActPaperRow(row)) {
+            return EXAM_CATEGORY_ACT;
+        }
+        return blankToDefault(stringValue(row.get("exam_category")), "IELTS");
     }
 
     private String paperExamContent(Map<String, Object> row) {
         if (isAlevelPaperRow(row)) {
             return trimToNull(firstNonBlank(stringValue(row.get("exam_content")), stringValue(row.get("subject_name"))));
         }
+        if (isActPaperRow(row)) {
+            return trimToNull(firstNonBlank(stringValue(row.get("exam_content")), EXAM_CATEGORY_ACT));
+        }
         return examContentFromSubjectType(stringValue(row.get("subject_type")));
+    }
+
+    private String resolvePaperAttemptExamContent(Map<String, Object> paper, Map<String, Object> payload) {
+        if (!isActPaperRow(paper)) {
+            return paperExamContent(paper);
+        }
+        String requestedSection = normalizeActSectionFilter(firstNonBlank(
+            stringValue(payload.get("module")),
+            stringValue(payload.get("exam_content"))
+        ));
+        return requestedSection == null ? EXAM_CATEGORY_ACT : requestedSection;
     }
 
     private String subjectTypeFromExamContent(String examContent) {
@@ -2937,6 +3829,45 @@ public class MockExamServiceImpl implements MockExamService {
             return JSONUtil.toJsonStr(value);
         }
         return trimToEmpty(stringValue(value));
+    }
+
+    private String answerValueToJson(Object value) {
+        if (value == null) {
+            return "null";
+        }
+        if (value instanceof CharSequence || value instanceof Character || value instanceof Enum<?>) {
+            return quoteJsonString(stringValue(value));
+        }
+        if (value instanceof Number || value instanceof Boolean) {
+            return String.valueOf(value);
+        }
+        return JSONUtil.toJsonStr(value);
+    }
+
+    private String quoteJsonString(String value) {
+        StringBuilder builder = new StringBuilder("\"");
+        String text = stringValue(value);
+        for (int index = 0; index < text.length(); index++) {
+            char character = text.charAt(index);
+            switch (character) {
+                case '"' -> builder.append("\\\"");
+                case '\\' -> builder.append("\\\\");
+                case '\b' -> builder.append("\\b");
+                case '\f' -> builder.append("\\f");
+                case '\n' -> builder.append("\\n");
+                case '\r' -> builder.append("\\r");
+                case '\t' -> builder.append("\\t");
+                default -> {
+                    if (character < 0x20) {
+                        builder.append(String.format("\\u%04x", (int) character));
+                    } else {
+                        builder.append(character);
+                    }
+                }
+            }
+        }
+        builder.append('"');
+        return builder.toString();
     }
 
     private boolean answerValuePresent(Object value) {
@@ -3072,6 +4003,17 @@ public class MockExamServiceImpl implements MockExamService {
             Long value = nullableLong(row.get(column));
             if (value != null && value > 0) {
                 result.computeIfAbsent(value, key -> new ArrayList<>()).add(row);
+            }
+        }
+        return result;
+    }
+
+    private Map<Long, Map<String, Object>> mapByLong(List<Map<String, Object>> rows, String column) {
+        Map<Long, Map<String, Object>> result = new LinkedHashMap<>();
+        for (Map<String, Object> row : rows) {
+            Long value = nullableLong(row.get(column));
+            if (value != null && value > 0 && !result.containsKey(value)) {
+                result.put(value, row);
             }
         }
         return result;
@@ -3213,6 +4155,19 @@ public class MockExamServiceImpl implements MockExamService {
         LinkedHashSet<Long> result = new LinkedHashSet<>();
         for (Long value : values) {
             if (value != null && value > 0) {
+                result.add(value);
+            }
+        }
+        return new ArrayList<>(result);
+    }
+
+    private List<Long> dedupeNonZeroLongs(List<Long> values) {
+        if (values == null) {
+            return List.of();
+        }
+        LinkedHashSet<Long> result = new LinkedHashSet<>();
+        for (Long value : values) {
+            if (value != null && value != 0) {
                 result.add(value);
             }
         }

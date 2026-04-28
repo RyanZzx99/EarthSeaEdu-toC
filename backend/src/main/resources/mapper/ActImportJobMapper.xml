@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.ActImportJobMapper">
+
+    <update id="updateImportJobStoragePath">
+        UPDATE exam_import_job
+        SET storage_path = #{storagePath},
+            progress_message = #{progressMessage},
+            update_time = CURRENT_TIMESTAMP
+        WHERE exam_import_job_id = #{jobId}
+    </update>
+
+    <select id="findActiveImportJobById" resultType="map">
+        SELECT *
+        FROM exam_import_job
+        WHERE exam_import_job_id = #{jobId}
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <insert id="insertImportJob" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO exam_import_job (
+            job_name, bank_name, source_mode, storage_path, status, uploaded_file_count,
+            progress_message, delete_flag
+        ) VALUES (
+            #{jobName}, #{batchName}, #{sourceMode}, NULL, 'pending', #{uploadedFileCount},
+            #{progressMessage}, '1'
+        )
+    </insert>
+
+    <update id="markImportJobRunning">
+        UPDATE exam_import_job
+        SET status = 'running',
+            start_time = CURRENT_TIMESTAMP,
+            progress_message = #{progressMessage},
+            update_time = CURRENT_TIMESTAMP
+        WHERE exam_import_job_id = #{jobId}
+    </update>
+
+    <update id="updateJobProgress" parameterType="map">
+        UPDATE exam_import_job
+        SET resolved_file_count = #{resolvedFileCount},
+            manifest_count = #{jsonCount},
+            success_count = #{successCount},
+            failure_count = #{failureCount},
+            imported_paper_count = #{importedPaperCount},
+            imported_section_count = #{importedSectionCount},
+            imported_group_count = #{importedGroupCount},
+            imported_question_count = #{importedQuestionCount},
+            imported_answer_count = #{importedAnswerCount},
+            imported_option_count = #{importedOptionCount},
+            imported_asset_count = #{importedAssetCount},
+            progress_message = #{progressMessage},
+            result_json = #{resultJson},
+            update_time = CURRENT_TIMESTAMP
+        WHERE exam_import_job_id = #{jobId}
+    </update>
+
+    <update id="updateJobCompleted" parameterType="map">
+        UPDATE exam_import_job
+        SET status = 'completed',
+            resolved_file_count = #{resolvedFileCount},
+            manifest_count = #{jsonCount},
+            success_count = #{successCount},
+            failure_count = #{failureCount},
+            imported_paper_count = #{importedPaperCount},
+            imported_section_count = #{importedSectionCount},
+            imported_group_count = #{importedGroupCount},
+            imported_question_count = #{importedQuestionCount},
+            imported_answer_count = #{importedAnswerCount},
+            imported_option_count = #{importedOptionCount},
+            imported_asset_count = #{importedAssetCount},
+            progress_message = #{progressMessage},
+            result_json = #{resultJson},
+            finish_time = CURRENT_TIMESTAMP,
+            update_time = CURRENT_TIMESTAMP
+        WHERE exam_import_job_id = #{jobId}
+    </update>
+
+    <update id="markJobFailed">
+        UPDATE exam_import_job
+        SET status = 'failed',
+            error_message = #{errorMessage},
+            progress_message = #{progressMessage},
+            finish_time = COALESCE(finish_time, CURRENT_TIMESTAMP),
+            update_time = CURRENT_TIMESTAMP
+        WHERE exam_import_job_id = #{jobId}
+    </update>
+
+</mapper>

@@ -13,8 +13,8 @@ const RADAR_LABELS = {
   language: "语言能力",
   standardized: "标化考试",
   competition: "学术竞赛",
-  activity: "活动领导力",
-  project: "项目实践",
+  activity: "活动/企业实习",
+  project: "科研经历",
 };
 
 const RADAR_COLORS = {

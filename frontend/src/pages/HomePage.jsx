@@ -39,6 +39,7 @@ import { clearAccessToken, getAccessToken } from "../utils/authStorage";
 const AI_CHAT_BIZ_DOMAIN = "student_profile_build";
 const AI_CHAT_SESSION_CACHE_KEY = "latest_ai_chat_session_id";
 const AI_CHAT_OPEN_PANEL_KEY = "open_ai_chat_panel";
+const GUIDED_PROFILE_OPEN_PANEL_KEY = "open_guided_profile_panel";
 
 const examLinks = [
   { name: "托福报名", url: "https://toefl.neea.cn/", accent: "#2c4a8a", badge: "TOEFL" },
@@ -124,8 +125,8 @@ const RADAR_LABELS = {
   language: "语言能力",
   standardized: "标化考试",
   competition: "学术竞赛",
-  activity: "活动领导力",
-  project: "项目实践",
+  activity: "活动/企业实习",
+  project: "科研经历",
 };
 
 const RADAR_COLORS = {
@@ -504,19 +505,17 @@ export default function HomePage() {
       return;
     }
 
-    if (localStorage.getItem(AI_CHAT_OPEN_PANEL_KEY) !== "1") {
+    if (localStorage.getItem(GUIDED_PROFILE_OPEN_PANEL_KEY) !== "1") {
       return;
     }
 
-    if (aiSessionId || messages.length > 0 || profileData) {
-      return;
-    }
-
-    localStorage.removeItem(AI_CHAT_OPEN_PANEL_KEY);
+    localStorage.removeItem(GUIDED_PROFILE_OPEN_PANEL_KEY);
     setShowProfileResult(false);
-    setShowChat(true);
-    setUiHint("可以继续补充信息，我会基于当前会话继续整理档案。");
-  }, [profile?.user_id, aiSessionId, messages.length, profileData, aiRestoreReady]);
+    setShowChat(false);
+    setShowGuidedChat(true);
+    setConnectionError("");
+    setUiHint("");
+  }, [profile?.user_id, aiRestoreReady]);
 
   useEffect(() => {
     // 涓枃娉ㄩ噴锛?    // 鑷姩缁彂鎺掗槦娑堟伅鏃讹紝涔熻鎷垮埌鏈€鏂扮殑鈥滄槸鍚︿粛鍦ㄦ祦寮忕敓鎴愨€濈姸鎬併€?    assistantStreamingRef.current = assistantStreaming;
@@ -768,8 +767,8 @@ export default function HomePage() {
 
   async function restoreAiState(studentId) {
     try {
-      const shouldForceOpenChatFromNavigation =
-        localStorage.getItem(AI_CHAT_OPEN_PANEL_KEY) === "1";
+      localStorage.removeItem(AI_CHAT_OPEN_PANEL_KEY);
+      const shouldForceOpenChatFromNavigation = false;
       const currentResponse = await getCurrentAiChatSession(AI_CHAT_BIZ_DOMAIN);
       const currentSessionId = currentResponse.data?.session?.session_id || null;
       const rememberedSessionId = localStorage.getItem(AI_CHAT_SESSION_CACHE_KEY);
@@ -825,10 +824,6 @@ export default function HomePage() {
       currentStageRef.current = normalizedStage;
       setChatEnded(normalizedStage === "build_ready");
       chatEndedRef.current = normalizedStage === "build_ready";
-
-      if (restoredMessages.length > 0 || shouldForceOpenChatFromNavigation) {
-        setShowChat(true);
-      }
 
       if (sessionDetail.final_profile_id) {
         try {
@@ -1324,29 +1319,20 @@ export default function HomePage() {
 
   function handleContinueSupplementInfo() {
     setShowProfileResult(false);
-    setShowChat(true);
-    setShowGuidedChat(false);
-        setCurrentStage("build_ready");
-        currentStageRef.current = "build_ready";
-        setConversationPhase(null);
-        conversationPhaseRef.current = null;
-        setAssistantThinking(false);
-        assistantThinkingRef.current = false;
+    setShowChat(false);
+    setShowGuidedChat(true);
+    setCurrentStage("build_ready");
+    currentStageRef.current = "build_ready";
+    setConversationPhase(null);
+    conversationPhaseRef.current = null;
+    setAssistantThinking(false);
+    assistantThinkingRef.current = false;
     setAssistantStreaming(false);
     assistantStreamingRef.current = false;
     setQueuedOutgoingMessages([]);
     queuedOutgoingMessagesRef.current = [];
     setConnectionError("");
-
-    const guidanceMessage = buildSupplementGuidanceMessage();
-    setUiHint(guidanceMessage);
-    setMessages((previous) => {
-      const lastMessage = previous[previous.length - 1];
-      if (lastMessage?.role === "assistant" && lastMessage.content === guidanceMessage) {
-        return previous;
-      }
-      return [...previous, createChatMessage("assistant", guidanceMessage)];
-    });
+    setUiHint("");
   }
 
   function handleViewArchive() {
@@ -1754,27 +1740,16 @@ export default function HomePage() {
               ) : null}
 
               {!showChat && !showGuidedChat && !showProfileResult && !profileData ? (
-                <>
-                  <motion.button
-                    type="button"
-                    onClick={handleStartGuidedProfile}
-                    className="home-primary-button"
-                    whileHover={{ scale: 1.05, boxShadow: "0 20px 40px rgba(59,130,246,0.35)" }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    标准问卷建档
-                    <ArrowRightIcon />
-                  </motion.button>
-                  <motion.button
-                    type="button"
-                    onClick={handleStartChat}
-                    className="home-secondary-button"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    AI 自由建档
-                  </motion.button>
-                </>
+                <motion.button
+                  type="button"
+                  onClick={handleStartGuidedProfile}
+                  className="home-primary-button"
+                  whileHover={{ scale: 1.05, boxShadow: "0 20px 40px rgba(59,130,246,0.35)" }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  快速建档
+                  <ArrowRightIcon />
+                </motion.button>
               ) : null}
 
               {!showGuidedChat && !showProfileResult ? (

@@ -299,10 +299,6 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
     ) {
         String studentId = jwtService.requireCurrentUserId(authorizationHeader);
         GuidedSessionRow session = requireOwnedSession(studentId, sessionId);
-        if ("completed".equals(session.sessionStatus())) {
-            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "该固定问卷已完成，如需重填请重新开始");
-        }
-
         Map<String, Object> question = QUESTION_BY_CODE.get(questionCode);
         if (question == null) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "题目不存在");
@@ -315,6 +311,9 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
 
         Map<String, Object> existingAnswer = answers.get(questionCode);
         boolean editingExistingAnswer = existingAnswer != null && isAnswerMeaningful(question, existingAnswer);
+        if ("completed".equals(session.sessionStatus()) && !editingExistingAnswer) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "该固定问卷已完成，只能修改历史题目");
+        }
         Map<String, Object> enrichedQuestion = serializeQuestion(question, answers, null, null);
         Map<String, Object> normalizedAnswer;
         if (isTrue(rawAnswer, "skip")) {
@@ -366,7 +365,7 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
                 null,
                 Map.of("status", "completed")
             );
-            generateGuidedResultForStudent(studentId, sessionId, "completed");
+            generateGuidedResultForStudent(studentId, sessionId, "completed", false);
         } else {
             int nextIndex = visibleQuestionIndex(answers, string(nextQuestion.get("code")));
             guidedMapper.activateSession(mapOfEntries(
@@ -417,7 +416,7 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
                 Map.of("status", "exited", "trigger_reason", triggerReason)
             );
         }
-        generateGuidedResultForStudent(studentId, sessionId, triggerReason);
+        generateGuidedResultForStudent(studentId, sessionId, triggerReason, true);
         return getSessionBundleForStudent(studentId, sessionId);
     }
 
@@ -431,7 +430,7 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
         String triggerReason
     ) {
         String studentId = jwtService.requireCurrentUserId(authorizationHeader);
-        return generateGuidedResultForStudent(studentId, sessionId, triggerReason);
+        return generateGuidedResultForStudent(studentId, sessionId, triggerReason, true);
     }
 
     private Map<String, Object> getSessionBundleForStudent(String studentId, String sessionId) {
@@ -496,7 +495,8 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
     private Map<String, Object> generateGuidedResultForStudent(
         String studentId,
         String sessionId,
-        String triggerReason
+        String triggerReason,
+        boolean persistArchiveSnapshot
     ) {
         GuidedSessionRow session = requireOwnedSession(studentId, sessionId);
         Map<String, Object> latestResult = loadLatestResult(studentId, sessionId);
@@ -508,22 +508,27 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
         Map<String, Object> profileJson = buildProfileJson(studentId, sessionId, answers);
         Map<String, Object> dbPayload = new LinkedHashMap<>(profileJson);
         Map<String, Object> scoringJson = runAiScoring(studentId, sessionId, profileJson, answers);
-        Map<String, Object> radarScores = normalizeRadarScores(
-            firstNonNull(scoringJson.get("radar_scores_json"), scoringJson.get("radar_scores")),
-            fallbackRadarScores(answers)
+        Map<String, Object> radarScores = applyGuidedRadarScoreRules(
+            normalizeRadarScores(
+                firstNonNull(scoringJson.get("radar_scores_json"), scoringJson.get("radar_scores")),
+                fallbackRadarScores(answers)
+            ),
+            answers
         );
         String summaryText = StrUtil.blankToDefault(
-            string(scoringJson.get("summary_text")).trim(),
+            normalizeRadarCopy(string(scoringJson.get("summary_text")).trim()),
             "固定问卷建档结果已生成。"
         );
         String resultStatus = "saved";
         String saveErrorMessage = null;
-        try {
-            guidedArchivePersistenceService.persistGuidedArchiveFormSnapshot(dbPayload, studentId);
-        } catch (Exception exception) {
-            resultStatus = "failed";
-            saveErrorMessage = rootCauseMessage(exception);
-            log.warn("Failed to persist guided archive snapshot, sessionId={}, studentId={}", sessionId, studentId, exception);
+        if (persistArchiveSnapshot) {
+            try {
+                guidedArchivePersistenceService.persistGuidedArchiveFormSnapshot(dbPayload, studentId);
+            } catch (Exception exception) {
+                resultStatus = "failed";
+                saveErrorMessage = rootCauseMessage(exception);
+                log.warn("Failed to persist guided archive snapshot, sessionId={}, studentId={}", sessionId, studentId, exception);
+            }
         }
 
         guidedMapper.upsertResult(mapOfEntries(
@@ -934,23 +939,220 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
         Map<String, Object> result = new LinkedHashMap<>();
         for (String dimension : List.of("academic", "language", "standardized", "competition", "activity", "project")) {
             Object rawValue = source.get(dimension);
-            Map<String, Object> fallback = fallbackScores.get(dimension) instanceof Map<?, ?> map ? toStringKeyMap(map) : scoreReason(50, "本地兜底评分。");
+            Map<String, Object> fallback = fallbackScores.get(dimension) instanceof Map<?, ?> map
+                ? toStringKeyMap(map)
+                : scoreReason(50, "当前信息还不够完整。建议继续补充关键经历和证明材料，让画像更准确。");
             int score;
             String reason;
             if (rawValue instanceof Number number) {
                 score = number.intValue();
-                reason = string(fallback.get("reason"));
+                reason = normalizeRadarCopy(string(fallback.get("reason")));
             } else if (rawValue instanceof Map<?, ?> map) {
                 Map<String, Object> scoreMap = toStringKeyMap(map);
                 score = intValue(firstNonNull(scoreMap.get("score"), fallback.get("score")));
-                reason = StrUtil.blankToDefault(string(scoreMap.get("reason")).trim(), string(fallback.get("reason")));
+                reason = normalizeRadarCopy(
+                    StrUtil.blankToDefault(string(scoreMap.get("reason")).trim(), string(fallback.get("reason")))
+                );
             } else {
                 score = intValue(fallback.get("score"));
-                reason = string(fallback.get("reason"));
+                reason = normalizeRadarCopy(string(fallback.get("reason")));
             }
             result.put(dimension, scoreReason(Math.max(0, Math.min(100, score)), reason));
         }
         return result;
+    }
+
+    private Map<String, Object> applyGuidedRadarScoreRules(
+        Map<String, Object> radarScores,
+        Map<String, Map<String, Object>> answers
+    ) {
+        Map<String, Object> result = new LinkedHashMap<>(radarScores);
+        for (String dimension : List.of("academic", "language", "standardized", "competition", "activity", "project")) {
+            Object rawValue = result.get(dimension);
+            if (!(rawValue instanceof Map<?, ?> map)) {
+                continue;
+            }
+            Map<String, Object> scoreMap = toStringKeyMap(map);
+            int score = Math.max(0, Math.min(100, intValue(scoreMap.get("score"))));
+            String reason = normalizeRadarCopy(string(scoreMap.get("reason")));
+            result.put(
+                dimension,
+                scoreReason(
+                    score,
+                    shouldReplaceRadarReason(reason) ? guidedRadarFeedbackForDimension(dimension, answers) : reason
+                )
+            );
+        }
+        result.put("project", guidedResearchRadarScore(answers.get("Q16")));
+        result.put("activity", guidedActivityRadarScore(answers.get("Q15"), result.get("activity")));
+        return result;
+    }
+
+    private boolean shouldReplaceRadarReason(String reason) {
+        if (StrUtil.isBlank(reason)) {
+            return true;
+        }
+        return reason.contains("评分")
+            || reason.contains("计分")
+            || reason.contains("完整度")
+            || reason.contains("每项")
+            || reason.contains("满分")
+            || reason.contains("兜底")
+            || reason.contains("基于")
+            || reason.contains("不低于")
+            || reason.contains("不得低于");
+    }
+
+    private String guidedRadarFeedbackForDimension(String dimension, Map<String, Map<String, Object>> answers) {
+        return switch (dimension) {
+            case "academic" -> "学术信息已经有基础。建议继续补充课程体系、校内排名、核心科目成绩和优势课程，让学术能力更完整地呈现。";
+            case "language" -> "语言能力还可以通过更完整的考试信息来强化。建议补充考试日期、总分、分项成绩和成绩状态，方便判断下一步提分重点。";
+            case "standardized" -> "标化和课程科目成绩还可以继续完善。建议补充 SAT/ACT 或课程体系科目成绩，并标清考试状态和具体分项，提升成绩画像的可信度。";
+            case "competition" -> guidedCompetitionRadarFeedback(answers.get("Q17"));
+            case "activity" -> guidedActivityRadarFeedback(answers.get("Q15"), hasGuidedActivityInternshipContent(answers.get("Q15")));
+            case "project" -> guidedResearchRadarFeedback(answers.get("Q16"));
+            default -> "当前信息还不够完整。建议继续补充关键经历和证明材料，让画像更准确。";
+        };
+    }
+
+    private String guidedCompetitionRadarFeedback(Map<String, Object> answer) {
+        if (answer == null || !"yes".equals(selectedText(answer, "has_experience"))) {
+            return "目前代表性竞赛经历还不够突出。建议选择与目标专业相关的竞赛方向，先积累一段能体现兴趣和能力的成果。";
+        }
+        List<String> missingFields = new ArrayList<>();
+        if (!hasNonBlankValue(answer.get("competition_name"))) {
+            missingFields.add("竞赛名称");
+        }
+        if (!hasNonBlankValue(answer.get("competition_field"))) {
+            missingFields.add("竞赛领域");
+        }
+        if (!hasNonBlankValue(answer.get("competition_level"))) {
+            missingFields.add("竞赛级别");
+        }
+        if (!hasNonBlankValue(answer.get("participants_text"))) {
+            missingFields.add("参赛规模");
+        }
+        if (!hasNonBlankValue(answer.get("result_text"))) {
+            missingFields.add("成绩结果");
+        }
+        if (!hasNonBlankValue(answer.get("competition_year"))) {
+            missingFields.add("参赛年份");
+        }
+        if (missingFields.isEmpty()) {
+            return "竞赛经历信息已经比较完整。建议继续补充证书、排名证明或作品材料，让竞赛成果更可信、更有区分度。";
+        }
+        return "竞赛经历还可以补充" + String.join("、", missingFields)
+            + "。建议把竞赛含金量、参与规模和最终结果写清楚，突出你的学术兴趣和竞争力。";
+    }
+
+    private Map<String, Object> guidedResearchRadarScore(Map<String, Object> answer) {
+        int filledCount = countFilledFields(answer, List.of("has_experience", "research_summary", "initiator_name", "role_name"));
+        int score = Math.min(100, filledCount * 30);
+        return scoreReason(score, guidedResearchRadarFeedback(answer));
+    }
+
+    private Map<String, Object> guidedActivityRadarScore(Map<String, Object> answer, Object existingScore) {
+        Map<String, Object> existing = existingScore instanceof Map<?, ?> map ? toStringKeyMap(map) : new LinkedHashMap<>();
+        int score = intValue(existing.get("score"));
+        boolean hasMeaningfulExperience = hasGuidedActivityInternshipContent(answer);
+        if (hasMeaningfulExperience && score < 60) {
+            score = 60;
+        }
+        return scoreReason(Math.max(0, Math.min(100, score)), guidedActivityRadarFeedback(answer, hasMeaningfulExperience));
+    }
+
+    private String guidedResearchRadarFeedback(Map<String, Object> answer) {
+        if (answer == null || !"yes".equals(selectedText(answer, "has_experience"))) {
+            return "目前还缺少科研经历。建议从校内课题、导师项目、线上科研或独立研究入手，先积累一个清晰的问题、方法和成果。";
+        }
+        List<String> missingFields = new ArrayList<>();
+        if (!hasNonBlankValue(answer.get("research_summary"))) {
+            missingFields.add("研究内容");
+        }
+        if (!hasNonBlankValue(answer.get("initiator_name"))) {
+            missingFields.add("发起方");
+        }
+        if (!hasNonBlankValue(answer.get("role_name"))) {
+            missingFields.add("担任角色");
+        }
+        if (missingFields.isEmpty()) {
+            return "科研经历基础信息已经比较完整。建议继续补充课题成果、导师或机构背书、论文/展示/报告等材料，让学术潜力更有说服力。";
+        }
+        return "科研经历还可以继续完善" + String.join("、", missingFields)
+            + "。建议把研究问题、你的具体贡献和可证明成果写清楚，这会让申请材料更有力量。";
+    }
+
+    private String guidedActivityRadarFeedback(Map<String, Object> answer, boolean hasMeaningfulExperience) {
+        if (!hasMeaningfulExperience) {
+            return "目前还缺少活动或企业实习经历。建议优先补充一段有持续时间、具体职责和推荐人的经历，突出主动性和真实投入。";
+        }
+        List<String> missingFields = new ArrayList<>();
+        if (!hasNonBlankValue(answer.get("activity_summary")) && !hasNonBlankValue(answer.get("company_name"))) {
+            missingFields.add("经历内容或企业名称");
+        }
+        if (!hasNonBlankValue(answer.get("start_time")) || !hasNonBlankValue(answer.get("end_time"))) {
+            missingFields.add("起止时间");
+        }
+        if (!hasNonBlankValue(answer.get("position_name"))) {
+            missingFields.add("岗位或职责");
+        }
+        if (!hasNonBlankValue(answer.get("referrer_name"))) {
+            missingFields.add("推荐人");
+        }
+        if (missingFields.isEmpty()) {
+            return "活动/企业实习经历已经有基础信息。建议继续补充可量化影响、团队角色、产出材料或推荐人证明，让经历更有说服力。";
+        }
+        return "活动/企业实习经历还可以补充" + String.join("、", missingFields)
+            + "。建议把你承担的任务、影响范围和可验证成果写具体，能更好体现成长和行动力。";
+    }
+
+    private boolean hasGuidedActivityInternshipContent(Map<String, Object> answer) {
+        if (answer == null || !"yes".equals(selectedText(answer, "has_experience"))) {
+            return false;
+        }
+        return countFilledFields(
+            answer,
+            List.of("activity_summary", "start_time", "end_time", "company_name", "position_name", "referrer_name")
+        ) > 0;
+    }
+
+    private int countFilledFields(Map<String, Object> answer, List<String> fieldNames) {
+        if (answer == null) {
+            return 0;
+        }
+        int count = 0;
+        for (String fieldName : fieldNames) {
+            if (hasNonBlankValue(answer.get(fieldName))) {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    private boolean hasNonBlankValue(Object value) {
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof String stringValue) {
+            return !stringValue.trim().isBlank();
+        }
+        if (value instanceof Map<?, ?> mapValue) {
+            return !mapValue.isEmpty();
+        }
+        if (value instanceof List<?> listValue) {
+            return !listValue.isEmpty();
+        }
+        return true;
+    }
+
+    private String normalizeRadarCopy(String text) {
+        if (text == null) {
+            return null;
+        }
+        return text
+            .replace("活动领导力", "活动/企业实习")
+            .replace("活动 / 企业实习", "活动/企业实习")
+            .replace("项目实践", "科研经历");
     }
 
     private void mergeNestedMap(Map<String, Object> target, Map<String, Object> source, String key) {
@@ -1617,34 +1819,43 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
             "academic",
             scoreReason(
                 Math.min(100, 35 + 10 * boolInt(answers.containsKey("Q5")) + 15 * boolInt(answers.containsKey("Q6")) + 20 * boolInt(answers.containsKey("Q8"))),
-                "基于课程体系、校内排名和校内成绩完整度的本地兜底评分。"
+                "学术信息已经有基础。建议继续补充课程体系、校内排名、核心科目成绩和优势课程，让学术能力更完整地呈现。"
             )
         );
         result.put(
             "language",
             scoreReason(
                 Math.min(100, 30 + 20 * boolInt(answers.containsKey("Q9")) + 30 * boolInt(answers.containsKey("Q10") || answers.containsKey("Q11"))),
-                "基于语言考试类型和正式或预估成绩完整度的本地兜底评分。"
+                "语言能力还可以通过更完整的考试信息来强化。建议补充考试日期、总分、分项成绩和成绩状态，方便判断下一步提分重点。"
             )
         );
         result.put(
             "standardized",
             scoreReason(
                 Math.min(100, 30 + 20 * boolInt(answers.containsKey("Q12")) + 30 * boolInt(hasAnyStandardizedScoreAnswer(answers) || answers.containsKey("Q14"))),
-                "基于 SAT/ACT 或其他外部考试信息完整度的本地兜底评分。"
+                "标化和课程科目成绩还可以继续完善。建议补充 SAT/ACT 或课程体系科目成绩，并标清考试状态和具体分项，提升成绩画像的可信度。"
             )
         );
         result.put(
             "competition",
-            scoreReason("yes".equals(selectedText(answers.get("Q17"), "has_experience")) ? 75 : 40, "基于是否已有代表性竞赛经历的本地兜底评分。")
+            scoreReason(
+                "yes".equals(selectedText(answers.get("Q17"), "has_experience")) ? 75 : 40,
+                "竞赛经历建议突出竞赛领域、级别、参赛规模和结果证明。若目前经历较少，可以先选择与目标专业相关的竞赛积累代表性成果。"
+            )
         );
         result.put(
             "activity",
-            scoreReason("yes".equals(selectedText(answers.get("Q15"), "has_experience")) ? 75 : 40, "基于是否已有活动经历或企业实习经历的本地兜底评分。")
+            scoreReason(
+                "yes".equals(selectedText(answers.get("Q15"), "has_experience")) ? 75 : 40,
+                "活动/企业实习建议写清楚持续时间、具体职责、影响范围和推荐人，让经历更能体现主动性、责任感和成长。"
+            )
         );
         result.put(
             "project",
-            scoreReason("yes".equals(selectedText(answers.get("Q16"), "has_experience")) ? 75 : 40, "基于是否已有科研经历的本地兜底评分。")
+            scoreReason(
+                "yes".equals(selectedText(answers.get("Q16"), "has_experience")) ? 75 : 40,
+                "科研经历建议补充研究问题、发起方、担任角色和可证明成果。把你的具体贡献写清楚，会更好体现学术潜力。"
+            )
         );
         return result;
     }
@@ -2378,12 +2589,10 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
             );
             case "Q5" -> options(
                 opt("A_LEVEL", "A-Level"),
-                opt("AP", "AP"),
                 opt("IB", "IB"),
                 opt("CHINESE_HIGH_SCHOOL", "普高"),
                 opt("US_HIGH_SCHOOL", "国际学校美高体系（AP）"),
                 opt("OSSD", "OSSD"),
-                opt("INTERNATIONAL_OTHER", "国际学校其他体系"),
                 opt("OTHER", "其他")
             );
             case "Q9" -> options(
@@ -2508,6 +2717,16 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
             options.add(opt(year + "秋季入学", year + "秋季入学"));
         }
         options.add(opt("暂未确定", "暂未确定"));
+        return options;
+    }
+
+    private List<Map<String, String>> competitionYearOptions() {
+        int currentYear = Year.now().getValue();
+        List<Map<String, String>> options = new ArrayList<>();
+        for (int year = currentYear; year >= currentYear - 15; year--) {
+            String yearText = String.valueOf(year);
+            options.add(opt(yearText, yearText));
+        }
         return options;
     }
 
@@ -2638,11 +2857,11 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
         } else {
             fields.add(requiredSelectField("has_experience", "是否有竞赛经历", options(opt("yes", "有"), opt("no", "暂时没有"))));
             fields.add(requiredTextField("competition_name", "竞赛名称"));
-            fields.add(textField("competition_field", "竞赛领域"));
-            fields.add(textField("competition_level", "竞赛级别"));
-            fields.add(textField("participants_text", "参赛人数"));
+            fields.add(selectField("competition_field", "竞赛领域", COMPETITION_FIELD_OPTIONS));
+            fields.add(selectField("competition_level", "竞赛级别", COMPETITION_LEVEL_OPTIONS));
+            fields.add(inputField("participants_text", "参赛人数", "integer"));
             fields.add(textField("result_text", "成绩描述"));
-            fields.add(inputField("competition_year", "参赛年份", "number"));
+            fields.add(selectField("competition_year", "参赛年份", competitionYearOptions()));
         }
         return fields;
     }
@@ -2935,12 +3154,10 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
         )), "max_select", 2, "searchable", true));
         questions.add(withOptions(question("Q5", "academic", "二、校内学术背景", "single", "你目前就读的课程体系是？"), options(
             opt("A_LEVEL", "A-Level"),
-            opt("AP", "AP"),
             opt("IB", "IB"),
             opt("CHINESE_HIGH_SCHOOL", "普高"),
             opt("US_HIGH_SCHOOL", "国际学校美高体系（AP）"),
             opt("OSSD", "OSSD"),
-            opt("INTERNATIONAL_OTHER", "国际学校其他体系"),
             opt("OTHER", "其他")
         )));
         questions.add(withOptions(question("Q6", "academic", "二、校内学术背景", "single", "你在年级中的大致表现是？"), options(

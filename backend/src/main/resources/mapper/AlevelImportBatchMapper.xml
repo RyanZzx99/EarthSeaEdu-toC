@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.earthseaedu.backend.mapper.AlevelImportBatchMapper">
+
+    <sql id="BaseColumns">
+        alevel_import_batch_id, batch_code, batch_name, import_source_type, origin_name, source_root_path,
+        storage_root_path, total_file_count, resolved_pdf_count, success_count, failure_count, bundle_count,
+        import_status, progress_percent, progress_message, operator_id, result_json, error_message, started_at,
+        finished_at, status, remark, create_time, update_time, delete_flag
+    </sql>
+
+    <select id="findActiveById" resultType="com.earthseaedu.backend.model.alevel.AlevelImportBatch">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_import_batch
+        WHERE alevel_import_batch_id = #{batchId}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <select id="findActiveByBatchCode" resultType="com.earthseaedu.backend.model.alevel.AlevelImportBatch">
+        SELECT <include refid="BaseColumns"/>
+        FROM alevel_import_batch
+        WHERE batch_code = #{batchCode}
+          AND status = 1
+          AND delete_flag = '1'
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.earthseaedu.backend.model.alevel.AlevelImportBatch" useGeneratedKeys="true" keyProperty="alevelImportBatchId">
+        INSERT INTO alevel_import_batch (
+            batch_code, batch_name, import_source_type, origin_name, source_root_path, storage_root_path,
+            total_file_count, resolved_pdf_count, success_count, failure_count, bundle_count, import_status,
+            progress_percent, progress_message, operator_id, result_json, error_message, started_at, finished_at,
+            status, remark, create_time, update_time, delete_flag
+        ) VALUES (
+            #{batchCode}, #{batchName}, #{importSourceType}, #{originName}, #{sourceRootPath}, #{storageRootPath},
+            #{totalFileCount}, #{resolvedPdfCount}, #{successCount}, #{failureCount}, #{bundleCount},
+            #{importStatus}, #{progressPercent}, #{progressMessage}, #{operatorId}, #{resultJson}, #{errorMessage},
+            #{startedAt}, #{finishedAt}, #{status}, #{remark}, #{createTime}, #{updateTime}, #{deleteFlag}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.earthseaedu.backend.model.alevel.AlevelImportBatch">
+        UPDATE alevel_import_batch
+        SET batch_name = #{batchName},
+            import_source_type = #{importSourceType},
+            origin_name = #{originName},
+            source_root_path = #{sourceRootPath},
+            storage_root_path = #{storageRootPath},
+            total_file_count = #{totalFileCount},
+            resolved_pdf_count = #{resolvedPdfCount},
+            success_count = #{successCount},
+            failure_count = #{failureCount},
+            bundle_count = #{bundleCount},
+            import_status = #{importStatus},
+            progress_percent = #{progressPercent},
+            progress_message = #{progressMessage},
+            operator_id = #{operatorId},
+            result_json = #{resultJson},
+            error_message = #{errorMessage},
+            started_at = #{startedAt},
+            finished_at = #{finishedAt},
+            status = #{status},
+            remark = #{remark},
+            update_time = #{updateTime},
+            delete_flag = #{deleteFlag}
+        WHERE alevel_import_batch_id = #{alevelImportBatchId}
+    </update>
+
+    <update id="deactivateById">
+        UPDATE alevel_import_batch
+        SET status = 0,
+            update_time = #{updateTime}
+        WHERE alevel_import_batch_id = #{batchId}
+          AND status = 1
+          AND delete_flag = '1'
+    </update>
+
+</mapper>

@@ -222,12 +222,12 @@ public final class BusinessProfileFormMetadata {
 
     public static final Map<String, Set<String>> HIDDEN_FIELDS_BY_TABLE = Map.ofEntries(
         Map.entry("student_academic_curriculum_gpa", Set.of("curriculum_system_code", "notes")),
-        Map.entry("student_academic_ossd_subject", Set.of("notes")),
+        Map.entry("student_academic_ossd_subject", Set.of("school_year_label", "term_code", "score_text", "score_scale_code", "notes")),
         Map.entry("student_academic_other_curriculum_subject", Set.of("curriculum_system_code", "notes")),        Map.entry("student_basic_info", Set.of("curriculum_system_notes")),
         Map.entry("student_basic_info_curriculum_system", Set.of("notes")),
         Map.entry("student_academic", Set.of("curriculum_combination_notes", "other_curriculum_notes", "rank_evidence_notes", "rank_scope_code", "school_code_val", "school_type_notes")),
         Map.entry("student_academic_a_level_profile", Set.of("notes")),
-        Map.entry("student_academic_a_level_subject", Set.of("notes")),
+        Map.entry("student_academic_a_level_subject", Set.of("exam_series", "notes")),
         Map.entry("student_academic_ap_profile", Set.of("ap_count", "best_n_ap_for_scoring", "class_rank_available", "honors_count", "max_ap_offered_by_school", "notes")),
         Map.entry("student_academic_ap_course", Set.of("notes")),
         Map.entry("student_academic_ib_profile", Set.of("notes")),

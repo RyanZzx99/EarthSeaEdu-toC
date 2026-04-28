@@ -1,6 +1,7 @@
 package com.earthseaedu.backend.service.impl;
 
 import cn.hutool.core.text.CharSequenceUtil;
+import cn.hutool.crypto.digest.DigestUtil;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -8,18 +9,28 @@ import com.earthseaedu.backend.exception.ApiException;
 import com.earthseaedu.backend.mapper.AlevelAssetMapper;
 import com.earthseaedu.backend.mapper.AlevelModuleMapper;
 import com.earthseaedu.backend.mapper.AlevelPaperMapper;
+import com.earthseaedu.backend.mapper.AlevelPdfPageMapper;
 import com.earthseaedu.backend.mapper.AlevelQuestionAnswerMapper;
+import com.earthseaedu.backend.mapper.AlevelQuestionMarkSchemeMapper;
+import com.earthseaedu.backend.mapper.AlevelQuestionMaterialRefMapper;
 import com.earthseaedu.backend.mapper.AlevelQuestionMapper;
 import com.earthseaedu.backend.mapper.AlevelQuestionOptionMapper;
+import com.earthseaedu.backend.mapper.AlevelSourceBundleFileMapper;
+import com.earthseaedu.backend.mapper.AlevelSourceBundleMapper;
 import com.earthseaedu.backend.mapper.AlevelSourceFileMapper;
 import com.earthseaedu.backend.mapper.MockExamPaperRefMapper;
 import com.earthseaedu.backend.mapper.MockExamQuestionRefMapper;
 import com.earthseaedu.backend.model.alevel.AlevelAsset;
 import com.earthseaedu.backend.model.alevel.AlevelModule;
 import com.earthseaedu.backend.model.alevel.AlevelPaper;
+import com.earthseaedu.backend.model.alevel.AlevelPdfPage;
 import com.earthseaedu.backend.model.alevel.AlevelQuestion;
 import com.earthseaedu.backend.model.alevel.AlevelQuestionAnswer;
+import com.earthseaedu.backend.model.alevel.AlevelQuestionMarkScheme;
+import com.earthseaedu.backend.model.alevel.AlevelQuestionMaterialRef;
 import com.earthseaedu.backend.model.alevel.AlevelQuestionOption;
+import com.earthseaedu.backend.model.alevel.AlevelSourceBundle;
+import com.earthseaedu.backend.model.alevel.AlevelSourceBundleFile;
 import com.earthseaedu.backend.model.alevel.AlevelSourceFile;
 import com.earthseaedu.backend.model.mockexam.MockExamPaperRef;
 import com.earthseaedu.backend.model.mockexam.MockExamQuestionRef;
@@ -27,6 +38,8 @@ import com.earthseaedu.backend.service.AlevelQuestionBankBuildService;
 import com.earthseaedu.backend.support.AlevelPdfMetaSupport;
 import com.earthseaedu.backend.support.AlevelPdfTextNormalizationSupport;
 import com.earthseaedu.backend.support.StoragePathSupport;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.file.Files;
@@ -47,10 +60,12 @@ import java.util.regex.Pattern;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.apache.pdfbox.text.TextPosition;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.util.HtmlUtils;
+import javax.imageio.ImageIO;
 
 /**
  * A-Level 题库构建服务实现，负责把 source file 解析为试卷、题目、答案和 mockexam 引用。
@@ -73,6 +88,7 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
     private static final Pattern TRAILING_MARK_PATTERN = Pattern.compile("^(.*?)(?:\\s+(\\d+(?:\\.\\d+)?))$");
     private static final Pattern BRACKET_MARK_PATTERN = Pattern.compile("\\[(\\d+(?:\\.\\d+)?)\\s*marks?\\]", Pattern.CASE_INSENSITIVE);
     private static final Pattern ANSWER_OPTION_PATTERN = Pattern.compile("(?i)\\banswer\\s*:\\s*([A-D])\\b");
+    private static final Pattern FIGURE_TABLE_LABEL_PATTERN = Pattern.compile("(?i)\\b(Figure|Table)\\s+([0-9]+[A-Za-z]?)\\b");
     private static final Pattern LEADING_SPLIT_NUMBER_PATTERN = Pattern.compile("^(\\d{1,2})\\s+(\\d{1,2})(?:\\s+(.*))?$");
     private static final Pattern LEADING_SUBQUESTION_PATTERN = Pattern.compile("^(\\d{1,2})\\s+(\\d)(?:\\s+(.*))?$");
     private static final Pattern LEADING_SPLIT_SUBQUESTION_PATTERN = Pattern.compile(
@@ -100,6 +116,9 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
     private static final Pattern MARK_SCHEME_NOISE_PATTERN = Pattern.compile(
         "(?i)^(mark scheme|international as .+|total|question part marking guidance|marks|assessment objectives grid|ao1 ao2 ao3 ao4 total|section [a-z])$"
     );
+    private static final Pattern MARK_SCHEME_QUESTION_HEADER_PATTERN = Pattern.compile(
+        "(?i)^question\\s+marking\\s+guidance(?:\\s+mark\\s+comments)?$"
+    );
     private static final Map<String, SubjectMeta> SUBJECT_META_MAP = Map.of(
         "BL", new SubjectMeta("9610", "Biology"),
         "BU", new SubjectMeta("9625", "Business"),
@@ -114,7 +133,12 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
     private final AlevelQuestionMapper alevelQuestionMapper;
     private final AlevelQuestionOptionMapper alevelQuestionOptionMapper;
     private final AlevelQuestionAnswerMapper alevelQuestionAnswerMapper;
+    private final AlevelQuestionMarkSchemeMapper alevelQuestionMarkSchemeMapper;
+    private final AlevelQuestionMaterialRefMapper alevelQuestionMaterialRefMapper;
     private final AlevelAssetMapper alevelAssetMapper;
+    private final AlevelPdfPageMapper alevelPdfPageMapper;
+    private final AlevelSourceBundleMapper alevelSourceBundleMapper;
+    private final AlevelSourceBundleFileMapper alevelSourceBundleFileMapper;
     private final MockExamPaperRefMapper mockExamPaperRefMapper;
     private final MockExamQuestionRefMapper mockExamQuestionRefMapper;
     private final AlevelPdfMetaSupport alevelPdfMetaSupport;
@@ -127,7 +151,12 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
         AlevelQuestionMapper alevelQuestionMapper,
         AlevelQuestionOptionMapper alevelQuestionOptionMapper,
         AlevelQuestionAnswerMapper alevelQuestionAnswerMapper,
+        AlevelQuestionMarkSchemeMapper alevelQuestionMarkSchemeMapper,
+        AlevelQuestionMaterialRefMapper alevelQuestionMaterialRefMapper,
         AlevelAssetMapper alevelAssetMapper,
+        AlevelPdfPageMapper alevelPdfPageMapper,
+        AlevelSourceBundleMapper alevelSourceBundleMapper,
+        AlevelSourceBundleFileMapper alevelSourceBundleFileMapper,
         MockExamPaperRefMapper mockExamPaperRefMapper,
         MockExamQuestionRefMapper mockExamQuestionRefMapper,
         AlevelPdfMetaSupport alevelPdfMetaSupport,
@@ -139,7 +168,12 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
         this.alevelQuestionMapper = alevelQuestionMapper;
         this.alevelQuestionOptionMapper = alevelQuestionOptionMapper;
         this.alevelQuestionAnswerMapper = alevelQuestionAnswerMapper;
+        this.alevelQuestionMarkSchemeMapper = alevelQuestionMarkSchemeMapper;
+        this.alevelQuestionMaterialRefMapper = alevelQuestionMaterialRefMapper;
         this.alevelAssetMapper = alevelAssetMapper;
+        this.alevelPdfPageMapper = alevelPdfPageMapper;
+        this.alevelSourceBundleMapper = alevelSourceBundleMapper;
+        this.alevelSourceBundleFileMapper = alevelSourceBundleFileMapper;
         this.mockExamPaperRefMapper = mockExamPaperRefMapper;
         this.mockExamQuestionRefMapper = mockExamQuestionRefMapper;
         this.alevelPdfMetaSupport = alevelPdfMetaSupport;
@@ -152,7 +186,7 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
     @Override
     @Transactional(rollbackFor = Exception.class)
     public BuildResult buildBundle(String bundleCode) {
-        List<AlevelSourceFile> sourceFiles = latestSourceFiles(alevelSourceFileMapper.findActiveByBundleCode(bundleCode));
+        List<AlevelSourceFile> sourceFiles = loadBundleSourceFiles(bundleCode);
         if (sourceFiles.isEmpty()) {
             throw new ApiException(HttpStatus.NOT_FOUND, "A-Level source bundle not found: " + bundleCode);
         }
@@ -194,7 +228,7 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
         int insertAssetCount = insertBundleAssets(bundle, paper);
 
         ParsedQuestionSet questionSet = enrichQuestionSet(parsedPaper.questions(), markSchemeMap);
-        InsertCounts insertCounts = insertQuestionsAndAnswers(paper, module, questionSet);
+        InsertCounts insertCounts = insertQuestionsAndAnswers(paper, module, questionSet, bundle.questionPaper(), bundle.markScheme());
         int questionRefCount = syncQuestionRefs(paper, paperRef);
 
         syncSourceFiles(
@@ -241,6 +275,25 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
             }
         }
         return new ArrayList<>(latestByName.values());
+    }
+
+    private List<AlevelSourceFile> loadBundleSourceFiles(String bundleCode) {
+        AlevelSourceBundle sourceBundle = alevelSourceBundleMapper.findActiveByBundleCode(bundleCode);
+        if (sourceBundle != null) {
+            List<AlevelSourceBundleFile> bundleFiles =
+                alevelSourceBundleFileMapper.findActiveByBundleId(sourceBundle.getAlevelSourceBundleId());
+            List<AlevelSourceFile> relatedFiles = new ArrayList<>();
+            for (AlevelSourceBundleFile bundleFile : bundleFiles) {
+                AlevelSourceFile sourceFile = alevelSourceFileMapper.findActiveById(bundleFile.getAlevelSourceFileId());
+                if (sourceFile != null) {
+                    relatedFiles.add(sourceFile);
+                }
+            }
+            if (!relatedFiles.isEmpty()) {
+                return latestSourceFiles(relatedFiles);
+            }
+        }
+        return latestSourceFiles(alevelSourceFileMapper.findActiveByBundleCode(bundleCode));
     }
 
     private AlevelPaper insertPaper(AlevelSourceFile questionPaper, FileNameMeta fileNameMeta, ParsedPaper parsedPaper) {
@@ -311,6 +364,8 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
 
     private void deactivateExistingPaperChildren(AlevelPaper paper) {
         LocalDateTime now = LocalDateTime.now();
+        alevelQuestionMaterialRefMapper.deactivateByPaperId(paper.getAlevelPaperId(), now);
+        alevelQuestionMarkSchemeMapper.deactivateByPaperId(paper.getAlevelPaperId(), now);
         alevelQuestionAnswerMapper.deactivateByPaperId(paper.getAlevelPaperId(), now);
         alevelQuestionOptionMapper.deactivateByPaperId(paper.getAlevelPaperId(), now);
         alevelQuestionMapper.deactivateByPaperId(paper.getAlevelPaperId(), now);
@@ -356,9 +411,16 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
         return new ParsedQuestionSet(new ArrayList<>(byKey.values()));
     }
 
-    private InsertCounts insertQuestionsAndAnswers(AlevelPaper paper, AlevelModule module, ParsedQuestionSet questionSet) {
+    private InsertCounts insertQuestionsAndAnswers(
+        AlevelPaper paper,
+        AlevelModule module,
+        ParsedQuestionSet questionSet,
+        AlevelSourceFile questionPaper,
+        AlevelSourceFile markSchemeFile
+    ) {
         Map<String, Long> parentIdMap = new HashMap<>();
         Map<String, Boolean> hasChildren = new HashMap<>();
+        Map<String, List<PositionedTextLine>> positionedLineCache = new HashMap<>();
         for (ParsedQuestion question : questionSet.questions()) {
             if (question.parentKey() != null) {
                 hasChildren.put(question.parentKey(), true);
@@ -373,6 +435,7 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
         for (ParsedQuestion parsedQuestion : orderedQuestions) {
             boolean parent = hasChildren.getOrDefault(parsedQuestion.displayKey(), false);
             QuestionMeta questionMeta = resolveQuestionMeta(parsedQuestion, parent);
+            AlevelPdfPage sourcePage = findQuestionSourcePage(questionPaper, parsedQuestion.sourcePageNo());
 
             AlevelQuestion row = new AlevelQuestion();
             row.setAlevelPaperId(paper.getAlevelPaperId());
@@ -391,7 +454,7 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
             row.setAnswerInputSchemaJson(null);
             row.setMaxScore(parsedQuestion.maxScore());
             row.setSourcePageNo(parsedQuestion.sourcePageNo());
-            row.setSourceBboxJson(null);
+            row.setSourceBboxJson(buildQuestionSourceBboxJson(parsedQuestion, questionPaper, sourcePage));
             row.setSortOrder(parsedQuestion.sortOrder());
             row.setStatus(1);
             row.setRemark(null);
@@ -401,6 +464,7 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
             alevelQuestionMapper.insert(row);
             parentIdMap.put(parsedQuestion.displayKey(), row.getAlevelQuestionId());
             questionCount++;
+            insertQuestionPageMaterialRef(row, parsedQuestion, questionPaper, sourcePage, positionedLineCache);
 
             if (!parsedQuestion.options().isEmpty()) {
                 int optionIndex = 1;
@@ -438,9 +502,485 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
             answerRow.setUpdateTime(LocalDateTime.now());
             answerRow.setDeleteFlag("1");
             alevelQuestionAnswerMapper.insert(answerRow);
+            insertQuestionMarkScheme(row, parsedQuestion, questionMeta, markSchemeFile);
             answerCount++;
         }
         return new InsertCounts(questionCount, answerCount);
+    }
+
+    private void insertQuestionMarkScheme(
+        AlevelQuestion question,
+        ParsedQuestion parsedQuestion,
+        QuestionMeta questionMeta,
+        AlevelSourceFile markSchemeFile
+    ) {
+        String rawExcerpt = trimToNull(AlevelPdfTextNormalizationSupport.normalizeTextBlock(parsedQuestion.markScheme().rawExcerpt()));
+        String markSchemeJson = buildMarkSchemeJson(parsedQuestion);
+        if (rawExcerpt == null && isEmptyMarkSchemeJson(markSchemeJson)) {
+            return;
+        }
+
+        AlevelQuestionMarkScheme row = new AlevelQuestionMarkScheme();
+        row.setAlevelQuestionId(question.getAlevelQuestionId());
+        row.setAlevelSourceFileId(markSchemeFile == null ? null : markSchemeFile.getAlevelSourceFileId());
+        row.setQuestionKey(parsedQuestion.displayKey());
+        row.setMarkValue(parsedQuestion.maxScore());
+        row.setAnswerSummaryText(trimToNull(AlevelPdfTextNormalizationSupport.normalizeTextBlock(resolveAnswerRaw(parsedQuestion))));
+        row.setMarkSchemeText(rawExcerpt == null ? "" : rawExcerpt);
+        row.setMarkSchemeHtml(rawExcerpt == null ? null : toParagraphHtml(rawExcerpt));
+        row.setMarkSchemeJson(markSchemeJson);
+        row.setSourcePageStart(parsedQuestion.markScheme().sourcePageStart());
+        row.setSourcePageEnd(parsedQuestion.markScheme().sourcePageEnd());
+        row.setSourceBboxJson(buildMarkSchemeSourceBboxJson(parsedQuestion, markSchemeFile));
+        row.setRawExcerptHash(rawExcerpt == null ? null : DigestUtil.sha256Hex(rawExcerpt));
+        row.setMatchStatus(rawExcerpt == null ? "UNMATCHED" : "MATCHED");
+        row.setMatchConfidence(rawExcerpt == null ? new BigDecimal("0.00") : new BigDecimal("0.90"));
+        row.setGradingMode(questionMeta.autoGradable() == 1 ? "AUTO" : "REFERENCE_ONLY");
+        row.setSortOrder(1);
+        row.setStatus(1);
+        row.setRemark(null);
+        row.setCreateTime(LocalDateTime.now());
+        row.setUpdateTime(LocalDateTime.now());
+        row.setDeleteFlag("1");
+        alevelQuestionMarkSchemeMapper.insert(row);
+    }
+
+    private boolean isEmptyMarkSchemeJson(String markSchemeJson) {
+        JSONObject payload = parseJsonObject(markSchemeJson);
+        JSONArray points = payload.getJSONArray("marking_points");
+        return points == null || points.isEmpty();
+    }
+
+    private JSONObject parseJsonObject(String value) {
+        if (trimToNull(value) == null) {
+            return new JSONObject();
+        }
+        try {
+            return JSONUtil.parseObj(value);
+        } catch (Exception exception) {
+            return new JSONObject();
+        }
+    }
+
+    private String buildMarkSchemeSourceBboxJson(ParsedQuestion parsedQuestion, AlevelSourceFile markSchemeFile) {
+        JSONObject payload = new JSONObject();
+        payload.set("strategy", "mark_scheme_text_segment");
+        payload.set("bbox_type", "TEXT_SEGMENT");
+        payload.set("source_file_id", markSchemeFile == null ? null : markSchemeFile.getAlevelSourceFileId());
+        payload.set("source_page_start", parsedQuestion.markScheme().sourcePageStart());
+        payload.set("source_page_end", parsedQuestion.markScheme().sourcePageEnd());
+        payload.set("question_key", parsedQuestion.displayKey());
+        payload.set("extraction_version", 1);
+        return payload.toString();
+    }
+
+    private AlevelPdfPage findQuestionSourcePage(AlevelSourceFile questionPaper, Integer sourcePageNo) {
+        if (questionPaper == null || questionPaper.getAlevelSourceFileId() == null || sourcePageNo == null) {
+            return null;
+        }
+        return alevelPdfPageMapper.findActiveBySourceFileAndPageNo(questionPaper.getAlevelSourceFileId(), sourcePageNo);
+    }
+
+    private void insertQuestionPageMaterialRef(
+        AlevelQuestion question,
+        ParsedQuestion parsedQuestion,
+        AlevelSourceFile questionPaper,
+        AlevelPdfPage sourcePage,
+        Map<String, List<PositionedTextLine>> positionedLineCache
+    ) {
+        if (questionPaper == null || questionPaper.getAlevelSourceFileId() == null || parsedQuestion.sourcePageNo() == null) {
+            return;
+        }
+        int startPageNo = parsedQuestion.sourcePageNo();
+        int endPageNo = parsedQuestion.sourcePageEndNo() == null
+            ? startPageNo
+            : Math.max(startPageNo, parsedQuestion.sourcePageEndNo());
+        int detectedCount = insertDetectedFigureTableMaterialRefs(
+            question,
+            parsedQuestion,
+            questionPaper,
+            sourcePage,
+            startPageNo,
+            endPageNo,
+            positionedLineCache
+        );
+        if (detectedCount > 0) {
+            return;
+        }
+        for (int pageNo = startPageNo; pageNo <= endPageNo; pageNo++) {
+            AlevelPdfPage page = pageNo == startPageNo ? sourcePage : findQuestionSourcePage(questionPaper, pageNo);
+            AlevelQuestionMaterialRef row = new AlevelQuestionMaterialRef();
+            row.setAlevelQuestionId(question.getAlevelQuestionId());
+            row.setMaterialType("QUESTION_PAGE");
+            row.setRelationType("FALLBACK");
+            row.setDisplayMode("IMAGE");
+            row.setAlevelSourceFileId(questionPaper.getAlevelSourceFileId());
+            row.setAlevelPdfPageId(page == null ? null : page.getAlevelPdfPageId());
+            row.setAlevelContentBlockId(null);
+            row.setAlevelAssetId(page == null ? null : page.getRenderAssetId());
+            row.setSourcePageNo(pageNo);
+            row.setSourceBboxJson(buildQuestionSourceBboxJson(parsedQuestion, questionPaper, page));
+            row.setTitle("Question paper page " + pageNo);
+            row.setCaptionHtml(toParagraphHtml("Original question-paper page fallback for question " + parsedQuestion.displayKey()));
+            row.setCaptionText("Original question-paper page fallback for question " + parsedQuestion.displayKey());
+            row.setStructureJson(buildQuestionMaterialStructureJson(parsedQuestion, questionPaper, page));
+            row.setMatchStatus(page == null ? "AMBIGUOUS" : "MATCHED");
+            row.setMatchConfidence(page == null ? new BigDecimal("0.50") : new BigDecimal("0.90"));
+            row.setSortOrder(pageNo - startPageNo + 1);
+            row.setStatus(1);
+            row.setRemark(null);
+            row.setCreateTime(LocalDateTime.now());
+            row.setUpdateTime(LocalDateTime.now());
+            row.setDeleteFlag("1");
+            alevelQuestionMaterialRefMapper.insert(row);
+        }
+    }
+
+    private int insertDetectedFigureTableMaterialRefs(
+        AlevelQuestion question,
+        ParsedQuestion parsedQuestion,
+        AlevelSourceFile questionPaper,
+        AlevelPdfPage sourcePage,
+        int startPageNo,
+        int endPageNo,
+        Map<String, List<PositionedTextLine>> positionedLineCache
+    ) {
+        List<MaterialLabel> labels = extractMaterialLabels(parsedQuestion.stemText());
+        if (labels.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        Set<String> inserted = new LinkedHashSet<>();
+        for (MaterialLabel label : labels) {
+            for (int pageNo = startPageNo; pageNo <= endPageNo; pageNo++) {
+                AlevelPdfPage page = pageNo == startPageNo ? sourcePage : findQuestionSourcePage(questionPaper, pageNo);
+                if (page == null || trimToNull(page.getRenderStoragePath()) == null) {
+                    continue;
+                }
+                PositionedTextLine labelLine = findMaterialLabelLine(questionPaper, pageNo, label, positionedLineCache);
+                if (labelLine == null) {
+                    continue;
+                }
+                String dedupeKey = pageNo + "::" + label.normalizedKey();
+                if (inserted.contains(dedupeKey)) {
+                    break;
+                }
+                AlevelAsset asset = createQuestionMaterialCropAsset(question, parsedQuestion, questionPaper, page, label, labelLine, count + 1);
+                if (asset == null) {
+                    continue;
+                }
+                insertDetectedQuestionMaterialRef(question, parsedQuestion, questionPaper, page, label, labelLine, asset, count + 1);
+                inserted.add(dedupeKey);
+                count++;
+                break;
+            }
+        }
+        return count;
+    }
+
+    private List<MaterialLabel> extractMaterialLabels(String stemText) {
+        String normalized = trimToEmpty(stemText);
+        if (normalized.isEmpty()) {
+            return List.of();
+        }
+        List<MaterialLabel> labels = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        Matcher matcher = FIGURE_TABLE_LABEL_PATTERN.matcher(normalized);
+        while (matcher.find()) {
+            String type = matcher.group(1).equalsIgnoreCase("table") ? "TABLE" : "FIGURE";
+            String number = matcher.group(2);
+            MaterialLabel label = new MaterialLabel(type, type.substring(0, 1) + type.substring(1).toLowerCase(Locale.ROOT) + " " + number);
+            if (seen.add(label.normalizedKey())) {
+                labels.add(label);
+            }
+        }
+        return labels;
+    }
+
+    private PositionedTextLine findMaterialLabelLine(
+        AlevelSourceFile questionPaper,
+        int pageNo,
+        MaterialLabel label,
+        Map<String, List<PositionedTextLine>> positionedLineCache
+    ) {
+        List<PositionedTextLine> lines = loadPositionedTextLines(questionPaper, pageNo, positionedLineCache);
+        if (lines.isEmpty()) {
+            return null;
+        }
+        String target = normalizeMaterialLabel(label.label());
+        for (PositionedTextLine line : lines) {
+            if (normalizeMaterialLabel(line.text()).contains(target)) {
+                return line;
+            }
+        }
+        return null;
+    }
+
+    private List<PositionedTextLine> loadPositionedTextLines(
+        AlevelSourceFile questionPaper,
+        int pageNo,
+        Map<String, List<PositionedTextLine>> positionedLineCache
+    ) {
+        if (questionPaper == null || questionPaper.getAlevelSourceFileId() == null || trimToNull(questionPaper.getStoragePath()) == null) {
+            return List.of();
+        }
+        String cacheKey = questionPaper.getAlevelSourceFileId() + ":" + pageNo;
+        if (positionedLineCache.containsKey(cacheKey)) {
+            return positionedLineCache.get(cacheKey);
+        }
+        Path pdfPath = storagePathSupport.ensureExamAssetRoot().resolve(questionPaper.getStoragePath()).normalize();
+        if (!Files.exists(pdfPath)) {
+            positionedLineCache.put(cacheKey, List.of());
+            return List.of();
+        }
+        try (PDDocument document = Loader.loadPDF(pdfPath.toFile())) {
+            PositionedLineStripper stripper = new PositionedLineStripper();
+            stripper.setSortByPosition(true);
+            stripper.setStartPage(pageNo);
+            stripper.setEndPage(pageNo);
+            stripper.getText(document);
+            List<PositionedTextLine> lines = stripper.lines();
+            positionedLineCache.put(cacheKey, lines);
+            return lines;
+        } catch (IOException exception) {
+            positionedLineCache.put(cacheKey, List.of());
+            return List.of();
+        }
+    }
+
+    private AlevelAsset createQuestionMaterialCropAsset(
+        AlevelQuestion question,
+        ParsedQuestion parsedQuestion,
+        AlevelSourceFile questionPaper,
+        AlevelPdfPage page,
+        MaterialLabel label,
+        PositionedTextLine labelLine,
+        int sortOrder
+    ) {
+        Path sourceImage = storagePathSupport.ensureExamAssetRoot().resolve(page.getRenderStoragePath()).normalize();
+        if (!Files.exists(sourceImage)) {
+            return null;
+        }
+        try {
+            BufferedImage image = ImageIO.read(sourceImage.toFile());
+            if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) {
+                return null;
+            }
+            CropBox cropBox = resolveMaterialCropBox(page, image, labelLine);
+            BufferedImage cropped = image.getSubimage(cropBox.x(), cropBox.y(), cropBox.width(), cropBox.height());
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            ImageIO.write(cropped, "png", output);
+            byte[] bytes = output.toByteArray();
+            String hash = DigestUtil.sha256Hex(bytes);
+            String storagePath = buildQuestionMaterialCropStoragePath(question, label, page, hash);
+            Path target = storagePathSupport.ensureExamAssetRoot().resolve(storagePath).normalize();
+            Files.createDirectories(target.getParent());
+            Files.write(target, bytes);
+
+            AlevelAsset asset = new AlevelAsset();
+            asset.setOwnerType("QUESTION");
+            asset.setOwnerId(question.getAlevelQuestionId());
+            asset.setAssetType("IMAGE");
+            asset.setAssetRole("QUESTION_MATERIAL_CROP");
+            asset.setAssetName(label.label() + " crop");
+            asset.setSourcePath(page.getRenderStoragePath());
+            asset.setStoragePath(storagePath);
+            asset.setAssetUrl("/exam-assets/" + storagePath.replace("\\", "/"));
+            asset.setFileHash(hash);
+            asset.setMimeType("image/png");
+            asset.setSourcePageNo(page.getPageNo());
+            asset.setSourceBboxJson(buildCropBboxJson(parsedQuestion, questionPaper, page, label, cropBox));
+            asset.setSortOrder(sortOrder);
+            asset.setStatus(1);
+            asset.setRemark("auto cropped from rendered PDF page");
+            asset.setCreateTime(LocalDateTime.now());
+            asset.setUpdateTime(LocalDateTime.now());
+            asset.setDeleteFlag("1");
+            alevelAssetMapper.insert(asset);
+            return asset;
+        } catch (IOException | RuntimeException exception) {
+            return null;
+        }
+    }
+
+    private CropBox resolveMaterialCropBox(AlevelPdfPage page, BufferedImage image, PositionedTextLine labelLine) {
+        int imageWidth = image.getWidth();
+        int imageHeight = image.getHeight();
+        int marginX = Math.max(18, Math.round(imageWidth * 0.035f));
+        int labelY = toImageY(labelLine.y(), page.getPageHeightPt(), imageHeight);
+        int top = clamp(labelY - Math.max(28, Math.round(imageHeight * 0.018f)), 0, Math.max(0, imageHeight - 1));
+        int desiredHeight = Math.max(220, Math.round(imageHeight * 0.34f));
+        int height = Math.min(desiredHeight, imageHeight - top);
+        if (height < 120) {
+            top = Math.max(0, imageHeight - Math.min(imageHeight, desiredHeight));
+            height = imageHeight - top;
+        }
+        int width = Math.max(1, imageWidth - marginX * 2);
+        return new CropBox(marginX, top, width, Math.max(1, height));
+    }
+
+    private void insertDetectedQuestionMaterialRef(
+        AlevelQuestion question,
+        ParsedQuestion parsedQuestion,
+        AlevelSourceFile questionPaper,
+        AlevelPdfPage page,
+        MaterialLabel label,
+        PositionedTextLine labelLine,
+        AlevelAsset asset,
+        int sortOrder
+    ) {
+        AlevelQuestionMaterialRef row = new AlevelQuestionMaterialRef();
+        row.setAlevelQuestionId(question.getAlevelQuestionId());
+        row.setMaterialType(label.type());
+        row.setRelationType("DETECTED");
+        row.setDisplayMode("IMAGE");
+        row.setAlevelSourceFileId(questionPaper.getAlevelSourceFileId());
+        row.setAlevelPdfPageId(page.getAlevelPdfPageId());
+        row.setAlevelContentBlockId(null);
+        row.setAlevelAssetId(asset.getAlevelAssetId());
+        row.setSourcePageNo(page.getPageNo());
+        row.setSourceBboxJson(asset.getSourceBboxJson());
+        row.setTitle(label.label());
+        row.setCaptionHtml(toParagraphHtml(label.label() + " extracted from question paper"));
+        row.setCaptionText(label.label() + " extracted from question paper");
+        row.setStructureJson(buildDetectedMaterialStructureJson(parsedQuestion, questionPaper, page, label, labelLine, asset));
+        row.setMatchStatus("MATCHED");
+        row.setMatchConfidence(new BigDecimal("0.80"));
+        row.setSortOrder(sortOrder);
+        row.setStatus(1);
+        row.setRemark("auto cropped by Figure/Table text anchor");
+        row.setCreateTime(LocalDateTime.now());
+        row.setUpdateTime(LocalDateTime.now());
+        row.setDeleteFlag("1");
+        alevelQuestionMaterialRefMapper.insert(row);
+    }
+
+    private String buildQuestionMaterialCropStoragePath(
+        AlevelQuestion question,
+        MaterialLabel label,
+        AlevelPdfPage page,
+        String hash
+    ) {
+        String safeLabel = label.normalizedKey().replaceAll("[^a-z0-9]+", "-").replaceAll("^-|-$", "");
+        return "alevel/question-materials/question-"
+            + question.getAlevelQuestionId()
+            + "/page-"
+            + "%04d".formatted(page.getPageNo())
+            + "_"
+            + safeLabel
+            + "_"
+            + hash.substring(0, 12)
+            + ".png";
+    }
+
+    private String buildCropBboxJson(
+        ParsedQuestion parsedQuestion,
+        AlevelSourceFile questionPaper,
+        AlevelPdfPage page,
+        MaterialLabel label,
+        CropBox cropBox
+    ) {
+        JSONObject payload = new JSONObject();
+        payload.set("strategy", "figure_table_text_anchor_crop");
+        payload.set("bbox_type", "IMAGE_CROP");
+        payload.set("material_label", label.label());
+        payload.set("source_file_id", questionPaper == null ? null : questionPaper.getAlevelSourceFileId());
+        payload.set("source_page_no", page.getPageNo());
+        payload.set("question_key", parsedQuestion.displayKey());
+        payload.set("unit", "px");
+        payload.set("x", cropBox.x());
+        payload.set("y", cropBox.y());
+        payload.set("width", cropBox.width());
+        payload.set("height", cropBox.height());
+        payload.set("extraction_version", 1);
+        return payload.toString();
+    }
+
+    private String buildDetectedMaterialStructureJson(
+        ParsedQuestion parsedQuestion,
+        AlevelSourceFile questionPaper,
+        AlevelPdfPage page,
+        MaterialLabel label,
+        PositionedTextLine labelLine,
+        AlevelAsset asset
+    ) {
+        JSONObject payload = new JSONObject();
+        payload.set("material_strategy", "figure_table_text_anchor_crop");
+        payload.set("question_key", parsedQuestion.displayKey());
+        payload.set("material_label", label.label());
+        payload.set("source_file_id", questionPaper == null ? null : questionPaper.getAlevelSourceFileId());
+        payload.set("source_file_type", questionPaper == null ? null : questionPaper.getSourceFileType());
+        payload.set("source_page_no", page.getPageNo());
+        payload.set("pdf_page_id", page.getAlevelPdfPageId());
+        payload.set("label_text", labelLine.text());
+        payload.set("asset_id", asset.getAlevelAssetId());
+        payload.set("asset_url", asset.getAssetUrl());
+        return payload.toString();
+    }
+
+    private int toImageY(BigDecimal yPt, BigDecimal pageHeightPt, int imageHeight) {
+        if (yPt == null || pageHeightPt == null || pageHeightPt.compareTo(BigDecimal.ZERO) <= 0) {
+            return 0;
+        }
+        double ratio = yPt.doubleValue() / pageHeightPt.doubleValue();
+        return clamp((int) Math.round(ratio * imageHeight), 0, Math.max(0, imageHeight - 1));
+    }
+
+    private int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private String normalizeMaterialLabel(String value) {
+        return trimToEmpty(value).toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "");
+    }
+
+    private String buildQuestionSourceBboxJson(
+        ParsedQuestion parsedQuestion,
+        AlevelSourceFile questionPaper,
+        AlevelPdfPage sourcePage
+    ) {
+        JSONObject payload = new JSONObject();
+        Integer currentPageNo = sourcePage == null ? parsedQuestion.sourcePageNo() : sourcePage.getPageNo();
+        payload.set("strategy", "page_render_fallback");
+        payload.set("bbox_type", "FULL_PAGE");
+        payload.set("source_file_id", questionPaper == null ? null : questionPaper.getAlevelSourceFileId());
+        payload.set("source_page_no", currentPageNo);
+        payload.set("source_page_start_no", parsedQuestion.sourcePageNo());
+        payload.set("source_page_end_no", parsedQuestion.sourcePageEndNo());
+        payload.set("question_key", parsedQuestion.displayKey());
+        payload.set("extraction_version", 1);
+        if (sourcePage != null) {
+            payload.set("pdf_page_id", sourcePage.getAlevelPdfPageId());
+            payload.set("unit", "pt");
+            payload.set("x", 0);
+            payload.set("y", 0);
+            payload.set("width", sourcePage.getPageWidthPt());
+            payload.set("height", sourcePage.getPageHeightPt());
+            payload.set("render_asset_id", sourcePage.getRenderAssetId());
+            payload.set("render_asset_url", sourcePage.getRenderAssetUrl());
+        }
+        return payload.toString();
+    }
+
+    private String buildQuestionMaterialStructureJson(
+        ParsedQuestion parsedQuestion,
+        AlevelSourceFile questionPaper,
+        AlevelPdfPage sourcePage
+    ) {
+        JSONObject payload = new JSONObject();
+        Integer currentPageNo = sourcePage == null ? parsedQuestion.sourcePageNo() : sourcePage.getPageNo();
+        payload.set("material_strategy", "question_paper_page_render");
+        payload.set("question_key", parsedQuestion.displayKey());
+        payload.set("source_file_id", questionPaper == null ? null : questionPaper.getAlevelSourceFileId());
+        payload.set("source_file_type", questionPaper == null ? null : questionPaper.getSourceFileType());
+        payload.set("source_page_no", currentPageNo);
+        payload.set("source_page_start_no", parsedQuestion.sourcePageNo());
+        payload.set("source_page_end_no", parsedQuestion.sourcePageEndNo());
+        payload.set("pdf_page_id", sourcePage == null ? null : sourcePage.getAlevelPdfPageId());
+        payload.set("render_asset_id", sourcePage == null ? null : sourcePage.getRenderAssetId());
+        payload.set("render_asset_url", sourcePage == null ? null : sourcePage.getRenderAssetUrl());
+        payload.set("fallback_reason", "first version uses full page render before precise question crop extraction");
+        return payload.toString();
     }
 
     private MockExamPaperRef ensurePaperRef(AlevelPaper paper) {
@@ -570,6 +1110,7 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
         for (AlevelSourceFile sourceFile : sourceFiles) {
             keepSourceFileIds.add(sourceFile.getAlevelSourceFileId());
             alevelSourceFileMapper.bindPaperId(sourceFile.getAlevelSourceFileId(), paperId, now);
+            alevelPdfPageMapper.bindPaperIdBySourceFileId(sourceFile.getAlevelSourceFileId(), paperId, now);
             JSONObject parseResult = JSONUtil.parseObj(blankToDefault(sourceFile.getParseResultJson(), "{}"));
             parseResult.set("bundle_code", bundleCode);
             parseResult.set("alevel_paper_id", paperId);
@@ -643,7 +1184,7 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
             }
 
             if (current != null) {
-                current.addLine(text);
+                current.addLine(text, line.pageNo());
             }
         }
         if (current != null) {
@@ -670,14 +1211,31 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
         Map<String, ParsedMarkSchemeBuilder> builders = new LinkedHashMap<>();
         ParsedMarkPointBuilder currentPoint = null;
         ParsedMarkSchemeBuilder currentScheme = null;
+        boolean inQuestionSection = false;
         Map<String, Integer> questionOrder = new LinkedHashMap<>();
+        Set<String> parentQuestionKeys = new LinkedHashSet<>();
         for (int index = 0; index < orderedQuestionKeys.size(); index++) {
-            questionOrder.putIfAbsent(orderedQuestionKeys.get(index), index);
+            String questionKey = orderedQuestionKeys.get(index);
+            questionOrder.putIfAbsent(questionKey, index);
+            String parentKey = deriveParentKey(questionKey);
+            if (parentKey != null) {
+                parentQuestionKeys.add(parentKey);
+            }
         }
         int currentQuestionIndex = -1;
 
         for (PaperLine line : lines) {
             String text = line.text();
+            if (!inQuestionSection) {
+                if (MARK_SCHEME_QUESTION_HEADER_PATTERN.matcher(text).matches()) {
+                    inQuestionSection = true;
+                }
+                continue;
+            }
+
+            if (MARK_SCHEME_QUESTION_HEADER_PATTERN.matcher(text).matches()) {
+                continue;
+            }
             if (isMarkSchemeNoiseLine(text)) {
                 continue;
             }
@@ -686,6 +1244,9 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
             if (start != null) {
                 String key = start.key();
                 String resolvedKey = resolveMarkSchemeQuestionKey(key, questionOrder);
+                if (resolvedKey != null && parentQuestionKeys.contains(resolvedKey)) {
+                    resolvedKey = null;
+                }
                 Integer candidateOrder = resolvedKey == null ? null : questionOrder.get(resolvedKey);
                 if (candidateOrder != null) {
                     if (candidateOrder < currentQuestionIndex) {
@@ -694,7 +1255,7 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
                         currentQuestionIndex = candidateOrder;
                         currentScheme = builders.computeIfAbsent(resolvedKey, ParsedMarkSchemeBuilder::new);
                         currentScheme.captureTotalMarks(start.remainder());
-                        currentScheme.appendRaw(text);
+                        currentScheme.appendRaw(text, line.pageNo());
                         currentPoint = currentScheme.addPoint(start.remainder());
                         continue;
                     }
@@ -707,7 +1268,7 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
                 continue;
             }
 
-            currentScheme.appendRaw(text);
+            currentScheme.appendRaw(text, line.pageNo());
             if (currentPoint == null) {
                 currentPoint = currentScheme.addPoint(text);
                 continue;
@@ -1449,6 +2010,18 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
     private record PaperLine(int pageNo, String text) {
     }
 
+    private record PositionedTextLine(String text, BigDecimal x, BigDecimal y, BigDecimal width, BigDecimal height) {
+    }
+
+    private record MaterialLabel(String type, String label) {
+        private String normalizedKey() {
+            return label == null ? "" : label.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "");
+        }
+    }
+
+    private record CropBox(int x, int y, int width, int height) {
+    }
+
     private record ParsedPaper(
         String unitName,
         Integer durationSeconds,
@@ -1471,6 +2044,7 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
         String stemText,
         List<ParsedOption> options,
         Integer sourcePageNo,
+        Integer sourcePageEndNo,
         int sortOrder,
         ParsedMarkScheme markScheme,
         BigDecimal maxScore
@@ -1485,6 +2059,7 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
                 stemText,
                 options,
                 sourcePageNo,
+                sourcePageEndNo,
                 sortOrder,
                 nextMarkScheme,
                 nextMaxScore
@@ -1495,25 +2070,75 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
     private record ParsedQuestionSet(List<ParsedQuestion> questions) {
     }
 
+    private static final class PositionedLineStripper extends PDFTextStripper {
+        private final List<PositionedTextLine> lines = new ArrayList<>();
+
+        private PositionedLineStripper() throws IOException {
+            super();
+        }
+
+        private List<PositionedTextLine> lines() {
+            return lines;
+        }
+
+        @Override
+        protected void writeString(String text, List<TextPosition> textPositions) throws IOException {
+            String normalized = trimToStatic(text);
+            if (normalized == null || textPositions == null || textPositions.isEmpty()) {
+                return;
+            }
+            float minX = Float.MAX_VALUE;
+            float maxX = 0;
+            float minY = Float.MAX_VALUE;
+            float maxY = 0;
+            for (TextPosition position : textPositions) {
+                minX = Math.min(minX, position.getXDirAdj());
+                maxX = Math.max(maxX, position.getXDirAdj() + position.getWidthDirAdj());
+                minY = Math.min(minY, position.getYDirAdj());
+                maxY = Math.max(maxY, position.getYDirAdj() + position.getHeightDir());
+            }
+            if (minX == Float.MAX_VALUE || minY == Float.MAX_VALUE) {
+                return;
+            }
+            lines.add(new PositionedTextLine(
+                normalized,
+                BigDecimal.valueOf(minX),
+                BigDecimal.valueOf(minY),
+                BigDecimal.valueOf(Math.max(0, maxX - minX)),
+                BigDecimal.valueOf(Math.max(0, maxY - minY))
+            ));
+        }
+
+        private static String trimToStatic(String value) {
+            String text = value == null ? "" : value.trim();
+            return text.isEmpty() ? null : text;
+        }
+    }
+
     private static final class ParsedQuestionBuilder {
         private final String displayKey;
         private final String parentKey;
         private final Integer sourcePageNo;
+        private Integer sourcePageEndNo;
         private final List<String> lines = new ArrayList<>();
 
         private ParsedQuestionBuilder(String displayKey, String parentKey, String firstLine, Integer sourcePageNo) {
             this.displayKey = displayKey;
             this.parentKey = parentKey;
             this.sourcePageNo = sourcePageNo;
+            this.sourcePageEndNo = sourcePageNo;
             if (trimToStatic(firstLine) != null) {
                 this.lines.add(trimToStatic(firstLine));
             }
         }
 
-        private void addLine(String line) {
+        private void addLine(String line, Integer pageNo) {
             String normalized = trimToStatic(line);
             if (normalized != null) {
                 this.lines.add(normalized);
+            }
+            if (pageNo != null) {
+                this.sourcePageEndNo = pageNo;
             }
         }
 
@@ -1527,6 +2152,7 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
                 stemText,
                 parsedOptions.options(),
                 sourcePageNo,
+                sourcePageEndNo,
                 sortOrder,
                 ParsedMarkScheme.empty(displayKey),
                 maxScore
@@ -1651,9 +2277,16 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
         }
     }
 
-    private record ParsedMarkScheme(String questionKey, List<ParsedMarkPoint> points, BigDecimal totalMarks, String rawExcerpt) {
+    private record ParsedMarkScheme(
+        String questionKey,
+        List<ParsedMarkPoint> points,
+        BigDecimal totalMarks,
+        String rawExcerpt,
+        Integer sourcePageStart,
+        Integer sourcePageEnd
+    ) {
         static ParsedMarkScheme empty(String questionKey) {
-            return new ParsedMarkScheme(questionKey, List.of(), null, null);
+            return new ParsedMarkScheme(questionKey, List.of(), null, null, null, null);
         }
     }
 
@@ -1662,6 +2295,8 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
         private final List<ParsedMarkPointBuilder> points = new ArrayList<>();
         private final List<String> rawLines = new ArrayList<>();
         private BigDecimal explicitTotalMarks;
+        private Integer sourcePageStart;
+        private Integer sourcePageEnd;
 
         private ParsedMarkSchemeBuilder(String questionKey) {
             this.questionKey = questionKey;
@@ -1683,10 +2318,16 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
             return builder;
         }
 
-        private void appendRaw(String line) {
+        private void appendRaw(String line, Integer pageNo) {
             String normalized = trimToStatic(line);
             if (normalized != null) {
                 rawLines.add(normalized);
+            }
+            if (pageNo != null) {
+                if (sourcePageStart == null) {
+                    sourcePageStart = pageNo;
+                }
+                sourcePageEnd = pageNo;
             }
         }
 
@@ -1709,7 +2350,9 @@ public class AlevelQuestionBankBuildServiceImpl implements AlevelQuestionBankBui
                 questionKey,
                 builtPoints,
                 explicitTotalMarks != null ? explicitTotalMarks : (hasAnyMark ? totalMarks : null),
-                rawLines.isEmpty() ? null : String.join("\n", rawLines)
+                rawLines.isEmpty() ? null : String.join("\n", rawLines),
+                sourcePageStart,
+                sourcePageEnd
             );
         }
 
