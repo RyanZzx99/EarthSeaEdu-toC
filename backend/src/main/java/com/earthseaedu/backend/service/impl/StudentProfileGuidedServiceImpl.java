@@ -39,8 +39,8 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
 
     private static final Logger log = LoggerFactory.getLogger(StudentProfileGuidedServiceImpl.class);
 
-    private static final String QUESTIONNAIRE_CODE = "student_profile_guided_v1";
-    private static final int QUESTIONNAIRE_VERSION = 1;
+    private static final String QUESTIONNAIRE_CODE = "student_profile_guided_v3";
+    private static final int QUESTIONNAIRE_VERSION = 3;
     private static final String SCORING_PROMPT_KEY = "student_profile_build.scoring";
 
     private static final List<Map<String, String>> SCORE_STATUS_OPTIONS = options(
@@ -258,6 +258,10 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
     ) {
         String studentId = jwtService.requireCurrentUserId(authorizationHeader);
         GuidedSessionRow session = findLatestSession(studentId);
+        if (session != null && isStaleQuestionnaireSession(session.sessionId())) {
+            guidedMapper.expireSession(session.sessionId());
+            session = null;
+        }
         if (session == null && createIfMissing) {
             session = createSession(studentId);
         }
@@ -317,11 +321,15 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
         Map<String, Object> enrichedQuestion = serializeQuestion(question, answers, null, null);
         Map<String, Object> normalizedAnswer;
         if (isTrue(rawAnswer, "skip")) {
+            if (Boolean.FALSE.equals(enrichedQuestion.get("skippable"))) {
+                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "请先填写答案");
+            }
             normalizedAnswer = new LinkedHashMap<>();
             normalizedAnswer.put("skipped", true);
         } else {
             normalizedAnswer = normalizeAnswer(enrichedQuestion, rawAnswer == null ? Map.of() : rawAnswer, answers);
         }
+        validateRequiredAnswer(enrichedQuestion, normalizedAnswer);
         String displayText = answerDisplayText(enrichedQuestion, normalizedAnswer);
         if (!isAnswerMeaningful(enrichedQuestion, normalizedAnswer)) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "请先填写答案");
@@ -582,7 +590,7 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
         List<String> targetMajors = selectedValues(answers.get("Q4"));
         String curriculum = selectedValue(answers.get("Q5"));
         String languageType = selectedValue(answers.get("Q9"));
-        List<String> standardizedTests = selectedValues(answers.get("Q12"));
+        List<String> standardizedTests = selectedStandardizedTestsInOrder(answers);
 
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("current_grade", currentGrade);
@@ -636,8 +644,8 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
         profile.put("student_academic", academic);
 
         putAcademicProfiles(profile, studentId, curriculum, answers.get("Q8"));
-        profile.putAll(buildLanguageProfile(studentId, languageType, answers.get("Q10"), selectedValue(answers.get("Q11"))));
-        Map<String, Object> standardizedPayload = buildStandardizedProfile(studentId, new LinkedHashSet<>(standardizedTests), answers, selectedValue(answers.get("Q14")));
+        profile.putAll(buildLanguageProfile(studentId, languageType, answers.get("Q9_SCORE"), null));
+        Map<String, Object> standardizedPayload = buildStandardizedProfile(studentId, new LinkedHashSet<>(standardizedTests), answers, selectedValue(answers.get("Q12")));
         profile.putAll(standardizedPayload);
         profile.putAll(buildExperienceProfile(studentId, currentGrade, answers));
         return profile;
@@ -838,20 +846,26 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
         payload.put("student_standardized_act", new ArrayList<Map<String, Object>>());
 
         if (selectedTests.contains("A_LEVEL")) {
-            payload.put("student_academic_a_level_subject", aLevelSubjectRows(studentId, answers.get("Q13_A_LEVEL"), "FULL_A_LEVEL"));
+            payload.put("student_academic_a_level_subject", aLevelSubjectRows(studentId, answers.get("Q11_A_LEVEL"), "FULL_A_LEVEL"));
         }
         if (selectedTests.contains("IB")) {
-            payload.put("student_academic_ib_subject", ibSubjectRows(studentId, answers.get("Q13_IB")));
+            payload.put("student_academic_ib_subject", ibSubjectRows(studentId, answers.get("Q11_IB")));
         }
         if (selectedTests.contains("CHINESE_HIGH_SCHOOL")) {
-            payload.put("student_academic_chinese_high_school_subject", chineseHighSchoolSubjectRows(studentId, answers.get("Q13_CHINESE_HIGH_SCHOOL")));
+            payload.put("student_academic_chinese_high_school_subject", chineseHighSchoolSubjectRows(studentId, answers.get("Q11_CHINESE_HIGH_SCHOOL")));
         }
-        if (selectedTests.contains("US_HIGH_SCHOOL")) {
-            payload.put("student_academic_us_high_school_subject", usHighSchoolSubjectRows(studentId, answers.get("Q13_US_HIGH_SCHOOL")));
+        if (selectedTests.contains("OSSD")) {
+            payload.put("student_academic_ossd_subject", ossdSubjectRows(studentId, answers.get("Q11_OSSD")));
+        }
+        if (selectedTests.contains("OTHER")) {
+            payload.put("student_academic_other_curriculum_subject", otherCurriculumSubjectRows(studentId, answers.get("Q11_OTHER")));
+        }
+        if (selectedTests.contains("AP")) {
+            payload.put("student_academic_ap_subject", apSubjectRows(studentId, answers.get("Q11_AP")));
         }
 
         if (selectedTests.contains("SAT")) {
-            Map<String, Object> sat = answers.get("Q13_SAT");
+            Map<String, Object> sat = answers.get("Q11_SAT");
             if (sat == null) {
                 sat = Map.of();
             }
@@ -878,7 +892,7 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
             }
         }
         if (selectedTests.contains("ACT")) {
-            Map<String, Object> act = answers.get("Q13_ACT");
+            Map<String, Object> act = answers.get("Q11_ACT");
             if (act == null) {
                 act = Map.of();
             }
@@ -923,14 +937,14 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
         boolean universityGrade = isUniversityGrade(currentGrade);
         payload.put(
             "student_activity_experience",
-            universityGrade ? new ArrayList<Map<String, Object>>() : activityExperienceRows(studentId, answers.get("Q15"))
+            universityGrade ? new ArrayList<Map<String, Object>>() : activityExperienceRows(studentId, answers.get("Q13"))
         );
         payload.put(
             "student_enterprise_internship",
-            universityGrade ? enterpriseInternshipRows(studentId, answers.get("Q15")) : new ArrayList<Map<String, Object>>()
+            universityGrade ? enterpriseInternshipRows(studentId, answers.get("Q13")) : new ArrayList<Map<String, Object>>()
         );
-        payload.put("student_research_experience", researchExperienceRows(studentId, answers.get("Q16")));
-        payload.put("student_competition_record", competitionRows(studentId, answers.get("Q17")));
+        payload.put("student_research_experience", researchExperienceRows(studentId, answers.get("Q14")));
+        payload.put("student_competition_record", competitionRows(studentId, answers.get("Q15")));
         return payload;
     }
 
@@ -983,8 +997,8 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
                 )
             );
         }
-        result.put("project", guidedResearchRadarScore(answers.get("Q16")));
-        result.put("activity", guidedActivityRadarScore(answers.get("Q15"), result.get("activity")));
+        result.put("project", guidedResearchRadarScore(answers.get("Q14")));
+        result.put("activity", guidedActivityRadarScore(answers.get("Q13"), result.get("activity")));
         return result;
     }
 
@@ -1008,9 +1022,9 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
             case "academic" -> "学术信息已经有基础。建议继续补充课程体系、校内排名、核心科目成绩和优势课程，让学术能力更完整地呈现。";
             case "language" -> "语言能力还可以通过更完整的考试信息来强化。建议补充考试日期、总分、分项成绩和成绩状态，方便判断下一步提分重点。";
             case "standardized" -> "标化和课程科目成绩还可以继续完善。建议补充 SAT/ACT 或课程体系科目成绩，并标清考试状态和具体分项，提升成绩画像的可信度。";
-            case "competition" -> guidedCompetitionRadarFeedback(answers.get("Q17"));
-            case "activity" -> guidedActivityRadarFeedback(answers.get("Q15"), hasGuidedActivityInternshipContent(answers.get("Q15")));
-            case "project" -> guidedResearchRadarFeedback(answers.get("Q16"));
+            case "competition" -> guidedCompetitionRadarFeedback(answers.get("Q15"));
+            case "activity" -> guidedActivityRadarFeedback(answers.get("Q13"), hasGuidedActivityInternshipContent(answers.get("Q13")));
+            case "project" -> guidedResearchRadarFeedback(answers.get("Q14"));
             default -> "当前信息还不够完整。建议继续补充关键经历和证明材料，让画像更准确。";
         };
     }
@@ -1259,17 +1273,20 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
 
     private Integer gradeSize(Map<String, Object> q7) {
         String value = selectedValue(q7);
-        if ("LT_50".equals(value)) {
+        if ("LT_50".equals(value) || "AROUND_50".equals(value)) {
             return 50;
         }
-        if ("50_100".equals(value)) {
+        if ("50_100".equals(value) || "AROUND_100".equals(value)) {
             return 100;
         }
-        if ("100_200".equals(value)) {
+        if ("100_200".equals(value) || "AROUND_200".equals(value)) {
             return 200;
         }
-        if ("200_500".equals(value)) {
+        if ("200_500".equals(value) || "AROUND_500".equals(value)) {
             return 500;
+        }
+        if ("AROUND_1000".equals(value)) {
+            return 1000;
         }
         if ("GT_500".equals(value)) {
             return 501;
@@ -1366,6 +1383,83 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
                     scoreNumeric,
                     "score_scale_code",
                     "PERCENT_100"
+                )
+            );
+        }
+        return rows;
+    }
+
+    private List<Map<String, Object>> ossdSubjectRows(String studentId, Map<String, Object> answer) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map<String, Object> row : repeatableRows(answer)) {
+            String courseName = nullableString(row.get("course_name_text"));
+            if (courseName == null) {
+                continue;
+            }
+            rows.add(
+                mapOfEntries(
+                    "student_id",
+                    studentId,
+                    "course_name_text",
+                    courseName,
+                    "course_level_code",
+                    nullableString(row.get("course_level_code")),
+                    "score_numeric",
+                    decimalValue(row.get("score_numeric")),
+                    "credit_earned",
+                    decimalValue(row.get("credit_earned"))
+                )
+            );
+        }
+        return rows;
+    }
+
+    private List<Map<String, Object>> otherCurriculumSubjectRows(String studentId, Map<String, Object> answer) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map<String, Object> row : repeatableRows(answer)) {
+            String subjectName = nullableString(row.get("subject_name_text"));
+            if (subjectName == null) {
+                continue;
+            }
+            rows.add(
+                mapOfEntries(
+                    "student_id",
+                    studentId,
+                    "curriculum_system_code",
+                    "OTHER",
+                    "subject_name_text",
+                    subjectName,
+                    "subject_level_text",
+                    nullableString(row.get("subject_level_text")),
+                    "score_text",
+                    nullableString(row.get("score_text")),
+                    "score_numeric",
+                    decimalValue(row.get("score_numeric")),
+                    "score_scale_code",
+                    nullableString(row.get("score_scale_code"))
+                )
+            );
+        }
+        return rows;
+    }
+
+    private List<Map<String, Object>> apSubjectRows(String studentId, Map<String, Object> answer) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map<String, Object> row : repeatableRows(answer)) {
+            String courseId = nullableString(row.get("ap_course_id"));
+            if (courseId == null) {
+                continue;
+            }
+            rows.add(
+                mapOfEntries(
+                    "student_id",
+                    studentId,
+                    "ap_course_id",
+                    courseId,
+                    "score",
+                    nullableInt(row.get("score")),
+                    "year_taken",
+                    nullableInt(row.get("year_taken"))
                 )
             );
         }
@@ -1602,10 +1696,20 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
 
     private Integer estimatedStandardizedScore(String value) {
         return switch (string(value)) {
+            case "SAT_1550_PLUS" -> 1550;
+            case "SAT_1500_1540" -> 1500;
+            case "SAT_1450_1490" -> 1450;
+            case "SAT_1400_1440" -> 1400;
             case "SAT_1450_1500" -> 1450;
             case "SAT_1500_1550" -> 1500;
+            case "ACT_35_36" -> 35;
+            case "ACT_33_34" -> 33;
+            case "ACT_31_32" -> 31;
             case "ACT_32_33" -> 32;
             case "ACT_34_36" -> 34;
+            case "IB_45" -> 45;
+            case "IB_42_44" -> 42;
+            case "IB_40_41" -> 40;
             case "IB_40_PLUS" -> 40;
             default -> null;
         };
@@ -1825,35 +1929,35 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
         result.put(
             "language",
             scoreReason(
-                Math.min(100, 30 + 20 * boolInt(answers.containsKey("Q9")) + 30 * boolInt(answers.containsKey("Q10") || answers.containsKey("Q11"))),
+                Math.min(100, 30 + 20 * boolInt(answers.containsKey("Q9")) + 30 * boolInt(answers.containsKey("Q9_SCORE"))),
                 "语言能力还可以通过更完整的考试信息来强化。建议补充考试日期、总分、分项成绩和成绩状态，方便判断下一步提分重点。"
             )
         );
         result.put(
             "standardized",
             scoreReason(
-                Math.min(100, 30 + 20 * boolInt(answers.containsKey("Q12")) + 30 * boolInt(hasAnyStandardizedScoreAnswer(answers) || answers.containsKey("Q14"))),
+                Math.min(100, 30 + 20 * boolInt(answers.containsKey("Q10")) + 30 * boolInt(hasAnyStandardizedScoreAnswer(answers) || answers.containsKey("Q12"))),
                 "标化和课程科目成绩还可以继续完善。建议补充 SAT/ACT 或课程体系科目成绩，并标清考试状态和具体分项，提升成绩画像的可信度。"
             )
         );
         result.put(
             "competition",
             scoreReason(
-                "yes".equals(selectedText(answers.get("Q17"), "has_experience")) ? 75 : 40,
+                "yes".equals(selectedText(answers.get("Q15"), "has_experience")) ? 75 : 40,
                 "竞赛经历建议突出竞赛领域、级别、参赛规模和结果证明。若目前经历较少，可以先选择与目标专业相关的竞赛积累代表性成果。"
             )
         );
         result.put(
             "activity",
             scoreReason(
-                "yes".equals(selectedText(answers.get("Q15"), "has_experience")) ? 75 : 40,
+                "yes".equals(selectedText(answers.get("Q13"), "has_experience")) ? 75 : 40,
                 "活动/企业实习建议写清楚持续时间、具体职责、影响范围和推荐人，让经历更能体现主动性、责任感和成长。"
             )
         );
         result.put(
             "project",
             scoreReason(
-                "yes".equals(selectedText(answers.get("Q16"), "has_experience")) ? 75 : 40,
+                "yes".equals(selectedText(answers.get("Q14"), "has_experience")) ? 75 : 40,
                 "科研经历建议补充研究问题、发起方、担任角色和可证明成果。把你的具体贡献写清楚，会更好体现学术潜力。"
             )
         );
@@ -1877,11 +1981,25 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
     }
 
     private GuidedSessionRow requireOwnedSession(String studentId, String sessionId) {
-        Map<String, Object> row = guidedMapper.findOwnedSession(studentId, sessionId);
+        Map<String, Object> row = guidedMapper.findOwnedSession(studentId, sessionId, QUESTIONNAIRE_CODE);
         if (row == null) {
             throw new ApiException(HttpStatus.NOT_FOUND, "guided session not found");
         }
-        return mapSessionRow(row);
+        GuidedSessionRow session = mapSessionRow(row);
+        if (isStaleQuestionnaireSession(session.sessionId())) {
+            throw new ApiException(HttpStatus.CONFLICT, "当前快速建档会话已过期，请重新打开快速建档");
+        }
+        return session;
+    }
+
+    private boolean isStaleQuestionnaireSession(String sessionId) {
+        Map<String, Map<String, Object>> answers = loadAnswers(sessionId);
+        Map<String, Object> q10 = answers.get("Q10");
+        if (q10 != null && !q10.containsKey("selected_value")) {
+            return true;
+        }
+        Map<String, Object> q12 = answers.get("Q12");
+        return q12 != null && q12.containsKey("selected_values");
     }
 
     private GuidedSessionRow mapSessionRow(Map<String, Object> row) {
@@ -2161,8 +2279,18 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
     ) {
         Map<String, Object> result = copyQuestion(question);
         List<Map<String, String>> options = questionOptions(string(question.get("code")));
+        if ("Q12".equals(question.get("code"))) {
+            options = estimatedStandardizedQuestionOptions(selectedValue(answers.get("Q5")));
+        }
         if (options != null) {
             result.put("options", options);
+        }
+        if ("Q10".equals(question.get("code"))) {
+            result.put("title", externalExamQuestionTitle(selectedValue(answers.get("Q5"))));
+        }
+        if ("Q9_SCORE".equals(question.get("code"))) {
+            String languageLabel = optionLabelForQuestion("Q9", selectedValue(answers.get("Q9")));
+            result.put("title", StrUtil.isBlank(languageLabel) ? "请填写对应的语言考试成绩。" : "请填写你的 " + languageLabel + " 成绩。");
         }
         if (index != null) {
             result.put("index", index);
@@ -2194,7 +2322,7 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
         List<Map<String, Object>> result = new ArrayList<>();
         for (Map<String, Object> question : QUESTIONS) {
             String code = string(question.get("code"));
-            if ("Q13".equals(code)) {
+            if ("Q11".equals(code)) {
                 result.addAll(standardizedScoreQuestions(answers));
                 continue;
             }
@@ -2217,16 +2345,10 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
     }
 
     private List<String> selectedStandardizedTestsInOrder(Map<String, Map<String, Object>> answers) {
-        List<String> result = new ArrayList<>();
-        Set<String> seen = new LinkedHashSet<>();
-        for (String value : selectedValues(answers.get("Q12"))) {
-            if ("NONE".equals(value) || !STANDARDIZED_SCORE_QUESTION_TEMPLATES.containsKey(value) || seen.contains(value)) {
-                continue;
-            }
-            result.add(value);
-            seen.add(value);
+        if (!"yes".equals(selectedValue(answers.get("Q10")))) {
+            return List.of();
         }
-        return result;
+        return examTypesForCurriculum(selectedValue(answers.get("Q5")));
     }
 
     private boolean isQuestionVisible(Map<String, Object> question, Map<String, Map<String, Object>> answers) {
@@ -2237,28 +2359,32 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
         if ("Q8".equals(code)) {
             return selectedValue(answers.get("Q5")) != null;
         }
-        if ("Q10".equals(code)) {
+        if ("Q9_SCORE".equals(code)) {
             String languageType = selectedValue(answers.get("Q9"));
             return languageType != null && !"NO_SCORE".equals(languageType);
         }
-        if ("Q11".equals(code)) {
-            Map<String, Object> q9Answer = answers.get("Q9");
-            return "NO_SCORE".equals(selectedValue(q9Answer)) || isTrue(q9Answer, "skipped");
+        if ("Q10".equals(code)) {
+            return selectedValue(answers.get("Q5")) != null;
         }
-        if ("Q13".equals(code)) {
+        if ("Q11".equals(code)) {
             return false;
         }
-        if ("Q14".equals(code)) {
-            Set<String> values = new LinkedHashSet<>(selectedValues(answers.get("Q12")));
-            if (values.isEmpty()) {
-                return false;
-            }
-            if (values.contains("NONE")) {
-                return true;
-            }
-            return !hasScoredExternalExamAnswerFromAnswers(answers);
+        if ("Q12".equals(code)) {
+            return "no".equals(selectedValue(answers.get("Q10")));
         }
         return true;
+    }
+
+    private List<String> examTypesForCurriculum(String curriculumCode) {
+        return switch (StrUtil.nullToEmpty(curriculumCode)) {
+            case "A_LEVEL" -> List.of("A_LEVEL");
+            case "IB" -> List.of("IB");
+            case "CHINESE_HIGH_SCHOOL" -> List.of("CHINESE_HIGH_SCHOOL");
+            case "OSSD" -> List.of("OSSD");
+            case "US_HIGH_SCHOOL" -> List.of("AP", "SAT", "ACT");
+            case "OTHER" -> List.of("OTHER");
+            default -> List.of();
+        };
     }
 
     private boolean hasScoredExternalExamAnswerFromAnswers(Map<String, Map<String, Object>> answers) {
@@ -2280,8 +2406,16 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
                 if (repeatableRowsHaveScoredValue(answer, "score_numeric")) {
                     return true;
                 }
-            } else if ("US_HIGH_SCHOOL".equals(examType)) {
-                if (repeatableRowsHaveAnyValue(answer, Set.of("grade_percent", "grade_letter_code"))) {
+            } else if ("OSSD".equals(examType)) {
+                if (repeatableRowsHaveAnyValue(answer, Set.of("score_numeric"))) {
+                    return true;
+                }
+            } else if ("OTHER".equals(examType)) {
+                if (repeatableRowsHaveAnyValue(answer, Set.of("score_text", "score_numeric"))) {
+                    return true;
+                }
+            } else if ("AP".equals(examType)) {
+                if (repeatableRowsHaveAnyValue(answer, Set.of("score"))) {
                     return true;
                 }
             } else if ("SAT".equals(examType)) {
@@ -2473,6 +2607,66 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
         return answer.values().stream().anyMatch(value -> !string(value).isBlank());
     }
 
+    private void validateRequiredAnswer(Map<String, Object> question, Map<String, Object> answer) {
+        if (answer == null || isTrue(answer, "skipped")) {
+            return;
+        }
+        List<String> missingLabels = new ArrayList<>();
+        if ("repeatable_form".equals(string(question.get("type")))) {
+            addMissingRequiredFields(question, answer, rawFieldList(question.get("fields")), missingLabels, "");
+            List<Map<String, Object>> rows = repeatableRows(answer);
+            int minRows = intValue(question.get("min_rows"));
+            if (minRows > 0 && rows.isEmpty()) {
+                missingLabels.add("至少填写一条成绩");
+            }
+            int rowsToCheck = Math.max(rows.size(), minRows);
+            for (int index = 0; index < rowsToCheck; index += 1) {
+                Map<String, Object> row = index < rows.size() ? rows.get(index) : Map.of();
+                if (index < minRows || hasAnyNonBlank(row)) {
+                    addMissingRequiredFields(question, row, rawFieldList(question.get("row_fields")), missingLabels, "第" + (index + 1) + "条");
+                }
+            }
+        } else {
+            addMissingRequiredFields(question, answer, rawFieldList(question.get("fields")), missingLabels, "");
+        }
+        if (!missingLabels.isEmpty()) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "请填写必填项：" + String.join("、", missingLabels));
+        }
+    }
+
+    private void addMissingRequiredFields(
+        Map<String, Object> question,
+        Map<String, Object> answer,
+        List<Map<String, Object>> fields,
+        List<String> missingLabels,
+        String labelPrefix
+    ) {
+        for (Map<String, Object> field : fields) {
+            if (!shouldValidateRequiredField(question, answer, field)) {
+                continue;
+            }
+            String fieldName = string(field.get("name"));
+            if (selectedText(answer, fieldName).isBlank()) {
+                String label = string(field.get("label"));
+                missingLabels.add(StrUtil.isBlank(labelPrefix) ? label : labelPrefix + label);
+            }
+        }
+    }
+
+    private boolean shouldValidateRequiredField(Map<String, Object> question, Map<String, Object> answer, Map<String, Object> field) {
+        if (!Boolean.TRUE.equals(field.get("required"))) {
+            return false;
+        }
+        String questionCode = string(question.get("code"));
+        String fieldName = string(field.get("name"));
+        if (Set.of("Q13", "Q14", "Q15").contains(questionCode)
+            && !"has_experience".equals(fieldName)
+            && !"yes".equals(selectedText(answer, "has_experience"))) {
+            return false;
+        }
+        return true;
+    }
+
     private String answerDisplayText(Map<String, Object> question, Map<String, Object> answer) {
         if (isTrue(answer, "skipped")) {
             return "已跳过";
@@ -2591,11 +2785,33 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
                 opt("A_LEVEL", "A-Level"),
                 opt("IB", "IB"),
                 opt("CHINESE_HIGH_SCHOOL", "普高"),
-                opt("US_HIGH_SCHOOL", "国际学校美高体系（AP）"),
+                opt("US_HIGH_SCHOOL", "国际学校美高体系"),
                 opt("OSSD", "OSSD"),
                 opt("OTHER", "其他")
             );
-            case "Q9" -> options(
+            case "Q7" -> gradeSizeQuestionOptions();
+            case "Q9" -> languageTypeQuestionOptions();
+            case "Q10" -> options(opt("yes", "是"), opt("no", "否"));
+            default -> null;
+        };
+    }
+
+    private List<Map<String, String>> gradeSizeQuestionOptions() {
+        return options(
+            opt("AROUND_50", "50 左右"),
+            opt("AROUND_100", "100 左右"),
+            opt("AROUND_200", "200 左右"),
+            opt("AROUND_500", "500 左右"),
+            opt("AROUND_1000", "1000 左右"),
+            opt("UNKNOWN", "不清楚"),
+            opt("CUSTOM", "其他")
+        );
+    }
+
+    private List<Map<String, String>> languageTypeQuestionOptions() {
+        List<Map<String, String>> sourceOptions = firstNonEmptyOptions(
+            sharedFormFieldOptions("student_language_test_record", "test_type_code"),
+            options(
                 opt("IELTS", "雅思"),
                 opt("TOEFL_IBT", "托福 iBT"),
                 opt("TOEFL_HOME", "托福 Home"),
@@ -2603,11 +2819,81 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
                 opt("PTE", "PTE"),
                 opt("LANGUAGECERT_ACADEMIC", "LanguageCert Academic"),
                 opt("CAMBRIDGE", "剑桥英语"),
-                opt("OTHER", "其他语言考试"),
-                opt("NO_SCORE", "暂时还没有")
+                opt("OTHER", "其他语言考试")
+            )
+        );
+        List<Map<String, String>> result = new ArrayList<>(sourceOptions);
+        if (result.stream().noneMatch(option -> "NO_SCORE".equals(option.get("value")))) {
+            result.add(opt("NO_SCORE", "暂时还没有"));
+        }
+        return List.copyOf(result);
+    }
+
+    private String externalExamQuestionTitle(String curriculumCode) {
+        String curriculumLabel = optionLabelForQuestion("Q5", curriculumCode);
+        if ("US_HIGH_SCHOOL".equals(curriculumCode)) {
+            return "你是否考过 AP/SAT/ACT？";
+        }
+        if (StrUtil.isBlank(curriculumLabel)) {
+            return "你是否已经有对应课程体系的考试成绩？";
+        }
+        return "你是否已经有" + curriculumLabel + "对应考试成绩？";
+    }
+
+    private List<Map<String, String>> estimatedStandardizedQuestionOptions(String curriculumCode) {
+        return switch (StrUtil.nullToEmpty(curriculumCode)) {
+            case "A_LEVEL" -> options(
+                opt("A_LEVEL_ASTAR_ASTAR_ASTAR", "A-Level A*A*A*"),
+                opt("A_LEVEL_ASTAR_ASTAR_A", "A-Level A*A*A"),
+                opt("A_LEVEL_ASTAR_A_A", "A-Level A*AA"),
+                opt("A_LEVEL_A_A_A", "A-Level AAA"),
+                opt("A_LEVEL_A_A_B", "A-Level AAB"),
+                opt("A_LEVEL_A_B_B", "A-Level ABB"),
+                opt("UNSURE", "还不确定")
             );
-            default -> null;
+            case "IB" -> options(
+                opt("IB_45", "IB 45"),
+                opt("IB_42_44", "IB 42-44"),
+                opt("IB_40_41", "IB 40-41"),
+                opt("IB_37_39", "IB 37-39"),
+                opt("IB_34_36", "IB 34-36"),
+                opt("UNSURE", "还不确定")
+            );
+            case "CHINESE_HIGH_SCHOOL" -> percentageEstimateOptions("CHS", "普高");
+            case "OSSD" -> percentageEstimateOptions("OSSD", "OSSD");
+            case "US_HIGH_SCHOOL" -> options(
+                opt("AP_5_PLUS_5", "AP 5 门及以上 5 分"),
+                opt("AP_3_4_5", "AP 3-4 门 5 分"),
+                opt("AP_MIXED_4_5", "AP 以 4-5 分为主"),
+                opt("SAT_1550_PLUS", "SAT 1550+"),
+                opt("SAT_1500_1540", "SAT 1500-1540"),
+                opt("SAT_1450_1490", "SAT 1450-1490"),
+                opt("SAT_1400_1440", "SAT 1400-1440"),
+                opt("ACT_35_36", "ACT 35-36"),
+                opt("ACT_33_34", "ACT 33-34"),
+                opt("ACT_31_32", "ACT 31-32"),
+                opt("UNSURE", "还不确定")
+            );
+            case "OTHER" -> options(
+                opt("TOP_TIER", "所在体系顶尖水平"),
+                opt("STRONG", "所在体系优秀水平"),
+                opt("GOOD", "所在体系良好水平"),
+                opt("AVERAGE", "所在体系中等水平"),
+                opt("UNSURE", "还不确定")
+            );
+            default -> options(opt("UNSURE", "还不确定"));
         };
+    }
+
+    private List<Map<String, String>> percentageEstimateOptions(String valuePrefix, String label) {
+        return options(
+            opt(valuePrefix + "_95_PLUS", label + " 95+"),
+            opt(valuePrefix + "_90_94", label + " 90-94"),
+            opt(valuePrefix + "_85_89", label + " 85-89"),
+            opt(valuePrefix + "_80_84", label + " 80-84"),
+            opt(valuePrefix + "_75_79", label + " 75-79"),
+            opt("UNSURE", "还不确定")
+        );
     }
 
     private List<Map<String, String>> firstNonEmptyOptions(
@@ -2721,9 +3007,17 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
     }
 
     private List<Map<String, String>> competitionYearOptions() {
+        return yearOptions(15, 0);
+    }
+
+    private List<Map<String, String>> examYearOptions() {
+        return yearOptions(10, 3);
+    }
+
+    private List<Map<String, String>> yearOptions(int pastYears, int futureYears) {
         int currentYear = Year.now().getValue();
         List<Map<String, String>> options = new ArrayList<>();
-        for (int year = currentYear; year >= currentYear - 15; year--) {
+        for (int year = currentYear + futureYears; year >= currentYear - pastYears; year--) {
             String yearText = String.valueOf(year);
             options.add(opt(yearText, yearText));
         }
@@ -2748,13 +3042,13 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
                 selectField("is_weighted", "是否加权", options(opt("yes", "是"), opt("no", "否"), opt("unknown", "不清楚")))
             );
         }
-        if ("Q10".equals(questionCode)) {
+        if ("Q9_SCORE".equals(questionCode)) {
             return languageQuestionFields(selectedValue(answers.get("Q9")));
         }
-        if ("Q13_A_LEVEL".equals(questionCode)) {
+        if ("Q11_A_LEVEL".equals(questionCode)) {
             return List.of(selectField("a_level_board", "A-Level 考试局", A_LEVEL_BOARD_OPTIONS));
         }
-        if ("Q13_SAT".equals(questionCode)) {
+        if ("Q11_SAT".equals(questionCode)) {
             return List.of(
                 selectField("status_code", "成绩状态", SCORE_STATUS_OPTIONS),
                 inputField("test_date", "考试日期", "date"),
@@ -2763,7 +3057,7 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
                 inputField("sat_math", "SAT 数学", "number")
             );
         }
-        if ("Q13_ACT".equals(questionCode)) {
+        if ("Q11_ACT".equals(questionCode)) {
             return List.of(
                 selectField("status_code", "考试状态", SCORE_STATUS_OPTIONS),
                 inputField("test_date", "考试日期", "date"),
@@ -2774,21 +3068,21 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
                 inputField("act_science", "Science", "number")
             );
         }
-        if (Set.of("Q15", "Q16", "Q17").contains(questionCode)) {
+        if (Set.of("Q13", "Q14", "Q15").contains(questionCode)) {
             return experienceFields(questionCode, answers);
         }
         return List.of();
     }
 
     private List<Map<String, Object>> rowFieldsForQuestion(String questionCode) {
-        if ("Q13_A_LEVEL".equals(questionCode)) {
+        if ("Q11_A_LEVEL".equals(questionCode)) {
             return List.of(
                 requiredSelectField("subject", "科目", aLevelSubjectOptions()),
                 selectField("grade", "成绩", A_LEVEL_GRADE_OPTIONS),
                 selectField("status", "状态", SCORE_STATUS_OPTIONS)
             );
         }
-        if ("Q13_IB".equals(questionCode)) {
+        if ("Q11_IB".equals(questionCode)) {
             return List.of(
                 requiredSelectField("subject", "IB 科目", ibSubjectOptions()),
                 selectField("level", "级别", IB_LEVEL_OPTIONS),
@@ -2796,34 +3090,41 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
                 selectField("status", "状态", SCORE_STATUS_OPTIONS)
             );
         }
-        if ("Q13_CHINESE_HIGH_SCHOOL".equals(questionCode)) {
+        if ("Q11_CHINESE_HIGH_SCHOOL".equals(questionCode)) {
             return List.of(
                 requiredSelectField("subject", "科目", chineseSubjectOptions()),
                 inputField("score_numeric", "分数", "number")
             );
         }
-        if ("Q13_US_HIGH_SCHOOL".equals(questionCode)) {
+        if ("Q11_OSSD".equals(questionCode)) {
             return List.of(
-                inputField("school_year_label", "学年/年级", "text"),
-                selectField("term_code", "学期", options(
-                    opt("FALL", "秋季"),
-                    opt("SPRING", "春季"),
-                    opt("FULL_YEAR", "全年"),
-                    opt("SUMMER", "暑期"),
-                    opt("OTHER", "其他")
-                )),
                 requiredInputField("course_name_text", "课程名称", "text"),
                 selectField("course_level_code", "课程级别", options(
-                    opt("REGULAR", "Regular"),
-                    opt("HONORS", "Honors"),
-                    opt("AP", "AP"),
-                    opt("IB", "IB"),
-                    opt("ADVANCED", "Advanced"),
+                    opt("U", "University Preparation"),
+                    opt("M", "University/College Preparation"),
+                    opt("C", "College Preparation"),
+                    opt("E", "Workplace Preparation"),
+                    opt("O", "Open"),
                     opt("OTHER", "其他")
                 )),
-                inputField("grade_letter_code", "字母成绩", "text"),
-                inputField("grade_percent", "百分制成绩", "number"),
+                inputField("score_numeric", "课程分数", "number"),
                 inputField("credit_earned", "学分", "number")
+            );
+        }
+        if ("Q11_OTHER".equals(questionCode)) {
+            return List.of(
+                requiredInputField("subject_name_text", "科目名称", "text"),
+                inputField("subject_level_text", "科目级别", "text"),
+                inputField("score_text", "原始成绩", "text"),
+                inputField("score_numeric", "数值成绩", "number"),
+                selectField("score_scale_code", "成绩分制", fallbackGpaScaleQuestionOptions())
+            );
+        }
+        if ("Q11_AP".equals(questionCode)) {
+            return List.of(
+                requiredSelectField("ap_course_id", "AP 科目", apCourseOptions()),
+                selectField("score", "分数", AP_SCORE_OPTIONS),
+                selectField("year_taken", "考试年份", examYearOptions())
             );
         }
         return List.of();
@@ -2834,7 +3135,7 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
         Map<String, Map<String, Object>> answers
     ) {
         List<Map<String, Object>> fields = new ArrayList<>();
-        if ("Q15".equals(questionCode)) {
+        if ("Q13".equals(questionCode)) {
             boolean universityGrade = isUniversityGrade(selectedValue(answers.get("Q1")));
             fields.add(requiredSelectField("has_experience", universityGrade ? "是否有企业实习经历" : "是否有活动经历", options(opt("yes", "有"), opt("no", "暂时没有"))));
             if (universityGrade) {
@@ -2849,7 +3150,7 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
                 fields.add(inputField("start_time", "开始时间", "date"));
                 fields.add(inputField("end_time", "结束时间", "date"));
             }
-        } else if ("Q16".equals(questionCode)) {
+        } else if ("Q14".equals(questionCode)) {
             fields.add(requiredSelectField("has_experience", "是否有科研经历", options(opt("yes", "有"), opt("no", "暂时没有"))));
             fields.add(requiredTextareaField("research_summary", "科研经历简述"));
             fields.add(requiredTextField("initiator_name", "发起方"));
@@ -2984,7 +3285,7 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
     }
 
     private boolean hasAnyStandardizedScoreAnswer(Map<String, Map<String, Object>> answers) {
-        return answers.keySet().stream().anyMatch(key -> key.startsWith("Q13_"));
+        return answers.keySet().stream().anyMatch(key -> key.startsWith("Q11_"));
     }
 
     private String selectedValue(Map<String, Object> answer) {
@@ -3156,7 +3457,7 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
             opt("A_LEVEL", "A-Level"),
             opt("IB", "IB"),
             opt("CHINESE_HIGH_SCHOOL", "普高"),
-            opt("US_HIGH_SCHOOL", "国际学校美高体系（AP）"),
+            opt("US_HIGH_SCHOOL", "国际学校美高体系"),
             opt("OSSD", "OSSD"),
             opt("OTHER", "其他")
         )));
@@ -3171,16 +3472,16 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
             opt("UNKNOWN", "暂不清楚")
         )));
         questions.add(with(withOptions(question("Q7", "academic", "二、校内学术背景", "single", "你所在年级大约有多少人？"), options(
-            opt("LT_50", "50 人以下"),
-            opt("50_100", "50-100 人"),
-            opt("100_200", "100-200 人"),
-            opt("200_500", "200-500 人"),
-            opt("GT_500", "500 人以上"),
+            opt("AROUND_50", "50 左右"),
+            opt("AROUND_100", "100 左右"),
+            opt("AROUND_200", "200 左右"),
+            opt("AROUND_500", "500 左右"),
+            opt("AROUND_1000", "1000 左右"),
             opt("UNKNOWN", "不清楚"),
-            opt("CUSTOM", "自填")
+            opt("CUSTOM", "其他")
         )), "custom_input_type", "number", "custom_placeholder", "请输入具体人数"));
         questions.add(question("Q8", "academic", "二、校内学术背景", "branch_form", "你的校内成绩可以怎么填写？"));
-        questions.add(withOptions(question("Q9", "language", "三、语言成绩", "single", "你目前有哪类正式语言成绩？"), options(
+        questions.add(withOptions(question("Q9", "language", "三、语言能力", "single", "你目前有哪一种语言成绩？"), options(
             opt("IELTS", "雅思"),
             opt("TOEFL_IBT", "托福 iBT"),
             opt("TOEFL_HOME", "托福 Home"),
@@ -3191,51 +3492,26 @@ public class StudentProfileGuidedServiceImpl implements StudentProfileGuidedServ
             opt("OTHER", "其他语言考试"),
             opt("NO_SCORE", "暂时还没有")
         )));
-        questions.add(question("Q10", "language", "三、语言成绩", "branch_form", "请填写你已有的正式语言成绩。"));
-        questions.add(withOptions(question("Q11", "language", "三、语言成绩", "single", "如果还没有正式语言成绩，你当前大致目标或预估水平是？"), options(
-            opt("IELTS_6", "IELTS 6"),
-            opt("IELTS_6_5", "IELTS 6.5"),
-            opt("IELTS_7", "IELTS 7"),
-            opt("IELTS_7_5_PLUS", "IELTS 7.5+"),
-            opt("TOEFL_90", "TOEFL 90"),
-            opt("TOEFL_100", "TOEFL 100"),
-            opt("TOEFL_105_PLUS", "TOEFL 105+"),
-            opt("OTHER", "其他")
-        )));
-        questions.add(with(withOptions(question("Q12", "standardized", "四、标化与外部考试", "multi", "你目前涉及哪些外部考试？可多选。"), options(
-            opt("A_LEVEL", "A-Level"),
-            opt("IB", "IB"),
-            opt("CHINESE_HIGH_SCHOOL", "普高体系"),
-            opt("US_HIGH_SCHOOL", "国际学校美高体系（AP）"),
-            opt("SAT", "SAT"),
-            opt("ACT", "ACT"),
-            opt("NONE", "还没有")
-        )), "exclusive_option_values", List.of("NONE")));
-        questions.add(question("Q13", "standardized", "四、标化与外部考试", "branch_form", "请填写你最主要的外部考试成绩。"));
-        questions.add(with(withOptions(question("Q14", "standardized", "四、标化与外部考试", "single", "如果还没有正式标化成绩，你当前大致目标或预估水平是？"), options(
-            opt("SAT_1450_1500", "SAT 1450-1500"),
-            opt("SAT_1500_1550", "SAT 1500-1550"),
-            opt("ACT_32_33", "ACT 32-33"),
-            opt("ACT_34_36", "ACT 34-36"),
-            opt("A_LEVEL_ASTARAA", "A-Level A*A*A"),
-            opt("AP_3X5", "AP 3 门 5 分"),
-            opt("IB_40_PLUS", "IB 40+"),
-            opt("UNSURE", "还不确定")
-        )), "allow_custom_text", true, "custom_placeholder", "可补充预估分数或说明"));
-        questions.add(question("Q15", "activity_internship", "五、活动 / 企业实习", "experience_form", "请填写你最有代表性的活动经历或企业实习。"));
-        questions.add(question("Q16", "research", "六、科研经历", "experience_form", "你在校期间是否参加过科研项目？如有，请填写最有代表性的一项。"));
-        questions.add(question("Q17", "competition", "七、学术竞赛", "experience_form", "你是否参加过竞赛？如有，请填写最有代表性的一项。"));
+        questions.add(with(question("Q9_SCORE", "language", "三、语言能力", "branch_form", "请填写对应的语言考试成绩。"), "skippable", false));
+        questions.add(withOptions(question("Q10", "standardized", "四、考试成绩", "single", "你是否已经有对应课程体系的考试成绩？"), options(opt("yes", "是"), opt("no", "否"))));
+        questions.add(question("Q11", "standardized", "四、考试成绩", "branch_form", "请填写对应的考试成绩。"));
+        questions.add(withOptions(question("Q12", "standardized", "四、考试成绩", "single", "如果还没有正式考试成绩，你目前预估能拿到什么水平？"), options(opt("UNSURE", "还不确定"))));
+        questions.add(question("Q13", "activity_internship", "五、活动 / 企业实习", "experience_form", "请填写你最有代表性的活动经历或企业实习。"));
+        questions.add(question("Q14", "research", "五、科研经历", "experience_form", "你在校期间是否参加过一些科研项目？"));
+        questions.add(question("Q15", "competition", "五、学术竞赛", "experience_form", "你是否参加过一些竞赛？"));
         return Collections.unmodifiableList(questions);
     }
 
     private static Map<String, Map<String, Object>> buildStandardizedScoreQuestionTemplates() {
         Map<String, Map<String, Object>> result = new LinkedHashMap<>();
-        result.put("A_LEVEL", with(question("Q13_A_LEVEL", "standardized", "四、标化与外部考试", "repeatable_form", "请填写你的 A-Level 成绩。"), "exam_type", "A_LEVEL", "min_rows", 1));
-        result.put("IB", with(question("Q13_IB", "standardized", "四、标化与外部考试", "repeatable_form", "请填写你的 IB 成绩。"), "exam_type", "IB", "min_rows", 1));
-        result.put("CHINESE_HIGH_SCHOOL", with(question("Q13_CHINESE_HIGH_SCHOOL", "standardized", "四、标化与外部考试", "repeatable_form", "请填写你的普高科目成绩。"), "exam_type", "CHINESE_HIGH_SCHOOL", "min_rows", 1));
-        result.put("US_HIGH_SCHOOL", with(question("Q13_US_HIGH_SCHOOL", "standardized", "四、标化与外部考试", "repeatable_form", "请填写你的美高科目成绩。"), "exam_type", "US_HIGH_SCHOOL", "min_rows", 1));
-        result.put("SAT", with(question("Q13_SAT", "standardized", "四、标化与外部考试", "branch_form", "请填写你的 SAT 成绩。"), "exam_type", "SAT"));
-        result.put("ACT", with(question("Q13_ACT", "standardized", "四、标化与外部考试", "branch_form", "请填写你的 ACT 成绩。"), "exam_type", "ACT"));
+        result.put("A_LEVEL", with(question("Q11_A_LEVEL", "standardized", "四、考试成绩", "repeatable_form", "请填写你的 A-Level 成绩。"), "exam_type", "A_LEVEL", "min_rows", 1));
+        result.put("IB", with(question("Q11_IB", "standardized", "四、考试成绩", "repeatable_form", "请填写你的 IB 成绩。"), "exam_type", "IB", "min_rows", 1));
+        result.put("CHINESE_HIGH_SCHOOL", with(question("Q11_CHINESE_HIGH_SCHOOL", "standardized", "四、考试成绩", "repeatable_form", "请填写你的普高科目成绩。"), "exam_type", "CHINESE_HIGH_SCHOOL", "min_rows", 1));
+        result.put("OSSD", with(question("Q11_OSSD", "standardized", "四、考试成绩", "repeatable_form", "请填写你的 OSSD 课程成绩。"), "exam_type", "OSSD", "min_rows", 1));
+        result.put("OTHER", with(question("Q11_OTHER", "standardized", "四、考试成绩", "repeatable_form", "请填写你的其他课程体系成绩。"), "exam_type", "OTHER", "min_rows", 1));
+        result.put("AP", with(question("Q11_AP", "standardized", "四、考试成绩", "repeatable_form", "请填写你的 AP 课程成绩。"), "exam_type", "AP", "min_rows", 1));
+        result.put("SAT", with(question("Q11_SAT", "standardized", "四、考试成绩", "branch_form", "请填写你的 SAT 成绩。"), "exam_type", "SAT"));
+        result.put("ACT", with(question("Q11_ACT", "standardized", "四、考试成绩", "branch_form", "请填写你的 ACT 成绩。"), "exam_type", "ACT"));
         return Collections.unmodifiableMap(result);
     }
 

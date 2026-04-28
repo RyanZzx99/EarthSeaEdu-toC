@@ -1336,11 +1336,10 @@ export default function HomePage() {
   }
 
   function handleViewArchive() {
-    if (!aiSessionId) {
-      return;
-    }
-
-    navigate(`/profile?tab=archive&session_id=${encodeURIComponent(aiSessionId)}`);
+    const query = aiSessionId
+      ? `tab=archive&session_id=${encodeURIComponent(aiSessionId)}`
+      : "tab=archive";
+    navigate(`/profile?${query}`);
   }
 
   async function waitForProfileGenerationResult(sessionId, hadProfileBefore) {
@@ -1970,17 +1969,15 @@ export default function HomePage() {
                     </div>
 
                     <div className="home-radar-actions">
-                      {aiSessionId ? (
-                        <motion.button
-                          type="button"
-                          className="home-radar-secondary-button"
-                          onClick={handleViewArchive}
-                          whileHover={{ scale: 1.03 }}
-                          whileTap={{ scale: 0.97 }}
-                        >
-                          查看我的档案
-                        </motion.button>
-                      ) : null}
+                      <motion.button
+                        type="button"
+                        className="home-radar-secondary-button"
+                        onClick={handleViewArchive}
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                      >
+                        查看档案
+                      </motion.button>
 
                       <motion.button
                         type="button"

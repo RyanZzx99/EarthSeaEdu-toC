@@ -3715,6 +3715,8 @@ export default function ProfilePage() {
       title = tableMeta.label,
       addButtonLabel = "\u65b0\u589e\u4e00\u6761",
       showVirtualRowWhenEmpty = false,
+      collapsible = false,
+      sectionKey = `${tableName}-${curriculumCode}`,
     } = options;
 
     const visibleFields = getVisibleProfileFields(tableName, tableMeta.fields);
@@ -3722,6 +3724,7 @@ export default function ProfilePage() {
       return null;
     }
 
+    const collapsed = collapsible && isArchiveSectionCollapsed(sectionKey);
     const allRows = Array.isArray(archiveFormState?.[tableName]) ? archiveFormState[tableName] : [];
     const scopedRows = allRows
       .map((row, actualRowIndex) => ({ row, actualRowIndex }))
@@ -3743,99 +3746,115 @@ export default function ProfilePage() {
             },
           ]
         : scopedRows.map((item) => ({ ...item, isVirtualRow: false }));
+    const wrapperClassName = embedded
+      ? `profile-embedded-section ${collapsed ? "profile-form-card-collapsed" : ""}`
+      : `card profile-form-card ${collapsed ? "profile-form-card-collapsed" : ""}`;
+    const handleAddAction = () =>
+      handleAddCurriculumScopedRow(tableName, curriculumCode, {
+        preserveVirtualRowWhenEmpty: showVirtualRowWhenEmpty,
+      });
 
     return (
-      <div key={`${tableName}-${curriculumCode}`} className={embedded ? "profile-embedded-section" : "card profile-form-card"}>
-        <div className="profile-form-array-head">
-          <div>
-            <h3 className="card-title">{title}</h3>
+      <div key={`${tableName}-${curriculumCode}`} className={wrapperClassName}>
+        {collapsible ? (
+          renderSectionHeader({
+            title,
+            collapsed,
+            onToggleCollapse: () => toggleArchiveSection(sectionKey),
+            action: (
+              <button type="button" className="secondary-btn" onClick={handleAddAction}>
+                {addButtonLabel}
+              </button>
+            ),
+          })
+        ) : (
+          <div className="profile-form-array-head">
+            <div>
+              <h3 className="card-title">{title}</h3>
+            </div>
+            <button type="button" className="secondary-btn" onClick={handleAddAction}>
+              {addButtonLabel}
+            </button>
           </div>
-          <button
-            type="button"
-            className="secondary-btn"
-            onClick={() =>
-              handleAddCurriculumScopedRow(tableName, curriculumCode, {
-                preserveVirtualRowWhenEmpty: showVirtualRowWhenEmpty,
-              })
-            }
-          >
-            {addButtonLabel}
-          </button>
-        </div>
+        )}
 
-        {scopedRows.length === 0 && !showVirtualRowWhenEmpty ? (
-          <div className="profile-form-empty">{"\u5f53\u524d\u6ca1\u6709\u6570\u636e\uff0c\u53ef\u4ee5\u70b9\u51fb\u201c\u65b0\u589e\u4e00\u6761\u201d\u3002"}</div>
-        ) : null}
+        {!collapsed ? (
+          <>
+            {scopedRows.length === 0 && !showVirtualRowWhenEmpty ? (
+              <div className="profile-form-empty">{"\u5f53\u524d\u6ca1\u6709\u6570\u636e\uff0c\u53ef\u4ee5\u70b9\u51fb\u201c\u65b0\u589e\u4e00\u6761\u201d\u3002"}</div>
+            ) : null}
 
-        <div className="profile-form-stack">
-          {displayRows.map(({ row, actualRowIndex, isVirtualRow }, rowIndex) => {
-            const rowVisibleFields = visibleFields
-              .map((field) =>
-                buildRenderableRowFieldMeta({
-                  tableName,
-                  field,
-                  rowIndex: actualRowIndex,
-                  row,
-                  rows: allRows,
-                  archiveFormState,
-                })
-              )
-              .filter((field) => shouldRenderRowField(tableName, row, field));
+            <div className="profile-form-stack">
+              {displayRows.map(({ row, actualRowIndex, isVirtualRow }, rowIndex) => {
+                const rowVisibleFields = visibleFields
+                  .map((field) =>
+                    buildRenderableRowFieldMeta({
+                      tableName,
+                      field,
+                      rowIndex: actualRowIndex,
+                      row,
+                      rows: allRows,
+                      archiveFormState,
+                    })
+                  )
+                  .filter((field) => shouldRenderRowField(tableName, row, field));
 
-            return (
-              <div key={`${tableName}-${curriculumCode}-${rowIndex}`} className="profile-form-array-row">
-                <div className="profile-form-row-inline">
-                  <div className="profile-form-grid">
-                    {rowVisibleFields.map((field) => (
-                      <div
-                        key={`${tableName}-${curriculumCode}-${actualRowIndex}-${field.name}`}
-                        className={`profile-form-field ${field.input_type === "checkbox" ? "profile-form-field-checkbox" : ""}`}
-                      >
-                        {renderFieldLabel(field)}
-                        {renderFieldControl({
-                          tableName,
-                          field,
-                          value: row?.[field.name],
-                          row,
-                          onRowPatch: (nextValues) =>
-                            updateRowFields(tableName, actualRowIndex, {
-                              ...row,
-                              ...nextValues,
-                              curriculum_system_code: curriculumCode,
-                            }),
-                          onChange: (rawValue) =>
-                            updateRowFields(tableName, actualRowIndex, {
-                              ...row,
-                              curriculum_system_code: curriculumCode,
-                              [field.name]: normalizeChangedValue(
-                                rawValue,
-                                isNumericRelationField(tableName, field.name) ? "number" : field.input_type
-                              ),
-                            }),
-                        })}
-                        {field.helper_text ? <p className="profile-form-help">{field.helper_text}</p> : null}
+                return (
+                  <div key={`${tableName}-${curriculumCode}-${rowIndex}`} className="profile-form-array-row">
+                    <div className="profile-form-row-inline">
+                      <div className="profile-form-grid">
+                        {rowVisibleFields.map((field) => (
+                          <div
+                            key={`${tableName}-${curriculumCode}-${actualRowIndex}-${field.name}`}
+                            className={`profile-form-field ${field.input_type === "checkbox" ? "profile-form-field-checkbox" : ""}`}
+                          >
+                            {renderFieldLabel(field)}
+                            {renderFieldControl({
+                              tableName,
+                              field,
+                              value: row?.[field.name],
+                              row,
+                              onRowPatch: (nextValues) =>
+                                updateRowFields(tableName, actualRowIndex, {
+                                  ...row,
+                                  ...nextValues,
+                                  curriculum_system_code: curriculumCode,
+                                }),
+                              onChange: (rawValue) =>
+                                updateRowFields(tableName, actualRowIndex, {
+                                  ...row,
+                                  curriculum_system_code: curriculumCode,
+                                  [field.name]: normalizeChangedValue(
+                                    rawValue,
+                                    isNumericRelationField(tableName, field.name) ? "number" : field.input_type
+                                  ),
+                                }),
+                            })}
+                            {field.helper_text ? <p className="profile-form-help">{field.helper_text}</p> : null}
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
 
-                  <div className="profile-form-row-side">
-                    {!isVirtualRow ? (
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        onClick={() => handleRemoveRow(tableName, actualRowIndex)}
-                      >
-                        {"\u5220\u9664"}
-                      </button>
-                    ) : (
-                      <span className="profile-form-row-side-placeholder" aria-hidden="true" />
-                    )}
+                      <div className="profile-form-row-side">
+                        {!isVirtualRow ? (
+                          <button
+                            type="button"
+                            className="secondary-btn"
+                            onClick={() => handleRemoveRow(tableName, actualRowIndex)}
+                          >
+                            {"\u5220\u9664"}
+                          </button>
+                        ) : (
+                          <span className="profile-form-row-side-placeholder" aria-hidden="true" />
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                );
+              })}
+            </div>
+          </>
+        ) : null}
       </div>
     );
   }
@@ -3848,6 +3867,7 @@ export default function ProfilePage() {
     if (examTableNames.length === 0) {
       return null;
     }
+    const shouldCollapseExamSections = curriculumCode === "US_HIGH_SCHOOL";
 
     return (
       <div key={`exam-score-${curriculumCode}`} className="profile-curriculum-exam-group">
@@ -3868,6 +3888,8 @@ export default function ProfilePage() {
                 embedded: true,
                 title: examTableLabel,
                 showVirtualRowWhenEmpty: true,
+                collapsible: shouldCollapseExamSections,
+                sectionKey: `curriculum_exam_${curriculumCode}_${examTableName}`,
               });
             }
 
@@ -3876,6 +3898,8 @@ export default function ProfilePage() {
               title: examTableLabel,
               showDescription: false,
               showVirtualRowWhenEmpty: true,
+              collapsible: shouldCollapseExamSections,
+              sectionKey: `curriculum_exam_${curriculumCode}_${examTableName}`,
               onAddRow: () =>
                 handleAddRow(examTableName, {
                   preserveVirtualRowWhenEmpty: true,
