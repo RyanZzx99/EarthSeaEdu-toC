@@ -131,20 +131,34 @@ export function getPaperMetricLabel(item) {
 }
 
 export function getPaperContentLabel(value) {
-  const normalized = String(value || "").toLowerCase();
-  if (normalized === "act") {
-    return "ACT";
-  }
-  if (normalized === "reading") {
-    return "阅读";
-  }
-  if (normalized === "listening") {
-    return "听力";
-  }
-  if (normalized === "mixed") {
-    return "混合";
-  }
-  return value || "综合";
+  const raw = String(value || "").trim();
+  const normalized = raw.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  const labelMap = {
+    act: "ACT",
+    reading: "阅读",
+    listening: "听力",
+    mixed: "混合",
+    english: "英语",
+    math: "数学",
+    mathematics: "数学",
+    science: "科学",
+    writing: "写作",
+    biology: "生物",
+    business: "商业",
+    chemistry: "化学",
+    economics: "经济",
+    physics: "物理",
+    "further mathematics": "进阶数学",
+    "further maths": "进阶数学",
+    accounting: "会计",
+    "computer science": "计算机科学",
+    geography: "地理",
+    history: "历史",
+    law: "法律",
+    psychology: "心理学",
+    sociology: "社会学",
+  };
+  return labelMap[normalized] || raw || "综合";
 }
 
 export function formatExamScopeLabel(examCategory, examContent) {

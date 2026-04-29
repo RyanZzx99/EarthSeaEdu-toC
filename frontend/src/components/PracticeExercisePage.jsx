@@ -51,12 +51,47 @@ function isActExamCategory(value) {
   return String(value || "").trim().toUpperCase() === "ACT";
 }
 
+function isAlevelExamCategory(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  return normalized === "ALEVEL" || normalized === "A_LEVEL";
+}
+
+function isIeltsExamCategory(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  return !normalized || normalized === "IELTS";
+}
+
 function isActMathContent(value) {
   return String(value || "").trim().toLowerCase() === "math";
 }
 
+function isIeltsListeningContent(value) {
+  return String(value || "").trim().toLowerCase() === "listening";
+}
+
 function isActStimulusTitle(value) {
   return /\bstimulus\b/i.test(String(value || "").trim());
+}
+
+function getPassageNavId(passage, index) {
+  return String(passage?.id || `section-${index + 1}`);
+}
+
+function getPassageNavTitle(passage, index) {
+  return String(passage?.title || "").trim() || `Section ${index + 1}`;
+}
+
+function getPassageQuestionList(passage) {
+  if (Array.isArray(passage?.questions) && passage.questions.length) {
+    return passage.questions.filter((question) => question?.id);
+  }
+  return (passage?.groups || []).flatMap((group) =>
+    Array.isArray(group?.questions) ? group.questions.filter((question) => question?.id) : []
+  );
+}
+
+function getFirstPassageQuestion(passage) {
+  return getPassageQuestionList(passage).find((question) => Number.isFinite(question?.globalIndex)) || null;
 }
 
 function looksLikeHtml(value) {
@@ -1110,13 +1145,18 @@ export function PracticeExercisePage(props) {
   const [audioDuration, setAudioDuration] = useState(0);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [audioVolume, setAudioVolume] = useState(1);
+  const [showAudioVolumeMenu, setShowAudioVolumeMenu] = useState(false);
   const [activeAudioId, setActiveAudioId] = useState("");
+  const [expandedSectionIds, setExpandedSectionIds] = useState(() => new Set());
   const [materialPanePercent, setMaterialPanePercent] = useState((45 / 85) * 100);
   const [isResizing, setIsResizing] = useState(false);
   const [isStackedLayout, setIsStackedLayout] = useState(
     typeof window !== "undefined" ? window.innerWidth <= 1280 : false
   );
   const audioRef = useRef(null);
+  const audioVolumeRef = useRef(null);
+  const audioVolumeTrackRef = useRef(null);
   const layoutRef = useRef(null);
   const materialCardRef = useRef(null);
   const questionListRef = useRef(null);
@@ -1130,12 +1170,22 @@ export function PracticeExercisePage(props) {
     isActExamCategory(examCategory) ||
     isActExamCategory(moduleName) ||
     isActExamCategory(examContent);
+  const isAlevelExam =
+    isAlevelExamCategory(examCategory) ||
+    isAlevelExamCategory(moduleName) ||
+    isAlevelExamCategory(examContent);
+  const isIeltsExam = isIeltsExamCategory(examCategory) && !isActExam && !isAlevelExam;
+  const isIeltsListeningExam =
+    isIeltsExam &&
+    (isIeltsListeningContent(examContent) ||
+      isIeltsListeningContent(moduleName) ||
+      isIeltsListeningContent(currentQuestion?.section));
   const isActMathExam =
     isActExam &&
     (isActMathContent(examContent) ||
       isActMathContent(moduleName) ||
       isActMathContent(currentQuestion?.section));
-  const hideMaterialPane = isActMathExam;
+  const hideMaterialPane = isActMathExam || isIeltsListeningExam;
   const evaluationMap = useMemo(() => evaluateQuestionMap(questions, answers), [questions, answers]);
 
   const renderedPassages = useMemo(() => {
@@ -1151,6 +1201,29 @@ export function PracticeExercisePage(props) {
     }
     return renderedPassages.find((item) => item.id === currentQuestion?.passageId) || renderedPassages[0];
   }, [currentQuestion?.passageId, renderedPassages]);
+  const currentPassageIndex = currentPassage
+    ? renderedPassages.findIndex((item) => item.id === currentPassage.id)
+    : -1;
+  const currentSectionNavId = currentPassage
+    ? getPassageNavId(currentPassage, currentPassageIndex >= 0 ? currentPassageIndex : 0)
+    : "";
+  const nextIeltsPart = useMemo(() => {
+    if (!isIeltsExam || currentPassageIndex < 0) {
+      return null;
+    }
+    for (let index = currentPassageIndex + 1; index < renderedPassages.length; index += 1) {
+      const passage = renderedPassages[index];
+      const question = getFirstPassageQuestion(passage);
+      if (question) {
+        return {
+          id: getPassageNavId(passage, index),
+          title: getPassageNavTitle(passage, index),
+          question,
+        };
+      }
+    }
+    return null;
+  }, [currentPassageIndex, isIeltsExam, renderedPassages]);
 
   const audioSources = useMemo(() => {
     const seen = new Set();
@@ -1711,6 +1784,7 @@ export function PracticeExercisePage(props) {
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
         closeSelectionTooltip();
+        setShowAudioVolumeMenu(false);
         setSelectionHint({ scopeType: "", text: "" });
       }
     };
@@ -1719,6 +1793,10 @@ export function PracticeExercisePage(props) {
       if (tooltipRef.current?.contains(event.target)) {
         return;
       }
+      if (audioVolumeRef.current?.contains(event.target)) {
+        return;
+      }
+      setShowAudioVolumeMenu(false);
       closeSelectionTooltip();
     };
 
@@ -1775,6 +1853,20 @@ export function PracticeExercisePage(props) {
   }, [audioSources, currentPassage?.audio, currentPassage?.id]);
 
   useEffect(() => {
+    if (!isIeltsExam || !currentSectionNavId) {
+      return;
+    }
+    setExpandedSectionIds((previous) => {
+      if (previous.has(currentSectionNavId)) {
+        return previous;
+      }
+      const next = new Set(previous);
+      next.add(currentSectionNavId);
+      return next;
+    });
+  }, [currentSectionNavId, isIeltsExam]);
+
+  useEffect(() => {
     const audio = audioRef.current;
     const src = activeAudioSource?.url || "";
     if (!audio || !src) {
@@ -1786,6 +1878,7 @@ export function PracticeExercisePage(props) {
 
     audio.pause();
     audio.currentTime = 0;
+    audio.volume = audioVolume;
     audio.load();
     setAudioCurrentTime(0);
     setAudioDuration(0);
@@ -1814,6 +1907,12 @@ export function PracticeExercisePage(props) {
       audioRef.current.playbackRate = playbackSpeed;
     }
   }, [playbackSpeed]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = audioVolume;
+    }
+  }, [audioVolume]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -1875,8 +1974,297 @@ export function PracticeExercisePage(props) {
     }
   }
 
+  function clampAudioVolume(value) {
+    return Math.min(1, Math.max(0, value));
+  }
+
+  function updateAudioVolumeFromPointer(clientY) {
+    const track = audioVolumeTrackRef.current;
+    if (!track) {
+      return;
+    }
+    const rect = track.getBoundingClientRect();
+    if (!rect.height) {
+      return;
+    }
+    const nextVolume = clampAudioVolume((clientY - rect.top) / rect.height);
+    setAudioVolume(Number(nextVolume.toFixed(2)));
+  }
+
+  function handleAudioVolumePointerDown(event) {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    updateAudioVolumeFromPointer(event.clientY);
+  }
+
+  function handleAudioVolumePointerMove(event) {
+    if (event.pointerType === "mouse" && event.buttons !== 1) {
+      return;
+    }
+    updateAudioVolumeFromPointer(event.clientY);
+  }
+
+  function handleAudioVolumeKeyDown(event) {
+    const step = event.shiftKey ? 0.1 : 0.05;
+    let nextVolume = audioVolume;
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+      nextVolume += step;
+    } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+      nextVolume -= step;
+    } else if (event.key === "Home") {
+      nextVolume = 0;
+    } else if (event.key === "End") {
+      nextVolume = 1;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    setAudioVolume(Number(clampAudioVolume(nextVolume).toFixed(2)));
+  }
+
+  function renderAudioCard({ compact = false, showSourceList = true } = {}) {
+    if (!audioSources.length) {
+      return null;
+    }
+    const audioVolumePercent = Math.round(audioVolume * 100);
+    const audioVolumeThumbTop = 15 + audioVolume * 82;
+    return (
+      <div className={`practice-exam-audio-card${compact ? " is-compact" : ""}`}>
+        <div className="practice-exam-audio-head">
+          <div className="practice-exam-audio-title">
+            <Volume2 size={18} />
+            <span>听力音频</span>
+          </div>
+          <button
+            className="practice-exam-rate-btn"
+            onClick={() =>
+              setPlaybackSpeed((value) => (value >= 2 ? 1 : Number((value + 0.25).toFixed(2))))
+            }
+          >
+            {playbackSpeed}x
+          </button>
+        </div>
+
+        {showSourceList && audioSources.length > 1 ? (
+          <div className="practice-exam-audio-source-list">
+            {audioSources.map((source) => (
+              <button
+                key={source.id}
+                className={`practice-exam-audio-source-btn${activeAudioSource?.id === source.id ? " is-active" : ""}`}
+                onClick={() => setActiveAudioId(source.id)}
+              >
+                {source.displayName}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="practice-exam-audio-current-name">
+          {activeAudioSource?.displayName || "当前音频"}
+        </div>
+        <audio ref={audioRef} preload="metadata" src={activeAudioSource?.url || ""} />
+        <div className="practice-exam-audio-progress">
+          <input
+            type="range"
+            min="0"
+            max={audioDuration || 0}
+            value={audioCurrentTime}
+            onChange={(event) => {
+              const audio = audioRef.current;
+              const nextValue = Number(event.target.value);
+              setAudioCurrentTime(nextValue);
+              if (audio) {
+                audio.currentTime = nextValue;
+              }
+            }}
+          />
+          <div className="practice-exam-audio-time">
+            <span>{formatAudioTime(audioCurrentTime)}</span>
+            <span>{formatAudioTime(audioDuration)}</span>
+          </div>
+        </div>
+        <div className="practice-exam-audio-volume" ref={audioVolumeRef}>
+          <button
+            type="button"
+            className={`practice-exam-audio-volume-btn${showAudioVolumeMenu ? " is-open" : ""}`}
+            aria-expanded={showAudioVolumeMenu}
+            aria-label="调整听力音量"
+            onClick={() => setShowAudioVolumeMenu((value) => !value)}
+          >
+            <Volume2 size={16} />
+            <span>{audioVolumePercent}%</span>
+          </button>
+          {showAudioVolumeMenu ? (
+            <div className="practice-exam-audio-volume-popover">
+              <div className="practice-exam-audio-volume-body">
+                <div
+                  ref={audioVolumeTrackRef}
+                  className="practice-exam-audio-volume-track"
+                  role="slider"
+                  tabIndex={0}
+                  aria-label="Volume"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={audioVolumePercent}
+                  aria-orientation="vertical"
+                  onPointerDown={handleAudioVolumePointerDown}
+                  onPointerMove={handleAudioVolumePointerMove}
+                  onKeyDown={handleAudioVolumeKeyDown}
+                >
+                  <span
+                    className="practice-exam-audio-volume-fill"
+                    style={{ height: `${audioVolumeThumbTop}px` }}
+                  />
+                  <span
+                    className="practice-exam-audio-volume-thumb"
+                    style={{ top: `${audioVolumeThumbTop}px` }}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <div className="practice-exam-audio-controls">
+          <button
+            className="practice-exam-audio-btn"
+            onClick={() => {
+              const audio = audioRef.current;
+              if (!audio) {
+                return;
+              }
+              audio.currentTime = Math.max(0, (audio.currentTime || 0) - 5);
+            }}
+          >
+            <SkipBack size={18} />
+          </button>
+          <button className="practice-exam-audio-btn is-primary" onClick={handleToggleAudio}>
+            {isAudioPlaying ? <Pause size={20} /> : <Play size={20} />}
+          </button>
+          <button
+            className="practice-exam-audio-btn"
+            onClick={() => {
+              const audio = audioRef.current;
+              if (!audio) {
+                return;
+              }
+              audio.currentTime = Math.min(audioDuration || 0, (audio.currentTime || 0) + 5);
+            }}
+          >
+            <SkipForward size={18} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function toggleSectionNav(sectionId) {
+    setExpandedSectionIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(sectionId)) {
+        next.delete(sectionId);
+      } else {
+        next.add(sectionId);
+      }
+      return next;
+    });
+  }
+
+  function handleNavigatorQuestionClick(question, sectionId = "") {
+    if (sectionId) {
+      setExpandedSectionIds((previous) => {
+        if (previous.has(sectionId)) {
+          return previous;
+        }
+        const next = new Set(previous);
+        next.add(sectionId);
+        return next;
+      });
+    }
+    if (Number.isFinite(question.globalIndex)) {
+      onSelectQuestion(question.globalIndex);
+    }
+    window.setTimeout(() => scrollToQuestion(question, "smooth"), 0);
+  }
+
+  function handleNextPartClick() {
+    if (!nextIeltsPart?.question) {
+      return;
+    }
+    handleNavigatorQuestionClick(nextIeltsPart.question, nextIeltsPart.id);
+  }
+
+  function renderQuestionGridButton(question, sectionId = "") {
+    const answered = hasQuestionAnswer(question, answers[question.id]);
+    const isCurrent = question.globalIndex === currentQuestionIndex;
+    const isMarked = Boolean(marked[question.id]);
+    const questionNo = getQuestionNoValue(question) || question.displayNo;
+    return (
+      <button
+        key={`grid-${sectionId || "flat"}-${question.id}`}
+        className={`practice-exam-grid-btn${answered ? " is-answered" : ""}${isCurrent ? " is-current" : ""}${isMarked ? " is-marked" : ""}`}
+        onClick={() => handleNavigatorQuestionClick(question, sectionId)}
+      >
+        {String(questionNo).padStart(2, "0")}
+      </button>
+    );
+  }
+
+  function renderIeltsQuestionNavigator() {
+    return (
+      <div className="practice-exam-section-nav">
+        {renderedPassages.map((passage, passageIndex) => {
+          const sectionId = getPassageNavId(passage, passageIndex);
+          const passageQuestions = getPassageQuestionList(passage);
+          if (!passageQuestions.length) {
+            return null;
+          }
+          const expanded = expandedSectionIds.has(sectionId);
+          const hasCurrentQuestion = passageQuestions.some(
+            (question) => question.globalIndex === currentQuestionIndex
+          );
+          return (
+            <div
+              className={`practice-exam-section-nav-group${hasCurrentQuestion ? " is-current" : ""}`}
+              key={`section-nav-${sectionId}`}
+            >
+              <button
+                type="button"
+                className="practice-exam-section-nav-head"
+                aria-expanded={expanded}
+                onClick={() => toggleSectionNav(sectionId)}
+              >
+                <span className="practice-exam-section-nav-title">
+                  {getPassageNavTitle(passage, passageIndex)}
+                </span>
+                <span className="practice-exam-section-nav-meta">
+                  {expanded ? "收起" : `${passageQuestions.length} 题`}
+                </span>
+              </button>
+              {expanded ? (
+                <div className="practice-exam-section-nav-grid">
+                  {passageQuestions.map((question) => renderQuestionGridButton(question, sectionId))}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderQuestionNavigator() {
+    if (isIeltsExam) {
+      return renderIeltsQuestionNavigator();
+    }
+    return <div className="practice-exam-grid">{questions.map((question) => renderQuestionGridButton(question))}</div>;
+  }
+
   function renderQuestionList() {
-    return renderedPassages.map((passage, passageIndex) => {
+    const passagesToRender =
+      isIeltsExam && currentPassage
+        ? [{ passage: currentPassage, passageIndex: currentPassageIndex >= 0 ? currentPassageIndex : 0 }]
+        : renderedPassages.map((passage, passageIndex) => ({ passage, passageIndex }));
+    return passagesToRender.map(({ passage, passageIndex }) => {
       const passageTitle = String(passage?.title || "").trim();
       const shouldShowPassageHeading =
         (renderedPassages.length > 1 || Boolean(passageTitle)) &&
@@ -2160,6 +2548,7 @@ export function PracticeExercisePage(props) {
               <h3>答题区</h3>
             </div>
 
+            {isIeltsListeningExam ? renderAudioCard({ compact: true, showSourceList: false }) : null}
             {message ? <div className="practice-exam-message">{message}</div> : null}
             <div ref={questionListRef} className="practice-exam-question-list">
               {renderQuestionList()}
@@ -2170,26 +2559,7 @@ export function PracticeExercisePage(props) {
         <aside className="practice-exam-side-pane">
           <div className="practice-exam-side-inner">
             <h3>题卡 / 帮助区</h3>
-            <div className="practice-exam-grid">
-              {questions.map((question) => {
-                const answered = hasQuestionAnswer(question, answers[question.id]);
-                const isCurrent = question.globalIndex === currentQuestionIndex;
-                const isMarked = Boolean(marked[question.id]);
-                const questionNo = getQuestionNoValue(question) || question.displayNo;
-                return (
-                  <button
-                    key={`grid-${question.id}`}
-                    className={`practice-exam-grid-btn${answered ? " is-answered" : ""}${isCurrent ? " is-current" : ""}${isMarked ? " is-marked" : ""}`}
-                    onClick={() => {
-                      onSelectQuestion(question.globalIndex);
-                      scrollToQuestion(question, "smooth");
-                    }}
-                  >
-                    {String(questionNo).padStart(2, "0")}
-                  </button>
-                );
-              })}
-            </div>
+            {renderQuestionNavigator()}
 
             <div className="practice-exam-help-card">
               <h4>提示</h4>
@@ -2213,6 +2583,12 @@ export function PracticeExercisePage(props) {
           </div>
         </aside>
       </div>
+      {nextIeltsPart ? (
+        <button className="practice-exam-next-part-btn" type="button" onClick={handleNextPartClick}>
+          <span>NEXT SECTION</span>
+          <small>{nextIeltsPart.title}</small>
+        </button>
+      ) : null}
       {selectionTranslateState.visible && selectionTooltipLayout ? (
         <div
           ref={tooltipRef}
